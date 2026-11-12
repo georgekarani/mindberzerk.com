@@ -2,10 +2,11 @@
   "formatVersion": 1,
   "packType": "brand",
   "packId": "fedora-40-line",
-  "version": 1787608616,
+  "version": 1794499055,
   "minAppVersion": 7,
   "keyId": "mh-2026-07",
   "files": [
-    {"path": "pack.json", "size": 201, "sha256": "5cab8d391b359a7843152514c4d12702affc2a6c5eeb47a634e0d3891383214b"}
+    {"path": "pack.json", "size": 201, "sha256": "5cab8d391b359a7843152514c4d12702affc2a6c5eeb47a634e0d3891383214b"},
+    {"path": "preview.png", "size": 36708, "sha256": "fdb5acf11cfc2a449230b210dd9b35eb33c2dbeb0c3c8337e3d2601ba5455739"}
   ]
 }

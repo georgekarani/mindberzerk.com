@@ -2,10 +2,11 @@
   "formatVersion": 1,
   "packType": "brand",
   "packId": "terminal-line",
-  "version": 1787608616,
+  "version": 1794499055,
   "minAppVersion": 7,
   "keyId": "mh-2026-07",
   "files": [
-    {"path": "pack.json", "size": 202, "sha256": "7d734d535fe16f319065506863882d11f3603d86276852392d73acf8be3c27c9"}
+    {"path": "pack.json", "size": 202, "sha256": "7d734d535fe16f319065506863882d11f3603d86276852392d73acf8be3c27c9"},
+    {"path": "preview.png", "size": 32143, "sha256": "4dc0622d8f41da93ba4e0a4557cc70ae3cee8944c588f127f9597065214b475f"}
   ]
 }

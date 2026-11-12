@@ -461,23 +461,6 @@ String _sizeLabel(int bytes) {
   return '${(bytes / 1024).round()} KB';
 }
 
-/// A row in the "More themes" list — a swatch, a name, and either a Get button
-/// (free, arrives over the CDN) or a Pro badge.
-@immutable
-class ThemeMoreEntry {
-  const ThemeMoreEntry({
-    required this.name,
-    required this.subtitle,
-    required this.swatch,
-    required this.pro,
-  });
-
-  final String name;
-  final String subtitle;
-  final List<Color> swatch; // 2 gradient stops
-  final bool pro;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // The catalog. Colours lifted verbatim from the mockup's inline styles so the
 // previews match the storefront pixel-for-pixel.
@@ -821,52 +804,11 @@ const _floorCards = <ThemeCard>[
       icons: [Color(0xFF3DAEE9), Color(0xFF1D99F3), Color(0xFF27AE60)],
     ),
   ),
-  // The paid distros (Kali, Garuda, Pop!_OS) live ONLY in themeMoreProvider
-  // below, as coming-soon rows, until three things ship together: their
-  // theme packs on the CDN, the Play billing loop, and the render bridge
-  // that lets a downloaded theme.json actually paint. Until then a real card
-  // could only dead-end: `available` installs a pack that does not exist,
-  // `locked` opens a purchase for a theme that cannot render. A coming-soon
-  // row promises nothing it cannot keep, which is the only honest state for
-  // a distro that is real but not yet buildable end to end.
+  // Paid distros are not floor entries: they arrive from the signed index
+  // as cards of their own, with a price, once their packs are published.
   //
-  // Aqua, Fedora and Arch were removed here for the same reason: they were
+  // Aqua, Fedora and Arch floor entries were removed because they were
   // `pro/available` grid cards with no pack, no SKU and no render path, so
   // every tap produced "needs to be purchased first" with nowhere to buy.
 ];
 
-/// The "More themes" list. EMPTY, and that is the change.
-///
-/// ─── AVAILABLE ONLY ─────────────────────────────────────────────────────────
-///
-/// This held four hand-written teasers: Kali, Garuda, Pop!_OS and Mint. Each
-/// tapped to a "coming soon" message, started nothing, and could not be bought,
-/// downloaded or applied. They were honest about being unbuyable and still
-/// wrong, for three reasons that only became visible once the pipeline worked:
-///
-///  1. THE GRID ALREADY SHOWS EVERYTHING REAL. [themeCatalogProvider] merges
-///     the signed index over the floor and calls `_cardFromPack` for any theme
-///     the index advertises that has no floor entry. So the moment Kali is
-///     genuinely published it appears ABOVE as a card with a Get button and a
-///     price. Anything that could legitimately be listed down here is, by
-///     definition, already listed up there.
-///  2. THEY CONTRADICTED THE PRICING MODEL. Two of them render a Pro badge, and
-///     there is no Pro tier: every launcher FEATURE is free and what is sold is
-///     whole distros and icon packs. A badge reading "Pro" on a screen where
-///     nothing else does is the one piece of UI still describing the model that
-///     was dropped.
-///  3. A HARDCODED LIST DRIFTS. These four are a promise made in Dart, so
-///     keeping them true means an app release every time the storefront moves.
-///     The whole point of the signed index is that it does not.
-///
-/// Kept as a provider returning nothing rather than deleted, so [ThemeMoreEntry]
-/// and `_MoreRow` stay compiled and the section can come back as a real,
-/// catalogue-derived list (an "announced but not yet published" block, say)
-/// without reconstructing the widgets. `themes_screen` hides the header when
-/// this is empty, so today the section simply is not there.
-///
-/// If nothing wants it back, grep for `ThemeMoreEntry`, `_MoreRow` and
-/// `_MoreHeader` and remove the four together.
-final themeMoreProvider = Provider<List<ThemeMoreEntry>>(
-  (ref) => const <ThemeMoreEntry>[],
-);

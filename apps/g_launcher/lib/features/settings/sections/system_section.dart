@@ -54,9 +54,10 @@ List<Widget> systemSection(
   final versionAsync = ref.watch(appVersionProvider);
   final version = versionAsync.hasValue ? versionAsync.requireValue : null;
 
-  return [
+  final groups = <Widget>[
     // ── System (hands off to Android) ──────────────────────────────
     SettingsGroup(
+      key: const ValueKey('sys.android'),
       label: context.t('settings.systemOpensAndroidSettings'),
       query: q,
       rows: [
@@ -92,6 +93,7 @@ List<Widget> systemSection(
     // is not an argument for it being the only leaf on a page whose job is
     // routing. Here it sits with the other things the phone owns.
     SettingsGroup(
+      key: const ValueKey('sys.language'),
       label: context.t('settings.language.title'),
       query: q,
       rows: [
@@ -101,6 +103,7 @@ List<Widget> systemSection(
             icon: Icons.language_outlined,
             accent: true,
             title: context.t('settings.language.title'),
+            keepSubtitle: true,
             subtitle: ref.watch(i18nProvider).selectedLocale?.nativeName ??
                 context.t('settings.language.system'),
             trailing: const Chevron(),
@@ -114,25 +117,15 @@ List<Widget> systemSection(
       ],
     ),
 
+    // ── Backup ────────────────────────────────────────────────────
+    //
+    // Its own group: it is the one maintenance action people come here for
+    // on purpose, and it runs on its own schedule.
     SettingsGroup(
-      label: context.t('settings.maintenance'),
+      key: const ValueKey('sys.backup'),
+      label: context.t('settings.backup'),
       query: q,
       rows: [
-        FilterRow(
-          const ['rebuild icon cache', 'icons', 'stale', 'cache'],
-          SettingsRow(
-            icon: Icons.refresh,
-            title: context.t('settings.rebuildIconCache'),
-            subtitle: context.t('settings.ifIconsLookWrong'),
-            trailing: const Chevron(),
-            onTap: () async {
-              await api.clearIconCache();
-              if (context.mounted) {
-                context.showMessage(context.t('settings.iconCacheCleared'));
-              }
-            },
-          ),
-        ),
         FilterRow(
           const [
             'backup',
@@ -150,6 +143,29 @@ List<Widget> systemSection(
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const BackupScreen()),
             ),
+          ),
+        ),
+      ],
+    ),
+
+    SettingsGroup(
+      key: const ValueKey('sys.maintenance'),
+      label: context.t('settings.maintenance'),
+      query: q,
+      rows: [
+        FilterRow(
+          const ['rebuild icon cache', 'icons', 'stale', 'cache'],
+          SettingsRow(
+            icon: Icons.refresh,
+            title: context.t('settings.rebuildIconCache'),
+            subtitle: context.t('settings.ifIconsLookWrong'),
+            trailing: const Chevron(),
+            onTap: () async {
+              await api.clearIconCache();
+              if (context.mounted) {
+                context.showMessage(context.t('settings.iconCacheCleared'));
+              }
+            },
           ),
         ),
         FilterRow(
@@ -203,6 +219,7 @@ List<Widget> systemSection(
     // measured yet is not a figure, and "Loading" in a value slot reads as a
     // stuck screen.
     SettingsGroup(
+      key: const ValueKey('sys.about'),
       label: context.t('settings.about'),
       query: q,
       rows: [
@@ -222,6 +239,50 @@ List<Widget> systemSection(
         ),
       ],
     ),
+  ];
+
+  // A section page folds the four maintenance actions into one row; they
+  // are rare, and two of them reset things. Search keeps them flat.
+  final look = SettingsLookScope.of(context);
+  if (look == null || q.isNotEmpty) return groups;
+
+  return [
+    for (final w in groups)
+      if (w.key == const ValueKey('sys.maintenance'))
+        SettingsGroup(
+          key: const ValueKey('sys.maintenance.drill'),
+          label: '',
+          rows: [
+            FilterRow(
+              const ['maintenance', 'reset', 'restore', 'cache'],
+              SettingsRow(
+                icon: Icons.build_outlined,
+                title: context.t('settings.maintenance'),
+                trailing: const Chevron(),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => SettingsSubPage(
+                      title: context.t('settings.maintenance'),
+                      look: look,
+                      builder: (context, ref, theme) => [
+                        for (final g in systemSection(
+                          context,
+                          ref,
+                          theme,
+                          workspaces,
+                          '',
+                        ))
+                          if (g.key == const ValueKey('sys.maintenance')) g,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        )
+      else
+        w,
   ];
 }
 

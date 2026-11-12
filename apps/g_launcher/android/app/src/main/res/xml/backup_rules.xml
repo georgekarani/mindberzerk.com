@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Auto Backup, Android 11 and below.
+
+  ONLY files/cloud/latest.glbak, the newest backup without wallpapers. With no rules, Android backed up all of filesDir,
+  which holds the downloaded distro and icon packs (a single line pack is about
+  26 MB). Past Google's 25 MB per-app quota the backup stops entirely, so the
+  user's own G Launcher backups never reached Google and a reinstall found
+  nothing. Packs are re-downloadable; backups are not.
+
+  path_provider's getApplicationSupportDirectory() is filesDir on Android, so
+  backup_store.dart's `backups/` lives at files/backups.
+-->
+<full-backup-content>
+    <include domain="file" path="cloud/" />
+</full-backup-content>

@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "terminal-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 267, "sha256": "f98e53c2acf30b8ed34d2108fe78342ede7f23e248df5bd6a340e63db61ce5b3"},
+    {"path": "preview.png", "size": 25199, "sha256": "08a2b57a8e185eab903366eeaf02ed0acfc5c4af8c40241382d64835c6ebf7d3"}
+  ]
+}

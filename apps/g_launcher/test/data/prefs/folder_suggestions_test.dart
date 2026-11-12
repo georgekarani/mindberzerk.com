@@ -24,6 +24,7 @@ AppEntry app(
     isSystem: false,
     category: category,
     isGame: isGame,
+    firstInstallTime: 0,
   );
 }
 

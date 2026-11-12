@@ -297,39 +297,33 @@ class AnchoredMenu {
                         menuContext: menuContext,
                         showLabels: showActionLabels,
                       ),
-                    if (actions.isNotEmpty && asList)
-                      for (final a in actions)
-                        ThemedListRow(
-                          // Passed ALWAYS. Whether it draws is the row's own
-                          // decision, taken from the scope above, so a caller's
-                          // row and this one answer the family the same way.
-                          icon: a.icon,
-                          title: a.label,
-                          danger: a.danger,
-                          // Popped here too, so the list and the glyph row give
-                          // an action the same contract.
-                          onTap: () {
-                            Navigator.pop(menuContext);
-                            a.onTap();
-                          },
-                        ),
-                    // ─── THE RULE, ON BOTH SHAPES NOW ──────────────────
-                    //
-                    // The divider was inside the glyph-strip branch, so it was
-                    // a property of the SHAPE rather than of the family: the
-                    // one family that took the list could never have one, and
-                    // the three that took the strip always did. It is its own
-                    // axis now, which is what lets Aqua group its menu and
-                    // Generic run its rows together the way Xfce does.
-                    if (actions.isNotEmpty &&
-                        rowWidgets.isNotEmpty &&
-                        style.separators)
-                      Divider(
-                        height: 1,
-                        thickness: 1,
-                        color: chrome.colors.line,
-                      ),
-                    ...rowWidgets,
+                    ..._ruled(
+                      [
+                        if (actions.isNotEmpty && asList)
+                          for (final a in actions)
+                            ThemedListRow(
+                              // Passed ALWAYS. Whether it draws is the row's
+                              // own decision, taken from the scope above, so a
+                              // caller's row and this one answer the family
+                              // the same way.
+                              icon: a.icon,
+                              title: a.label,
+                              danger: a.danger,
+                              // Popped here too, so the list and the glyph row
+                              // give an action the same contract.
+                              onTap: () {
+                                Navigator.pop(menuContext);
+                                a.onTap();
+                              },
+                            ),
+                      ],
+                      rowWidgets,
+                      style: style,
+                      // Between the action block and the caller's rows: the
+                      // family's [ChromeMenu.separators] rule, on both shapes.
+                      groupRule: actions.isNotEmpty && style.separators,
+                      color: chrome.colors.line,
+                    ),
                     const SizedBox(height: 6),
                   ],
                 ),
@@ -673,4 +667,36 @@ class _Actions extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The menu's rows with its rules drawn in.
+///
+/// [first] then [second], with one hairline between the two groups when
+/// [groupRule] is on, and between every row when the family's
+/// [ChromeMenu.rowDividers] is (Pocket, as an iPhone draws it).
+List<Widget> _ruled(
+  List<Widget> first,
+  List<Widget> second, {
+  required ChromeMenu style,
+  required bool groupRule,
+  required Color color,
+}) {
+  Widget rule() => Divider(height: 1, thickness: 0.5, color: color);
+  final out = <Widget>[];
+  void add(List<Widget> rows) {
+    for (final r in rows) {
+      if (out.isNotEmpty && style.rowDividers) out.add(rule());
+      out.add(r);
+    }
+  }
+
+  add(first);
+  if (groupRule &&
+      first.isNotEmpty &&
+      second.isNotEmpty &&
+      !style.rowDividers) {
+    out.add(Divider(height: 1, thickness: 1, color: color));
+  }
+  add(second);
+  return out;
 }

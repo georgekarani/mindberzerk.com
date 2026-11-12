@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -232,7 +233,7 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
   @override
   Future<List<BackupRecord>> build() async {
     final raw = await ref.watch(prefsStoreProvider).read(storageKey);
-    if (raw == null) return const [];
+    if (raw == null) return _withOrphans(const []);
 
     List<BackupRecord> parsed;
     try {
@@ -264,7 +265,80 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
     for (final r in parsed) {
       if (await File('${dir.path}/${r.fileName}').exists()) present.add(r);
     }
-    return present;
+    return _withOrphans(present);
+  }
+
+  /// Copies the restored cloud copy into the backups folder under a normal
+  /// backup name, once. The copy itself stays, so Google keeps carrying it.
+  Future<void> _adoptCloudCopy() async {
+    try {
+      final src = File('${(await cloudBackupDir()).path}/$_cloudFile');
+      if (!await src.exists()) return;
+      final dir = await backupsDir();
+      final already =
+          await dir.list().any((e) => e is File && e.path.endsWith('.glbak'));
+      if (already) return;
+      final id = (await src.lastModified()).microsecondsSinceEpoch;
+      await src.copy('${dir.path}/g-launcher-$id.glbak');
+    } catch (_) {}
+  }
+
+  /// [known] plus every backup FILE on disk that the index does not name.
+  ///
+  /// ─── THE REVERSE OF THE CHECK ABOVE, FOR AUTO BACKUP ──────────────────────
+  ///
+  /// Android's Auto Backup now carries `files/backups/` and nothing else, so on
+  /// a reinstall from Play the backup files come back but the index (a shared
+  /// preference) does not. Without this the files would sit on disk and the
+  /// list would say there are no backups, which is exactly the complaint.
+  /// Each file is read once, its summary rebuilt from its own header, and the
+  /// index rewritten so the next build is a plain read again.
+  Future<List<BackupRecord>> _withOrphans(List<BackupRecord> known) async {
+    // A fresh restore from Google: the list is empty and only the cloud copy
+    // came back. Moved into the backups folder, it is found below like any
+    // other file. Never when there is a list, which means this phone already
+    // has its own backups and the cloud copy is just the newest of them.
+    if (known.isEmpty) await _adoptCloudCopy();
+    final dir = await backupsDir();
+    final named = {for (final r in known) r.fileName};
+    final found = <BackupRecord>[];
+    try {
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        final m = RegExp(r'^g-launcher-(\d+)\.(\w+)$').firstMatch(name);
+        if (m == null || named.contains(name)) continue;
+        final bytes = await entity.readAsBytes();
+        final summary = PrefsBackup.inspect(bytes);
+        if (summary == null) continue;
+        found.add(BackupRecord(
+          id: m.group(1)!,
+          savedAt: await entity.lastModified(),
+          createdAt: summary.takenAt,
+          themeCount: summary.themeCount,
+          collectionCount: summary.collectionCount,
+          photoCount: summary.photoCount,
+          sizeBytes: bytes.length,
+          device: summary.device,
+          fileFormat: m.group(2)!,
+          imported: true,
+        ));
+      }
+    } catch (_) {
+      return known;
+    }
+    if (found.isEmpty) return known;
+
+    final merged = [...known, ...found]
+      ..sort((a, b) => b.savedAt.compareTo(a.savedAt));
+    await ref.read(prefsStoreProvider).write(
+          storageKey,
+          jsonEncode({
+            'schemaVersion': schemaVersion,
+            'records': [for (final r in merged) r.toJson()],
+          }),
+        );
+    return merged;
   }
 
   /// Newest first, which is both the display order and the prune order.
@@ -318,7 +392,53 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
     final summary = PrefsBackup.inspect(bytes);
     if (summary == null) return null;
 
-    return _store(bytes, summary, imported: false);
+    final record = await _store(bytes, summary, imported: false);
+    if (record != null) {
+      unawaited(_writeCloudCopy(
+        bytes,
+        withWallpapers: summary.photoCount > 0,
+        themeNames: themeNames,
+      ));
+    }
+    return record;
+  }
+
+  // ─── THE COPY GOOGLE CARRIES ──────────────────────────────────────────────
+  //
+  // Android's Auto Backup gives an app 25 MB and drops the WHOLE backup when
+  // it is over, so a backups folder holding five copies with wallpapers would
+  // send Google nothing at all. The backup rules therefore carry one file,
+  // `files/cloud/latest.glbak`: the newest backup, settings only. Small enough
+  // to always fit, and on a reinstall from Play it is restored before first
+  // launch and picked up by [_withOrphans].
+  static const _cloudFile = 'latest.glbak';
+
+  Future<void> _writeCloudCopy(
+    Uint8List bytes, {
+    required bool withWallpapers,
+    Map<String, String> themeNames = const {},
+  }) async {
+    try {
+      var out = bytes;
+      if (withWallpapers) {
+        out = await PrefsBackup.encode(
+          store: ref.read(prefsStoreProvider),
+          repo: ref.read(prefsRepositoryProvider),
+          collections: await ref.read(wallpaperCollectionsProvider.future),
+          includeWallpapers: false,
+          deviceLabel: await ref.read(deviceLabelProvider.future),
+          themeNames: themeNames,
+          installedApps: await _appRefs(),
+        );
+      }
+      final dir = await cloudBackupDir();
+      final tmp = File('${dir.path}/$_cloudFile.tmp');
+      await tmp.writeAsBytes(out, flush: true);
+      await tmp.rename('${dir.path}/$_cloudFile');
+    } catch (_) {
+      // A missed cloud copy costs only the Google route; the backup the user
+      // asked for is saved, and the next one writes this again.
+    }
   }
 
   /// Label, package and preinstalled flag for every app on this phone, keyed by
@@ -392,7 +512,167 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
     }
 
     await _write(kept);
+    // A copy of every backup this phone MADE goes to the visible folder.
+    // Not the imported ones: they came from that folder, or from a file the
+    // user already holds, and a second copy would only crowd out real ones.
+    if (!imported) unawaited(_mirror(record.fileName, bytes));
     return record;
+  }
+
+  // ─── THE VISIBLE FOLDER ───────────────────────────────────────────────────
+  //
+  // Backups used to live only in app storage, which an uninstall wipes, and
+  // the folder option needed the user to pick a folder first, which nobody
+  // did. Native now falls back to Documents/G Launcher/Backups when none is
+  // picked, so every backup is mirrored there with no question asked, and
+  // [absorbFolder] reads it back: on this install by itself, and after a
+  // reinstall once the user taps "Find backups" (Android hides an old
+  // install's files from a new one until the user picks the folder).
+
+  static const _absorbedKey = 'backups.absorbed.v1';
+
+  /// Folder file names already accounted for: mirrored from here or imported.
+  /// Without this, a backup pruned from the internal list of five would be
+  /// "found" in the folder again and re-imported on every visit.
+  Future<Set<String>> _absorbed() async {
+    final raw = await ref.read(prefsStoreProvider).read(_absorbedKey);
+    if (raw == null) return <String>{};
+    try {
+      return (jsonDecode(raw) as List).whereType<String>().toSet();
+    } catch (_) {
+      return <String>{};
+    }
+  }
+
+  Future<void> _remember(Iterable<String> names) async {
+    final next = {...await _absorbed(), ...names};
+    await ref
+        .read(prefsStoreProvider)
+        .write(_absorbedKey, jsonEncode([...next]));
+  }
+
+  /// The newest backup's name in Documents/GLauncher. Never changes, so a
+  /// restore, a new phone, or a person in the Files app always knows which
+  /// file is the current one.
+  static const latestFileName = 'glauncher-backup.glbak';
+
+  /// How the native side names the automatic folder.
+  static const autoFolderLabel = 'Documents/GLauncher';
+
+  /// A dated copy for GLauncher/History: glauncher-2026-11-12-0941.glbak.
+  static String historyFileName(DateTime t) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return 'glauncher-${t.year}-${two(t.month)}-${two(t.day)}-'
+        '${two(t.hour)}${two(t.minute)}.glbak';
+  }
+
+  /// Copies a fresh backup to the phone's shared storage.
+  ///
+  /// Two writes: the fixed-name latest file, replaced in place, and a dated
+  /// copy in History. Only History is pruned, to [keepMax] copies; the
+  /// latest file is never deleted. Best-effort like everything here: a
+  /// failed copy leaves the app-storage backup, which is the one restores
+  /// read on this phone.
+  Future<void> _mirror(String fileName, Uint8List bytes) async {
+    try {
+      final api = ref.read(launcherHostApiProvider);
+      await api.writeBackup(latestFileName, bytes);
+      final dated = historyFileName(DateTime.now());
+      final uri = await api.writeBackup(dated, bytes);
+      await _remember([latestFileName, if (uri != null) dated]);
+      if (uri == null) return;
+
+      // Newest first from native, so everything past keepMax is the oldest.
+      final rows = await api.listBackups();
+      var history = 0;
+      for (final raw in rows) {
+        final j = _row(raw);
+        if (j == null) continue;
+        final name = j.name.toLowerCase();
+        if (!name.startsWith('glauncher-') ||
+            name.startsWith('glauncher-backup')) {
+          continue;
+        }
+        history++;
+        if (history > keepMax) await api.deleteBackup(j.uri);
+      }
+    } catch (_) {
+      // Shared storage is a convenience copy; never fail a backup over it.
+    }
+  }
+
+  /// Imports every backup in the folder that this phone does not already have.
+  /// Returns how many were added. Safe to call on every visit.
+  ///
+  /// One pass at a time: the screen absorbs on open and the Find button
+  /// absorbs again, and two overlapping passes would import the same file
+  /// twice before either had recorded it.
+  Future<int> absorbFolder() =>
+      _absorbing ??= _absorbFolder().whenComplete(() => _absorbing = null);
+
+  Future<int>? _absorbing;
+
+  Future<int> _absorbFolder() async {
+    final List<String?> rows;
+    try {
+      rows = await ref.read(launcherHostApiProvider).listBackups();
+    } catch (_) {
+      return 0;
+    }
+    final known = {
+      for (final r in await _snapshot()) r.fileName,
+      ...await _absorbed(),
+    };
+    final api = ref.read(launcherHostApiProvider);
+    final taken = <String>[];
+    var added = 0;
+    // Oldest first, so the newest backup ends up at the top of the list.
+    for (final raw in rows.reversed) {
+      final j = _row(raw);
+      if (j == null) continue;
+      final name = _canonical(j.name);
+      if (known.contains(name)) continue;
+      taken.add(name);
+      final bytes = await api.readBackup(j.uri);
+      if (bytes == null) continue;
+      final summary = PrefsBackup.inspect(bytes);
+      if (summary == null) continue;
+      if (await _alreadyHeld(summary)) continue;
+      if (await adopt(bytes, summary) != null) added++;
+    }
+    if (taken.isNotEmpty) await _remember(taken);
+    return added;
+  }
+
+  /// The name as this app wrote it, without an extension MediaStore may have
+  /// appended to a type it did not recognise (`.glbak.bin`).
+  /// True when a backup taken at the same moment is already in the index.
+  Future<bool> _alreadyHeld(BackupSummary summary) async {
+    final taken = summary.takenAt;
+    if (taken == null) return false;
+    for (final r in await _snapshot()) {
+      final at = r.createdAt;
+      if (at != null && at.isAtSameMomentAs(taken)) return true;
+    }
+    return false;
+  }
+
+  static String _canonical(String name) {
+    final i = name.toLowerCase().indexOf('.glbak');
+    return i < 0 ? name : name.substring(0, i + '.glbak'.length);
+  }
+
+  static ({String uri, String name})? _row(String? raw) {
+    if (raw == null) return null;
+    try {
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      final uri = j['uri'] as String?;
+      final name = j['name'] as String?;
+      if (uri == null || name == null) return null;
+      return (uri: uri, name: name);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The bytes of one backup, or null when the file has gone since the index
@@ -422,6 +702,15 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
 
 /// Where our copies live. Support dir, never cache, for the reason spelled out
 /// on [BackupRecord].
+/// `files/cloud/`, the one folder Android's Auto Backup carries. See
+/// `res/xml/backup_rules.xml`.
+Future<Directory> cloudBackupDir() async {
+  final base = await getApplicationSupportDirectory();
+  final d = Directory('${base.path}/cloud');
+  if (!await d.exists()) await d.create(recursive: true);
+  return d;
+}
+
 Future<Directory> backupsDir() async {
   final base = await getApplicationSupportDirectory();
   final d = Directory('${base.path}/backups');

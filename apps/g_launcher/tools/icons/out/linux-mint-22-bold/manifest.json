@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "linux-mint-22-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 274, "sha256": "e0228e62b08c48b0a681fa9aa06a6912af8e1e0d6229a1d93ee7ce7ef8f393c6"},
+    {"path": "preview.png", "size": 28539, "sha256": "f703b6362034d115d32ac3d2810a26657538eb29807e165e0f044660e71bf10f"}
+  ]
+}

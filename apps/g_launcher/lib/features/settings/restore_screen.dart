@@ -37,7 +37,9 @@ class RestoreScreen extends ConsumerWidget {
     final async = ref.watch(effectiveThemeProvider);
     if (!async.hasValue) {
       return ThemedScaffold(
-          title: context.t('settings.restoreDefaults'), body: const SizedBox());
+          settingsLook: true,
+          title: context.t('settings.restoreDefaults'),
+          body: const SizedBox());
     }
     final theme = async.requireValue;
     final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
@@ -85,6 +87,7 @@ class RestoreScreen extends ConsumerWidget {
         );
 
     return ThemedScaffold(
+      settingsLook: true,
       title: context.t('settings.restoreDefaults'),
       body: ListView(
         // Clears the navigation bar. Trailing padding rather than a SafeArea,

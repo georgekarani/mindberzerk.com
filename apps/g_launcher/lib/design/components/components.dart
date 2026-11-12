@@ -13,6 +13,7 @@ library;
 
 export 'anchored_menu.dart';
 export 'chrome_theme.dart';
+export 'fit_label.dart';
 export 'glass_panel.dart';
 export 'themed_button.dart';
 export 'themed_dialog.dart';

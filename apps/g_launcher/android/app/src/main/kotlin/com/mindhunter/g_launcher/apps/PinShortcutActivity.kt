@@ -93,7 +93,12 @@ class PinShortcutActivity : Activity() {
         // flow. runCatching rather than a readiness flag, so this needs no
         // change to LauncherApplication at all.
         runCatching {
-            (application as LauncherApplication).hostApi.webAppsChanged()
+            // A pin can arrive in a process the browser just woke, before the
+            // idle warm-up has built hostApi.
+            (application as LauncherApplication).run {
+                start()
+                hostApi.webAppsChanged()
+            }
         }.onFailure { Log.w(TAG, "could not refresh after pin: $it") }
         return true
     }

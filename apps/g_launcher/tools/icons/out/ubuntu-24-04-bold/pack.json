@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "ubuntu-24-04-bold",
+  "name": "Ubuntu Bold",
+  "extends": "g-bold",
+  "tint": "#e95420",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

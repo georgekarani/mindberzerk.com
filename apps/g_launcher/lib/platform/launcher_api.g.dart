@@ -150,6 +150,7 @@ class AppEntry {
     required this.isSystem,
     required this.category,
     required this.isGame,
+    required this.firstInstallTime,
   });
 
   String componentKey;
@@ -187,6 +188,12 @@ class AppEntry {
   /// never set it — a lot of the games actually installed on a budget phone.
   bool isGame;
 
+  /// When the package was first installed, in epoch milliseconds, from
+  /// `LauncherActivityInfo.getFirstInstallTime()`. Feeds the Recently Added
+  /// shelf of an App Library drawer. Zero for entries with no install of
+  /// their own (web apps). APPENDED: new fields go at the end of this class.
+  int firstInstallTime;
+
   List<Object?> _toList() {
     return <Object?>[
       componentKey,
@@ -200,6 +207,7 @@ class AppEntry {
       isSystem,
       category,
       isGame,
+      firstInstallTime,
     ];
   }
 
@@ -221,6 +229,7 @@ class AppEntry {
       isSystem: result[8]! as bool,
       category: result[9]! as int,
       isGame: result[10]! as bool,
+      firstInstallTime: result[11]! as int,
     );
   }
 
@@ -243,7 +252,8 @@ class AppEntry {
         _deepEquals(isSuspended, other.isSuspended) &&
         _deepEquals(isSystem, other.isSystem) &&
         _deepEquals(category, other.category) &&
-        _deepEquals(isGame, other.isGame);
+        _deepEquals(isGame, other.isGame) &&
+        _deepEquals(firstInstallTime, other.firstInstallTime);
   }
 
   @override
@@ -252,7 +262,7 @@ class AppEntry {
 
   @override
   String toString() {
-    return 'AppEntry(componentKey: $componentKey, packageName: $packageName, className: $className, userSerial: $userSerial, label: $label, updateToken: $updateToken, isWorkProfile: $isWorkProfile, isSuspended: $isSuspended, isSystem: $isSystem, category: $category, isGame: $isGame)';
+    return 'AppEntry(componentKey: $componentKey, packageName: $packageName, className: $className, userSerial: $userSerial, label: $label, updateToken: $updateToken, isWorkProfile: $isWorkProfile, isSuspended: $isSuspended, isSystem: $isSystem, category: $category, isGame: $isGame, firstInstallTime: $firstInstallTime)';
   }
 }
 
@@ -1377,6 +1387,12 @@ class LauncherHostApi {
   /// [themeId] is part of every cache key. Change the style without changing the
   /// id and you will serve stale icons — so version the id ("ubuntu-24-04.v2")
   /// whenever you edit a theme's icon block.
+  ///
+  /// Async because loading the brand and hero packs parses up to ~26 MB of
+  /// JSON and asks PackageManager for every installed app. On the main thread
+  /// that froze the UI on every distro switch and was reported as an ANR.
+  /// The reply is sent only after the packs are loaded, so Dart never
+  /// re-requests icons against a half-loaded theme.
   Future<void> setIconTheme(String themeId, IconStyle style) async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.g_launcher.LauncherHostApi.setIconTheme$pigeonVar_messageChannelSuffix';
@@ -2485,6 +2501,11 @@ class LauncherHostApi {
   }
 
   /// The package that handles one of the dock's seed roles, or null.
+  ///
+  /// [role] is `dialer`, `sms`, `browser` or `camera`. The answer is the
+  /// user's DEFAULT for that role when one is set, otherwise the first app
+  /// that can handle it, otherwise null. Read once, when a distro with
+  /// `layout.dockSeed` first pins its dock.
   Future<String?> defaultAppFor(String role) async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.g_launcher.LauncherHostApi.defaultAppFor$pigeonVar_messageChannelSuffix';

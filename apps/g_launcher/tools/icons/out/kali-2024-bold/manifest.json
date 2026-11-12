@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "kali-2024-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 270, "sha256": "8b706fb94fb3f5a64b9116932f695d68ac56da23add1fabc486149a2f45c2b16"},
+    {"path": "preview.png", "size": 28207, "sha256": "f991deaf29c621d3bc28a675fa30ee19d1d53ad260ab608bcd9d10f8473afc9a"}
+  ]
+}

@@ -382,8 +382,7 @@ class _Waybar extends ConsumerWidget {
     // more window rather than as a strip glued to the status bar. Every tiling
     // distro gets it: an edge-to-edge bar is how these desktops looked years
     // ago, and the people who buy them screenshot what they run now.
-    final color =
-        theme.palette.bar.withValues(alpha: 0.92 * theme.barOpacity);
+    final color = theme.palette.bar.withValues(alpha: 0.92 * theme.barOpacity);
     final height = authored?.height ?? 34;
 
     // ─── OR RUNS EDGE TO EDGE, AS i3bar DOES ──────────────────────────────

@@ -69,16 +69,23 @@ node tools/icons/inspect-iconset.mjs --set ~/Downloads/iconpacks/Whatever \
 
 ## 1. Can it ship
 
-**GPL and LGPL sets cannot, at any price, in any form.** Not recoloured, not
-re-rendered, not converted to path data. A conversion is a derivative work and
-inherits the licence. That covers **Papirus, Numix, Numix Circle and Flat
-Remix**, so those four are dead ends no matter how good they look.
+**GPL, LGPL and AGPL sets ship FREE or not at all.** A conversion (recoloured,
+re-rendered, path data) is a derivative work and inherits the licence, and the
+licence lets anyone who receives it pass it on, so a price would buy nothing.
+They ship free as hero packs, with the licence and a source link in `pack.json`
+and on the Licences screen: that is how **Papirus** and **Numix Circle** ship
+(`ship-linux.sh`). Never attach a SKU to one.
+
+To SELL a set it must be permissive. **Lawnicons** (Apache-2.0) is sold as
+**Bold** (`ship-bold.sh`): renamed, recoloured, one SKU, with its licence text
+and a modification notice. Apache grants no rights to the Lawnicons or
+Lawnchair names, so they are credited, never used as our brand.
 
 | licence | verdict |
 |---|---|
-| CC0, MIT, Apache-2.0 | ships freely |
-| CC BY, CC BY-SA | ships with attribution in `pack.json` |
-| GPL, LGPL, AGPL | cannot ship |
+| CC0, MIT, Apache-2.0 | ships, may be sold |
+| CC BY, CC BY-SA | ships with attribution in `pack.json`, may be sold |
+| GPL, LGPL, AGPL | ships free only, licence and source link attached |
 | none found | check by hand before doing anything |
 
 ## 2. Where its files are

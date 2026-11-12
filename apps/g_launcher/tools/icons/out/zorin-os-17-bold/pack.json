@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "zorin-os-17-bold",
+  "name": "Zorin OS Bold",
+  "extends": "g-bold",
+  "tint": "#0f94d2",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

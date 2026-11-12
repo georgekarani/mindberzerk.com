@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "endeavouros-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 273, "sha256": "3fb1fa3f402c8edb08a5dc0ac676db5cb59c3735a40eb72f7cd8dfc78bb9039a"},
+    {"path": "preview.png", "size": 28259, "sha256": "5ff84c7b7b6cd39b5b541296697d4114513fa84adc79846bd8a086cb7f5df066"}
+  ]
+}

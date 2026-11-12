@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../../data/prefs/home_layout.dart';
+import '../../../data/prefs/prefs_repository.dart';
 import '../../../data/repositories/shell_apps.dart';
 import '../../../data/usage/usage_repository.dart';
 import '../../../engine/effective_theme.dart';
 import '../../../engine/theme_spec.dart' show TopBarSide;
 import '../../../features/dock/aqua_dock_metrics.dart';
+import '../../../design/branded_message.dart';
 import '../../../features/drawer/app_icon.dart';
 import '../../../features/drawer/drawer_actions.dart';
+import '../../../features/drawer/drawer_drag.dart';
 import '../../../features/drawer/drawer_state.dart';
 import '../../../features/drawer/shell_drawer.dart';
 import '../../../features/gestures/gesture_layer.dart';
@@ -331,6 +335,11 @@ class _Dock extends ConsumerWidget {
 
     if (entries.isEmpty) return const SizedBox.shrink();
 
+    final visible = [for (final e in entries) e.id];
+    void full() {
+      if (context.mounted) context.showMessage(context.t('shell.dockFull'));
+    }
+
     return AquaDock(
       entries: entries,
       palette: theme.palette,
@@ -342,6 +351,43 @@ class _Dock extends ConsumerWidget {
       // a second way in from the dock would be a button that duplicates the one
       // three centimetres below it.
       onLaunchpad: () => openApps(ref),
+      // ─── DROPS, SO THE DOCK CAN BE REARRANGED ─────────────────────────
+      //
+      // This dock was built with no drop handler, which the aqua dock reads as
+      // "accepts nothing", so on KDE Plasma, Garuda, Manjaro and Mint an icon
+      // could be lifted and could not be put down anywhere. Same rule as the
+      // aqua shell: an auto-filled dock first becomes the pins it showed, a
+      // dock icon MOVES, and an app from the desktop or the menu is pinned
+      // there and leaves the desktop.
+      onDropAt: (drag, order, gap) {
+        if (drag is! AppDrag) return;
+        final key = drag.componentKey;
+        final before = gap < order.length ? order[gap] : null;
+        final after = gap > 0 && gap - 1 < order.length ? order[gap - 1] : null;
+        var refused = false;
+        ref.read(prefsProvider(theme.spec.id).notifier).edit((p) {
+          final next = HomeLayout.adoptDock(p, visible);
+          final pinned = HomeLayout.pinToDockAt(
+            next,
+            key,
+            beforeKey: before,
+            afterKey: after,
+            capacity: capacity,
+          );
+          if (identical(pinned, next)) {
+            refused = true;
+            return p;
+          }
+          final at = HomeLayout.slotOf(pinned, key);
+          return at == null
+              ? pinned
+              : HomeLayout.removeFromHome(pinned, at.page, at.index);
+        }).then((_) {
+          if (refused) full();
+        });
+      },
+      onFull: full,
+      capacity: capacity,
     );
   }
 }

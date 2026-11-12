@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "elementary-os-8-bold",
+  "name": "elementary OS Bold",
+  "extends": "g-bold",
+  "tint": "#3689e6",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

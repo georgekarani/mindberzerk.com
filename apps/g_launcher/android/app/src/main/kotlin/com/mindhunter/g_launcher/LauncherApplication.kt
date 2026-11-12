@@ -14,6 +14,7 @@ import com.mindhunter.g_launcher.system.ForegroundTracker
 import com.mindhunter.g_launcher.system.MemoryTrimmer
 import com.mindhunter.g_launcher.widgets.ForeignWidgetGuard
 import com.mindhunter.g_launcher.widgets.WidgetHostController
+import android.os.Looper
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
@@ -153,6 +154,55 @@ class LauncherApplication : Application() {
         }
         if (!installComplete) return
 
+        // REGISTERED HERE, before any Activity can start. Its callback reaches
+        // hostApi through an isInitialized guard, so it is safe before [start].
+        foreground.install(this)
+
+        // ─── THE ENGINE IS NOT BUILT HERE ANY MORE ──────────────────────────
+        //
+        // Every 6.0.15 ANR in Android vitals was a BACKGROUND process start:
+        // BOOT_COMPLETED, WorkManager, the badge listener, the accessibility
+        // service or the live wallpaper woke the process, and handleBindApplication
+        // then paid for engine construction, plugin registration, the Dart
+        // entrypoint (blocked on Flutter's font manager prefetch) and every
+        // bridge before the component that started us got its callback. On a
+        // Redmi A7 that is long enough for the system to call it an ANR.
+        //
+        // So the warm-up is split from process start. A home press still pays
+        // nothing extra: LauncherActivity calls [start] before its super.onCreate,
+        // which is exactly where this work used to land on a cold home press.
+        // Any other wake-up lets its receiver or service run first, then warms
+        // the engine once the main queue is idle, so the NEXT home press is
+        // still a warm one.
+        Looper.myQueue().addIdleHandler {
+            start()
+            false
+        }
+
+        // PHASE C — enqueue, do not run. This returns immediately; WorkManager
+        // owns the schedule from here and will not fire for hours, on unmetered
+        // power. Nothing about a home press waits on it.
+        //
+        // Safe on every cold start: the policy is KEEP, so repeated calls do
+        // not reset the interval. REPLACE would, and a launcher cold-starts
+        // many times a day, so the job would effectively never run.
+        PackSyncWorker.schedule(this)
+    }
+
+    /** True once [start] has built the engine and every bridge. */
+    @Volatile
+    var started: Boolean = false
+        private set
+
+    /**
+     * Builds the engine and registers every bridge. Idempotent, main thread
+     * only. Called from LauncherActivity and PinShortcutActivity before they
+     * touch the engine or a host API, and from the idle handler in [onCreate].
+     */
+    fun start() {
+        if (started || !installComplete) return
+        started = true
+
         engine = FlutterEngine(this).apply {
             dartExecutor.executeDartEntrypoint(
                 DartExecutor.DartEntrypoint.createDefault()
@@ -174,11 +224,6 @@ class LauncherApplication : Application() {
             isForeground = { foreground.isForeground },
         )
         LauncherHostApi.setUp(messenger, hostApi)
-
-        // REGISTERED BEFORE start(), so the very first onActivityStarted cannot
-        // land before the tracker is listening. On a home press that callback
-        // is milliseconds away from this line.
-        foreground.install(this)
 
         // The initial prime is DELIBERATELY NOT GATED on foreground, unlike
         // every later refresh. The process is usually being created because the
@@ -242,15 +287,6 @@ class LauncherApplication : Application() {
         ExitInfoBridge.setUp(this, messenger)
 
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
-
-        // PHASE C — enqueue, do not run. This returns immediately; WorkManager
-        // owns the schedule from here and will not fire for hours, on unmetered
-        // power. Nothing about a home press waits on it.
-        //
-        // Safe on every cold start: the policy is KEEP, so repeated calls do
-        // not reset the interval. REPLACE would, and a launcher cold-starts
-        // many times a day, so the job would effectively never run.
-        PackSyncWorker.schedule(this)
     }
 
     /**
@@ -276,8 +312,10 @@ class LauncherApplication : Application() {
 
     override fun onTerminate() {
         // Rarely called in practice; correctness, not a load-bearing path.
-        hostApi.stop()
-        packApi.shutdown()
+        if (started) {
+            hostApi.stop()
+            packApi.shutdown()
+        }
         super.onTerminate()
     }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../tokens/radii.dart';
 import '../tokens/spacing.dart';
+import '../settings_look.dart';
 import 'chrome_theme.dart';
 
 /// The workhorse of the chrome layer: one row in a settings list. Icon, title,
@@ -43,9 +44,95 @@ class ThemedListRow extends StatelessWidget {
 
   final bool enabled;
 
+  /// The row on a screen opened from Settings: title, a short value at the
+  /// right, the control. Long subtitles are descriptions and are dropped.
+  Widget _immersive(BuildContext context, SettingsLook look, ChromeData d) {
+    final c = d.colors;
+    final sub = subtitle;
+    final value =
+        trailing == null && sub != null && sub.length <= 28 ? sub : null;
+    final titleColor = !enabled
+        ? c.textFaint
+        : danger
+            ? c.danger
+            : c.text;
+    final Widget head = look == SettingsLook.config
+        ? Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: configKey(title),
+                  style: TextStyle(color: danger ? c.danger : c.accent),
+                ),
+                if (value != null) ...[
+                  TextSpan(
+                    text: ' = ',
+                    style: TextStyle(color: c.textFaint),
+                  ),
+                  TextSpan(text: value),
+                ],
+              ],
+            ),
+            style: d.text.value,
+          )
+        : Text(
+            title,
+            style: TextStyle(
+              color: titleColor,
+              fontSize: switch (look) {
+                SettingsLook.grouped => 16.0,
+                SettingsLook.dialog || SettingsLook.form => 13.5,
+                SettingsLook.cinnamon => 14.0,
+                _ => 14.5,
+              },
+            ),
+          );
+    final side = switch (look) {
+      SettingsLook.form || SettingsLook.dialog || SettingsLook.config => 0.0,
+      SettingsLook.grouped => 16.0,
+      _ => 14.0,
+    };
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onTap : null,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: look.rowHeight),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: side),
+            child: Row(
+              children: [
+                Expanded(child: head),
+                if (value != null && look != SettingsLook.config) ...[
+                  const SizedBox(width: 12),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      color: c.textMuted,
+                      fontSize: look == SettingsLook.grouped ? 16 : 14,
+                    ),
+                  ),
+                ],
+                if (trailing != null) ...[
+                  const SizedBox(width: 12),
+                  trailing!,
+                ] else if (onTap != null) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.chevron_right, size: 18, color: c.textMuted),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final d = ChromeScope.of(context);
+    final look = SettingsLookScope.of(context);
+    if (look != null && !d.inMenu) return _immersive(context, look, d);
     final c = d.colors;
 
     // ─── A MENU ROW MAY BE TEXT ONLY ────────────────────────────────────
@@ -126,6 +213,41 @@ class ThemedSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = ChromeScope.of(context);
+    final look = SettingsLookScope.of(context);
+    if (look != null) {
+      final c = d.colors;
+      final title =
+          text.isEmpty ? text : '${text[0].toUpperCase()}${text.substring(1)}';
+      return Padding(
+        padding: switch (look) {
+          SettingsLook.grouped => const EdgeInsets.fromLTRB(32, 22, 32, 6),
+          SettingsLook.config => const EdgeInsets.fromLTRB(10, 14, 10, 4),
+          _ => const EdgeInsets.fromLTRB(16, 22, 16, 8),
+        },
+        child: switch (look) {
+          SettingsLook.config => Text(
+              '[${configKey(text)}]',
+              style: d.text.value.copyWith(color: c.warn),
+            ),
+          SettingsLook.grouped => Text(
+              title.toUpperCase(),
+              style: TextStyle(
+                color: c.textMuted,
+                fontSize: 12.5,
+                letterSpacing: 0.4,
+              ),
+            ),
+          _ => Text(
+              title,
+              style: TextStyle(
+                color: c.text,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        },
+      );
+    }
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         GSpace.lg,
@@ -166,6 +288,54 @@ class ThemedListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = ChromeScope.of(context).colors;
+    final look = SettingsLookScope.of(context);
+    if (look != null && look.bare) {
+      // Kirigami forms, Xfce frames and a config file have no card.
+      return Padding(
+        padding: EdgeInsets.fromLTRB(
+          look == SettingsLook.dialog ? 28 : 16,
+          0,
+          16,
+          8,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
+      );
+    }
+    if (look != null) {
+      final grouped = look == SettingsLook.grouped;
+      final radius = look == SettingsLook.cinnamon ? 6.0 : 12.0;
+      final rows = <Widget>[];
+      for (var i = 0; i < children.length; i++) {
+        if (i > 0) {
+          rows.add(
+            Divider(
+              height: 1,
+              thickness: grouped ? 0.5 : 1,
+              indent: grouped ? 16 : 0,
+              color: c.line,
+            ),
+          );
+        }
+        rows.add(children[i]);
+      }
+      return Container(
+        margin: EdgeInsets.symmetric(
+          horizontal: grouped ? 16 : 12,
+          vertical: 4,
+        ),
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(radius),
+          border:
+              look == SettingsLook.cinnamon ? Border.all(color: c.line) : null,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: rows),
+      );
+    }
     final divided = <Widget>[];
     for (var i = 0; i < children.length; i++) {
       if (i > 0) {

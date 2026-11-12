@@ -43,8 +43,20 @@
     },
 
     "chromeFamily": {
-      "enum": ["adwaita", "breeze", "aqua", "generic"],
+      "enum": ["adwaita", "breeze", "xfce", "wm", "aqua", "pocket", "generic"],
       "$comment": "Omit to inherit ChromeFamily.defaultForShell. Only set it when a distro's chrome genuinely differs from its shell family."
+    },
+
+    "screenshots": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "maxItems": 6,
+      "$comment": "Real phone screenshots for the store, bare filenames shipped in the pack, in display order (home, drawer, settings). Omit to fall back to the drawn preview."
+    },
+
+    "settingsLook": {
+      "enum": ["boxed", "cinnamon", "form", "dialog", "grouped", "config"],
+      "$comment": "How Settings, setup, sheets and toasts are laid out: boxed is GNOME Settings, cinnamon is Cinnamon System Settings, form is KDE System Settings, dialog is the Xfce Settings Manager, grouped is iOS Settings, config is a config file. Omit to derive it: a cinnamon drawer gives cinnamon, else the chrome family (adwaita boxed, breeze form, xfce dialog, wm config, aqua and pocket grouped), else the shell."
     },
 
     "palette": { "$ref": "#/$defs/palette" },

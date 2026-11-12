@@ -10,7 +10,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.SizeF
+import android.view.Choreographer
 import android.view.ContextThemeWrapper
 
 /**
@@ -173,9 +176,50 @@ class WidgetHostController(context: Context) {
 
     fun detachActivity(a: Activity) { if (activity === a) activity = null }
 
-    fun startListening() { runCatching { host.startListening() } }
+    // ─── WHY startListening WAITS FOR THE FIRST FRAME ──────────────────────
+    //
+    // `AppWidgetHost.startListening` is a synchronous binder call that returns
+    // every pending RemoteViews update for every bound widget, then applies
+    // each one to its view, inflation included. It has to run on the main
+    // thread because it touches views. Run straight from onStart it competed
+    // with the launcher's first frame, and a home screen with a few heavy
+    // widgets kept the window from gaining focus in time: Play reported it as
+    // "Input dispatching timed out (No focused window)" in this method.
+    //
+    // Deferring until just after the next frame lets the window draw and take
+    // focus first. Updates are not lost: listening delivers everything that
+    // queued while the host was stopped.
+    private val main = Handler(Looper.getMainLooper())
+    private var listening = false
 
-    fun stopListening() { runCatching { host.stopListening() } }
+    private val startNow = Runnable {
+        if (!listening) {
+            runCatching { host.startListening() }
+            listening = true
+        }
+    }
+
+    private val afterNextFrame = Choreographer.FrameCallback { main.post(startNow) }
+
+    /** Called on the main thread from LauncherActivity.onStart. */
+    fun startListening() {
+        if (listening) return
+        cancelPendingStart()
+        Choreographer.getInstance().postFrameCallback(afterNextFrame)
+    }
+
+    /** Called on the main thread from LauncherActivity.onStop. */
+    fun stopListening() {
+        cancelPendingStart()
+        if (!listening) return
+        listening = false
+        runCatching { host.stopListening() }
+    }
+
+    private fun cancelPendingStart() {
+        Choreographer.getInstance().removeFrameCallback(afterNextFrame)
+        main.removeCallbacks(startNow)
+    }
 
     // -- placement -----------------------------------------------------------
 

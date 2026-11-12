@@ -215,6 +215,33 @@ class DistroPacks extends Notifier<DistroPackState> {
       }
     }
 
+    // ── THE PUSH IS AWAITED, NOT RACED ───────────────────────────────────
+    //
+    // See the file doc. `activeThemePushProvider` fires this through
+    // `unawaited` on every theme change, which is correct for keeping native
+    // current and useless as a precondition: native re-checks
+    // `isAvailable(packId, ownedSkus, activeThemeId)` immediately before the
+    // transfer, so an install that overtakes the push is refused as
+    // `notEntitled` for a pack that comes free with the distro being worn.
+    //
+    // Pushed for THIS distro rather than for the resolved one, because on the
+    // setup deck the selection has moved and the resolve may not have caught up
+    // yet. They converge within a frame; this cannot wait for that.
+    //
+    // ─── AND BEFORE THE CATALOGUE IS READ, NOT AFTER ─────────────────────
+    //
+    // The `unlocked` flag the filter below trusts is computed natively from
+    // the active theme. Pushed after that read, a distro's own included icon
+    // pack (Ubuntu's, on a fresh install) still read as unpaid, was skipped,
+    // and the generator drew the icons. The push invalidates the catalogue, so
+    // the read below sees the flags for this distro.
+    try {
+      await actions.pushActiveTheme(themeId);
+    } catch (_) {
+      // Native unreachable. The installs below will fail for the same reason
+      // and land on the same silent floor.
+    }
+
     // ── WHAT THIS DISTRO ASKS FOR ────────────────────────────────────────
     //
     // Read off the SPEC rather than off `EffectiveTheme`, and the difference
@@ -274,25 +301,6 @@ class DistroPacks extends Notifier<DistroPackState> {
         themeReady: true,
       ));
       return;
-    }
-
-    // ── THE PUSH IS AWAITED, NOT RACED ───────────────────────────────────
-    //
-    // See the file doc. `activeThemePushProvider` fires this through
-    // `unawaited` on every theme change, which is correct for keeping native
-    // current and useless as a precondition: native re-checks
-    // `isAvailable(packId, ownedSkus, activeThemeId)` immediately before the
-    // transfer, so an install that overtakes the push is refused as
-    // `notEntitled` for a pack that comes free with the distro being worn.
-    //
-    // Pushed for THIS distro rather than for the resolved one, because on the
-    // setup deck the selection has moved and the resolve may not have caught up
-    // yet. They converge within a frame; this cannot wait for that.
-    try {
-      await actions.pushActiveTheme(themeId);
-    } catch (_) {
-      // Native unreachable. The installs below will fail for the same reason
-      // and land on the same silent floor.
     }
 
     publish(DistroPackState(

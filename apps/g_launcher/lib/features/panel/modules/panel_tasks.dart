@@ -128,14 +128,20 @@ class PanelTaskStrip extends ConsumerWidget {
     Map<String, AppEntry> byKey,
     double icon,
   ) {
-    Widget button(String k) => _TaskButton(
+    Widget button(String k) => _TaskReorderTarget(
+          componentKey: k,
+          taskKeys: taskKeys,
+          theme: theme,
           vertical: vertical,
-          icon: icon,
-          entry: byKey[k]!,
-          onTap: () {
-            ref.read(appListProvider.notifier).launch(byKey[k]!);
-            ref.read(usageProvider.notifier).record(k);
-          },
+          child: _TaskButton(
+            vertical: vertical,
+            icon: icon,
+            entry: byKey[k]!,
+            onTap: () {
+              ref.read(appListProvider.notifier).launch(byKey[k]!);
+              ref.read(usageProvider.notifier).record(k);
+            },
+          ),
         );
 
     ListView list(Widget Function(int i, String k) wrap) => ListView(
@@ -249,6 +255,77 @@ class _TaskButton extends ConsumerWidget {
       ),
       childWhenDragging: Opacity(opacity: 0.25, child: core),
       child: InkWell(onTap: onTap, child: core),
+    );
+  }
+}
+
+/// One task button as a drop target for the strip's OWN buttons.
+///
+/// ─── WHY THE TASKBAR COULD NOT BE REARRANGED ───────────────────────────────
+///
+/// Every button here lifts as `DragOrigin.dock`, and the strip's target
+/// refuses exactly that origin (a button dropped on its own strip has nothing
+/// to pin). So on Zorin's taskbar, Kali's bottom panel, Mint and every panel
+/// that carries this module, a held icon could be lifted and put down nowhere.
+/// Each button now accepts the others: drop on its leading half to go before
+/// it, on its trailing half to go after. An auto-filled strip first becomes
+/// the pins it was showing, the same rule every dock follows.
+class _TaskReorderTarget extends ConsumerWidget {
+  const _TaskReorderTarget({
+    required this.componentKey,
+    required this.taskKeys,
+    required this.theme,
+    required this.vertical,
+    required this.child,
+  });
+
+  final String componentKey;
+  final List<String> taskKeys;
+  final EffectiveTheme theme;
+  final bool vertical;
+  final Widget child;
+
+  bool _isSibling(DrawerDrag d) =>
+      d is AppDrag &&
+      d.from == DragOrigin.dock &&
+      d.componentKey != componentKey &&
+      taskKeys.contains(d.componentKey);
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return DragTarget<DrawerDrag>(
+      onWillAcceptWithDetails: (d) => _isSibling(d.data),
+      onAcceptWithDetails: (d) {
+        final moved = (d.data as AppDrag).componentKey;
+        final box = context.findRenderObject() as RenderBox?;
+        var after = false;
+        if (box != null && box.hasSize) {
+          // The feedback is anchored at the pointer, so its offset is where
+          // the finger let go.
+          final local = box.globalToLocal(d.offset);
+          after = vertical
+              ? local.dy > box.size.height / 2
+              : local.dx > box.size.width / 2;
+        }
+        HapticFeedback.selectionClick();
+        ref.read(prefsProvider(theme.spec.id).notifier).edit(
+              (p) => HomeLayout.reorderDockKeys(
+                HomeLayout.adoptDock(p, taskKeys),
+                moved,
+                componentKey,
+                after: after,
+              ),
+            );
+      },
+      builder: (context, candidate, _) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: candidate.isEmpty
+              ? null
+              : theme.palette.accent.withValues(alpha: 0.22),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: child,
+      ),
     );
   }
 }

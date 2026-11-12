@@ -100,7 +100,7 @@ List<Widget> appearanceSection(
   // for every row rather than each computing its own.
   final hasLight = theme.hasLightMode.available;
 
-  return [
+  final groups = <Widget>[
     // ── WHAT THE PAGE IS ABOUT, AT THE TOP OF IT ───────────────────
     //
     // Icon shape, corner roundness and label length are the three settings on
@@ -113,6 +113,7 @@ List<Widget> appearanceSection(
     // tileRadiusFraction, which is the whole reason this picture is here.
     if (q.isEmpty)
       SettingPreview(
+        key: const ValueKey('app.preview'),
         query: q,
         caption: context.t('settings.iconsAndLabelsLive'),
         child: SinglePreview(
@@ -142,8 +143,8 @@ List<Widget> appearanceSection(
 
     // ── Personalize ────────────────────────────────────────────────
     SettingsGroup(
+      key: const ValueKey('app.personalize'),
       label: context.t('settings.personalize'),
-      scope: 'This distro',
       query: q,
       rows: [
         FilterRow(
@@ -207,6 +208,18 @@ List<Widget> appearanceSection(
               ),
             ),
           ),
+      ],
+    ),
+
+    // ── Boot ───────────────────────────────────────────────────────
+    //
+    // Its own group: Verbose boot and GRUB are startup theatre, not the
+    // look of the desktop, and they sat at the bottom of Personalize.
+    SettingsGroup(
+      key: const ValueKey('app.boot'),
+      label: context.t('settings.boot'),
+      query: q,
+      rows: [
         FilterRow(
           const [
             'verbose boot',
@@ -268,8 +281,8 @@ List<Widget> appearanceSection(
     // genuinely needs, and moving it would make Gestures the one section that
     // cannot say why half of it is inert.
     SettingsGroup(
+      key: const ValueKey('app.lightDark'),
       label: context.t('settings.lightAndDark'),
-      scope: 'All distros',
       query: q,
       rows: [
         // ── THE PICTURE IS THE CONTROL ─────────────────────────────
@@ -307,6 +320,7 @@ List<Widget> appearanceSection(
               'touch'
             ],
             PreviewChoice<String>(
+              title: context.t('settings.layout'),
               value: preset,
               onSelect: (v) => notifier.edit((p) => applyLayoutPreset(p, v)),
               options: [
@@ -405,8 +419,8 @@ List<Widget> appearanceSection(
     ),
 
     SettingsGroup(
+      key: const ValueKey('app.labels'),
       label: context.t('settings.labels'),
-      scope: 'All distros',
       query: q,
       rows: [
         FilterRow(
@@ -552,8 +566,8 @@ List<Widget> appearanceSection(
     // remains the one that governs everything, and each section follows it
     // until moved.
     SettingsGroup(
+      key: const ValueKey('app.surfaces'),
       label: context.t('settings.surfaces'),
-      scope: 'All distros',
       query: q,
       rows: [
         FilterRow(
@@ -594,8 +608,8 @@ List<Widget> appearanceSection(
     // instant you see it, and the surface they change is one that only appears
     // when you are no longer looking at this screen.
     SettingsGroup(
+      key: const ValueKey('app.panels'),
       label: context.t('settings.panels'),
-      scope: 'All distros',
       query: q,
       rows: [
         FilterRow(
@@ -669,6 +683,130 @@ List<Widget> appearanceSection(
         ),
       ],
     ),
+
+    // ── Share your rice ────────────────────────────────────────────
+    SettingsGroup(
+      key: const ValueKey('app.rice'),
+      label: '',
+      query: q,
+      rows: [
+        FilterRow(
+          const [
+            'rice',
+            'share',
+            'export',
+            'import',
+            'setup',
+            'unixporn',
+            'code'
+          ],
+          SettingsRow(
+            icon: Icons.ios_share,
+            title: context.t('rice.title'),
+            subtitle: context.t('rice.settingSub'),
+            trailing: const Chevron(),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => RiceScreen(theme: theme)),
+            ),
+          ),
+        ),
+      ],
+    ),
+  ];
+
+  // A section page shows Text and Surfaces as one row each; the groups
+  // they stand for open one level down. Search and the legacy page keep
+  // every group in place.
+  final look = SettingsLookScope.of(context);
+  if (look == null || q.isNotEmpty) return groups;
+
+  Widget drill({
+    required String title,
+    required String? value,
+    required IconData icon,
+    required List<String> terms,
+    required Set<String> keys,
+  }) =>
+      SettingsGroup(
+        key: ValueKey('app.drill.${keys.first}'),
+        label: '',
+        rows: [
+          FilterRow(
+            terms,
+            SettingsRow(
+              icon: icon,
+              title: title,
+              subtitle: value,
+              keepSubtitle: true,
+              trailing: const Chevron(),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SettingsSubPage(
+                    title: title,
+                    look: look,
+                    builder: (context, ref, theme) => [
+                      for (final w in appearanceSection(
+                        context,
+                        ref,
+                        theme,
+                        workspaces,
+                        '',
+                      ))
+                        if (w.key is ValueKey<String> &&
+                            keys.contains((w.key! as ValueKey<String>).value))
+                          w,
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+
+  String? keyOf(Widget w) =>
+      w.key is ValueKey<String> ? (w.key! as ValueKey<String>).value : null;
+
+  // GNOME's order: style first, then what fills the desktop, then the
+  // finer controls, then startup. Anything not listed goes last.
+  const order = [
+    'app.preview',
+    'app.lightDark',
+    'app.personalize',
+    'app.labels',
+    'app.surfaces',
+    'app.panels',
+    'app.boot',
+    'app.rice',
+  ];
+  int rank(Widget w) {
+    final i = order.indexOf(keyOf(w) ?? '');
+    return i < 0 ? order.length : i;
+  }
+
+  final ordered = [...groups]..sort((a, b) => rank(a).compareTo(rank(b)));
+
+  return [
+    for (final w in ordered)
+      switch (keyOf(w)) {
+        'app.labels' => drill(
+            title: context.t('settings.text'),
+            value: '${_fontShort(theme.prefs.displayFont)}, '
+                '${(theme.textScale * 100).round()}%',
+            icon: Icons.text_fields,
+            terms: const ['text', 'font', 'labels', 'size'],
+            keys: const {'app.labels'},
+          ),
+        'app.surfaces' => drill(
+            title: context.t('settings.surfaces'),
+            value: '${(theme.surfaceOpacity * 100).round()}%',
+            icon: Icons.opacity,
+            terms: const ['surfaces', 'panels', 'opacity', 'blur'],
+            keys: const {'app.surfaces', 'app.panels'},
+          ),
+        'app.panels' => const SizedBox.shrink(),
+        _ => w,
+      },
   ];
 }
 
@@ -694,8 +832,8 @@ class _AccentRow extends ConsumerWidget {
   final EffectiveTheme theme;
   final List<ThemeAccent> accents;
 
-  /// Clears the 44dp minimum, and six of them plus gaps fit inside 360dp with
-  /// the row's own 16dp padding on both sides.
+  /// Clears the 44dp minimum touch target. Six fit on one line at 360dp;
+  /// more wrap.
   static const _swatch = 44.0;
 
   @override
@@ -718,7 +856,12 @@ class _AccentRow extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
+          // Wrap, not Row: a distro may author more accents than fit across a
+          // 360dp phone, and they flow onto a second line instead of
+          // overflowing off the edge.
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
             children: [
               for (final a in accents) ...[
                 Semantics(
@@ -743,7 +886,6 @@ class _AccentRow extends ConsumerWidget {
                     child: Container(
                       width: _swatch,
                       height: _swatch,
-                      margin: const EdgeInsets.only(right: 12),
                       decoration: BoxDecoration(
                         color: a.value,
                         shape: BoxShape.circle,
@@ -810,18 +952,6 @@ List<FilterRow> _grubRows(
           },
         ),
       ),
-    FilterRow(
-      const ['rice', 'share', 'export', 'import', 'setup', 'unixporn', 'code'],
-      SettingsRow(
-        icon: Icons.ios_share,
-        title: context.t('rice.title'),
-        subtitle: context.t('rice.settingSub'),
-        trailing: const Chevron(),
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => RiceScreen(theme: theme)),
-        ),
-      ),
-    ),
     FilterRow(
       terms,
       SettingsRow(

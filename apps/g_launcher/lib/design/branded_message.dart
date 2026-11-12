@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'message_skin.dart';
+import 'settings_look.dart';
 
 export 'message_skin.dart' show MessageTone;
 
@@ -278,28 +279,67 @@ class _MessageOverlayState extends State<_MessageOverlay>
     final message = _shown;
     if (message == null) return const SizedBox.shrink();
 
-    // Sits above the nav bar / gesture pill, not under it.
-    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
-
-    return Positioned(
-      left: 16,
-      right: 16,
-      bottom: bottomInset + 24,
-      child: FadeTransition(
-        opacity: _curve,
-        child: SlideTransition(
-          position: Tween<Offset>(
-            begin: const Offset(0, 0.35),
-            end: Offset.zero,
-          ).animate(_curve),
-          child: Consumer(
-            builder: (context, ref, _) {
-              final skin = ref.watch(messageSkinProvider);
-              return _MessageCard(message: message, skin: skin);
-            },
+    return Consumer(
+      builder: (context, ref, _) {
+        final skin = ref.watch(messageSkinProvider);
+        final look = skin.look;
+        final pad = MediaQuery.viewPaddingOf(context);
+        // GNOME, iOS and the desktop notifiers show at the top; KDE's inline
+        // message and a terminal's status line sit at the bottom.
+        final fromTop = look != null &&
+            look != SettingsLook.form &&
+            look != SettingsLook.config;
+        final card = FadeTransition(
+          opacity: _curve,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(0, fromTop ? -0.35 : 0.35),
+              end: Offset.zero,
+            ).animate(_curve),
+            child: look == null
+                ? _MessageCard(message: message, skin: skin)
+                : _LookToast(message: message, skin: skin, look: look),
           ),
-        ),
-      ),
+        );
+        return switch (look) {
+          null => Positioned(
+              left: 16,
+              right: 16,
+              bottom: pad.bottom + 24,
+              child: card,
+            ),
+          SettingsLook.boxed => Positioned(
+              left: 16,
+              right: 16,
+              top: pad.top + 40,
+              child: Center(child: card),
+            ),
+          SettingsLook.grouped => Positioned(
+              left: 16,
+              right: 16,
+              top: pad.top + 6,
+              child: Center(child: card),
+            ),
+          SettingsLook.cinnamon || SettingsLook.dialog => Positioned(
+              right: 10,
+              top: pad.top + 8,
+              width: 260,
+              child: card,
+            ),
+          SettingsLook.form => Positioned(
+              left: 16,
+              right: 16,
+              bottom: pad.bottom + 24,
+              child: Center(child: card),
+            ),
+          SettingsLook.config => Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: card,
+            ),
+        };
+      },
     );
   }
 }
@@ -415,6 +455,259 @@ class _LogoChip extends StatelessWidget {
         // A missing asset must not take the toast down with it — a toast is
         // often what's reporting the error in the first place.
         errorBuilder: (_, __, ___) => Icon(Icons.bolt, size: 15, color: accent),
+      ),
+    );
+  }
+}
+
+/// A passing message as each distro shows one: GNOME's toast pill, the iOS
+/// capsule, a Cinnamon or Xfce notification, KDE's inline message, or a
+/// terminal's status line. One line and at most one action, always.
+class _LookToast extends StatelessWidget {
+  const _LookToast({
+    required this.message,
+    required this.skin,
+    required this.look,
+  });
+
+  final BrandedMessage message;
+  final MessageSkin skin;
+  final SettingsLook look;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = skin.accentFor(message.tone);
+    final label = message.actionLabel;
+    void act() {
+      _messenger.dismiss();
+      message.onAction?.call();
+    }
+
+    TextStyle text({double size = 14, FontWeight? weight, Color? color}) =>
+        TextStyle(
+          color: color ?? skin.foreground,
+          fontFamily: skin.uiFamily,
+          fontSize: size,
+          fontWeight: weight,
+          height: 1.25,
+        );
+
+    Widget line(TextStyle style) => Text(
+          message.text,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: style,
+        );
+
+    final Widget body = switch (look) {
+      SettingsLook.boxed => Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: EdgeInsets.fromLTRB(18, 8, label == null ? 18 : 6, 8),
+          decoration: BoxDecoration(
+            color: const Color(0xF2383838),
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: const [
+              BoxShadow(color: Color(0x55000000), blurRadius: 20),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: line(text(color: Colors.white))),
+              if (label != null) ...[
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: act,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1AFFFFFF),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      label,
+                      style: text(weight: FontWeight.w600, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      SettingsLook.grouped => Container(
+          constraints: const BoxConstraints(minHeight: 40),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xF21C1C1E),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 16,
+                height: 16,
+                decoration: BoxDecoration(
+                  color: message.tone == MessageTone.neutral
+                      ? const Color(0xFF34C759)
+                      : accent,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: line(text(weight: FontWeight.w600, color: Colors.white)),
+              ),
+              if (label != null) ...[
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: act,
+                  child: Text(
+                    label,
+                    style: text(
+                      weight: FontWeight.w600,
+                      color: const Color(0xFF0A84FF),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      SettingsLook.cinnamon || SettingsLook.dialog => Container(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          decoration: BoxDecoration(
+            color: skin.background.withValues(alpha: 0.97),
+            borderRadius:
+                BorderRadius.circular(look == SettingsLook.cinnamon ? 6 : 4),
+            border: Border.all(color: const Color(0x33000000)),
+            boxShadow: const [
+              BoxShadow(color: Color(0x66000000), blurRadius: 18),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (look == SettingsLook.dialog) ...[
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'G Launcher',
+                      style: text(size: 13, weight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    line(text(size: 13)),
+                    if (label != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: GestureDetector(
+                          onTap: act,
+                          child: Text(
+                            label,
+                            style: text(
+                              size: 13,
+                              weight: FontWeight.w600,
+                              color: accent,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      SettingsLook.form => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: skin.background.withValues(alpha: 0.97),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: const Color(0x26FFFFFF)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(child: line(text(size: 13))),
+              if (label != null) ...[
+                const SizedBox(width: 14),
+                GestureDetector(
+                  onTap: act,
+                  child: Text(label, style: text(size: 13, color: accent)),
+                ),
+              ],
+            ],
+          ),
+        ),
+      SettingsLook.config => Builder(
+          builder: (context) {
+            final ink = accent.computeLuminance() > 0.45
+                ? const Color(0xFF11111B)
+                : Colors.white;
+            return Container(
+              color: accent,
+              padding: EdgeInsets.fromLTRB(
+                10,
+                5,
+                10,
+                5 + MediaQuery.viewPaddingOf(context).bottom,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '-- ${message.text.toLowerCase()} --',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style:
+                          text(size: 12, weight: FontWeight.w700, color: ink),
+                    ),
+                  ),
+                  if (label != null)
+                    GestureDetector(
+                      onTap: act,
+                      child: Text(
+                        '[${label.toLowerCase()}]',
+                        style: text(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: ink,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+    };
+
+    return Semantics(
+      liveRegion: true,
+      label: message.text,
+      child: Material(
+        color: Colors.transparent,
+        child: GestureDetector(
+          onTap: _messenger.dismiss,
+          onVerticalDragEnd: (_) => _messenger.dismiss(),
+          child: body,
+        ),
       ),
     );
   }

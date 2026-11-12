@@ -175,7 +175,15 @@ export function svgToPaths(svg) {
  */
 export function viewBoxOf(svg) {
   const vb = /viewBox\s*=\s*"([^"]*)"/i.exec(svg);
-  if (!vb) return null;
+  if (!vb) {
+    // Some sets (Lawnicons) declare only a square width and height on the root,
+    // which an SVG renderer treats as a viewBox of the same size at the origin.
+    const root = /<svg\b[^>]*>/i.exec(svg)?.[0] ?? '';
+    const w = /\bwidth\s*=\s*"([0-9.]+)"/i.exec(root)?.[1];
+    const h = /\bheight\s*=\s*"([0-9.]+)"/i.exec(root)?.[1];
+    if (w && h && Number(w) === Number(h) && Number(w) > 0) return Number(w);
+    return null;
+  }
   const n = vb[1].trim().split(/[\s,]+/).map(Number);
   if (n.length !== 4 || !n.every(Number.isFinite)) return null;
   // Only square boxes starting at the origin. Anything else needs a translate

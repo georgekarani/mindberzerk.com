@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "fedora-40-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 266, "sha256": "679db4d5eeed138034862535661eaae3e79e016cda41ca08f11f590aceb3822b"},
+    {"path": "preview.png", "size": 28486, "sha256": "ad485ff42705fffa5021429ed56b7ee839315560b3e886bf601b9043ecc97e70"}
+  ]
+}

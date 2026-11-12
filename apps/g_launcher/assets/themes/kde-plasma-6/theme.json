@@ -3,6 +3,7 @@
   "name": "KDE Plasma",
   "version": "6",
   "shell": "plasma",
+  "settingsLook": "form",
   "tier": "free",
   "chromeFamily": "breeze",
   "palette": {

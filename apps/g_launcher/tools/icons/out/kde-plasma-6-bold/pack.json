@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "kde-plasma-6-bold",
+  "name": "KDE Plasma Bold",
+  "extends": "g-bold",
+  "tint": "#3daee9",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

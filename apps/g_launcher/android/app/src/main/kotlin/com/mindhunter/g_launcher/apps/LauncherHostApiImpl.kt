@@ -76,6 +76,14 @@ class LauncherHostApiImpl(
 
     private val appContext = context.applicationContext
     private val io = Executors.newSingleThreadExecutor()
+
+    /**
+     * Serial lane for icon theme and icon pack switches only. Kept apart from
+     * [io] because a line pack load can take seconds on a budget phone, and on
+     * [io] it would hold up the app list, stats and wallpaper calls queued
+     * behind it. One thread, so the two switches still apply in send order.
+     */
+    private val iconSwitch = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
     /**
@@ -165,6 +173,7 @@ class LauncherHostApiImpl(
         watcher.stop()
         iconCache.shutdown()
         io.shutdown()
+        iconSwitch.shutdown()
     }
 
     // ---- app list --------------------------------------------------------
@@ -436,8 +445,28 @@ class LauncherHostApiImpl(
 
     // ---- icons -----------------------------------------------------------
 
-    override fun setIconTheme(themeId: String, style: WireStyle) {
-        iconCache.setTheme(themeId, style.toRenderStyle())
+    /**
+     * Off the main thread, on the same serial [iconSwitch] lane as [setIconPack],
+     * so a theme switch and a pack switch still apply in the order Dart sent
+     * them. Loading a line pack (JSON parse plus a PackageManager listing) is
+     * what froze some distros on switch and what Play reported as the
+     * `BrandIconResolver.installedPackages` ANR.
+     *
+     * A failed load is reported as success on purpose: [IconCache] already
+     * degrades to the generator tier, and an error here would only make Dart
+     * skip the icon refresh it does after this returns.
+     */
+    override fun setIconTheme(
+        themeId: String,
+        style: WireStyle,
+        callback: (Result<Unit>) -> Unit,
+    ) {
+        val renderStyle = style.toRenderStyle()
+        iconSwitch.execute {
+            runCatching { iconCache.setTheme(themeId, renderStyle) }
+                .onFailure { android.util.Log.w("GLauncher", "setIconTheme failed for $themeId", it) }
+            main.post { callback(Result.success(Unit)) }
+        }
     }
 
     override fun getIcon(
@@ -550,7 +579,7 @@ class LauncherHostApiImpl(
      * bitmaps are still rendered lazily by the cache after that.
      */
     override fun setIconPack(packageName: String?, callback: (Result<Unit>) -> Unit) {
-        io.execute {
+        iconSwitch.execute {
             runCatching { iconCache.setSystemIconPack(packageName) }
             main.post { callback(Result.success(Unit)) }
         }

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android Auto Backup and device transfer, Android 12 and above.
+  Same rule as backup_rules.xml: only files/cloud/, the newest backup
+  without wallpapers, which always fits Google's 25 MB.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="file" path="cloud/" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="cloud/" />
+    </device-transfer>
+</data-extraction-rules>

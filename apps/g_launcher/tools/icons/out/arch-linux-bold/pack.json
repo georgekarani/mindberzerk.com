@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "arch-linux-bold",
+  "name": "Arch Linux Bold",
+  "extends": "g-bold",
+  "tint": "#1793d1",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

@@ -104,6 +104,7 @@ class _HideAppsScreenState extends ConsumerState<HideAppsScreen> {
     // ChromeScope is provided BY ThemedScaffold, so anything that reads it
     // has to be built below it: hence the two Builders.
     return ThemedScaffold(
+      settingsLook: true,
       title: context.t('hidden.title'),
       actions: [
         Builder(

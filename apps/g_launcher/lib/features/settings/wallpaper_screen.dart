@@ -19,6 +19,7 @@ import '../../engine/effective_theme.dart';
 import '../../engine/theme_engine.dart';
 import '../../engine/theme_source.dart';
 import '../../engine/wallpaper_framing.dart';
+import '../../platform/launcher_api.g.dart';
 import '../../system/wallpaper_source.dart';
 import 'wallpaper_collection_screen.dart';
 import 'wallpaper_framing_screen.dart';
@@ -450,7 +451,9 @@ Future<void> setPresetHidden(
   String src,
   bool hide,
 ) async {
+  // Both read before the first await, while the ref is still mounted.
   final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
+  final host = ref.read(launcherHostApiProvider);
 
   // TWO sets, and they are not redundant. This one is for the rotation call at
   // the bottom, which needs the new value before the provider has reloaded; the
@@ -481,7 +484,7 @@ Future<void> setPresetHidden(
   // Explicit set, because [theme] here is the pre-edit snapshot. See the note
   // on [rotationPoolFor].
   await rescheduleRotation(
-    ref,
+    host,
     theme,
     collections,
     source: theme.prefs.wallpaperRotationSource,
@@ -679,8 +682,13 @@ String rotationSourceLabel(
 /// rotation is off, which is exactly why Off must CLEAR the interval (see the
 /// note in the rotation sheet): a stale interval here would turn a collection
 /// edit into the rotation quietly switching itself back on.
+///
+/// Takes the host API, not a WidgetRef: every caller reaches this after an
+/// await, and a ref read once the page has been popped throws "Using ref when
+/// a widget is unmounted" (the `WallpaperCollectionScreen.build.resync`
+/// crash). Callers read [host] synchronously, before their first await.
 Future<void> rescheduleRotation(
-  WidgetRef ref,
+  LauncherHostApi host,
   EffectiveTheme theme,
   List<WallpaperCollection> collections, {
   required String? source,
@@ -692,18 +700,18 @@ Future<void> rescheduleRotation(
   final pool = rotationPoolFor(theme, collections, source, hidden: hidden);
   // No length branch: Kotlin's schedule() cancels itself on an empty list,
   // and a one-item pool re-applying the same image is harmless.
-  await ref.read(launcherHostApiProvider).scheduleWallpaperRotation(
-        minutes,
-        pool.map((p) => encodeWallpaperFor(theme, p)).toList(),
-        theme.prefs.wallpaperLock ?? false,
-        // The schedule's own fallback, used by the worker for any source in
-        // the pool that carries no framing. It tracks the app default rather
-        // than naming a fit, so changing the default cannot leave rotation
-        // rendering differently from a manual apply.
-        fit ?? theme.prefs.wallpaperFit ?? WallpaperFraming.defaultFit,
-        theme.palette.bgTop.toARGB32(),
-        rotationFramingJson(theme, pool),
-      );
+  await host.scheduleWallpaperRotation(
+    minutes,
+    pool.map((p) => encodeWallpaperFor(theme, p)).toList(),
+    theme.prefs.wallpaperLock ?? false,
+    // The schedule's own fallback, used by the worker for any source in
+    // the pool that carries no framing. It tracks the app default rather
+    // than naming a fit, so changing the default cannot leave rotation
+    // rendering differently from a manual apply.
+    fit ?? theme.prefs.wallpaperFit ?? WallpaperFraming.defaultFit,
+    theme.palette.bgTop.toARGB32(),
+    rotationFramingJson(theme, pool),
+  );
 }
 
 /// Keeps the rotation worker pointed at the ACTIVE distro.
@@ -1694,7 +1702,7 @@ class WallpaperScreen extends ConsumerWidget {
                         : p.copyWith(wallpaperRotationSource: value),
                   );
                   await rescheduleRotation(
-                    ref,
+                    api,
                     theme,
                     collections,
                     source: value,
@@ -1716,6 +1724,7 @@ class WallpaperScreen extends ConsumerWidget {
     }
 
     return ThemedScaffold(
+      settingsLook: true,
       title: context.t('settings.wallpaper'),
       body: ListView(
         // Clears the navigation bar. Trailing padding rather than a SafeArea,
@@ -1787,7 +1796,7 @@ class WallpaperScreen extends ConsumerWidget {
                 next.insert(newIndex, next.removeAt(oldIndex));
                 await notifier.edit((p) => p.copyWith(wallpaperOrder: next));
                 await rescheduleRotation(
-                  ref,
+                  api,
                   theme,
                   collections,
                   source: rotationSource,
@@ -1875,7 +1884,7 @@ class WallpaperScreen extends ConsumerWidget {
               // sequence. `source` is required rather than defaulted because
               // rescheduling off a stale theme is the bug its doc warns about.
               await rescheduleRotation(
-                ref,
+                api,
                 theme,
                 collections,
                 source: rotationSource,
@@ -2133,6 +2142,8 @@ Future<void> _forget(
   String src,
   Future<void> Function(String) apply,
 ) async {
+  // Read before the dialog: the page can be popped while it is open.
+  final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
   final ok = await ThemedDialog.confirm(
     context,
     title: context.t('wallpaper.removeTitle'),
@@ -2142,7 +2153,6 @@ Future<void> _forget(
   );
   if (ok != true) return;
 
-  final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
   final wasCurrent = theme.prefs.wallpaperCurrent == src;
 
   await notifier.edit(

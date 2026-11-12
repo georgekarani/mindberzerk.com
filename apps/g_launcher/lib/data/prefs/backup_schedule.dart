@@ -45,7 +45,7 @@ enum BackupFrequency {
 
 class BackupSchedule {
   const BackupSchedule({
-    this.enabled = false,
+    this.enabled = true,
     this.frequency = BackupFrequency.daily,
     this.lastRunAt,
     this.fingerprint,
@@ -104,8 +104,10 @@ class BackupSchedule {
         BackupFrequency.onChange => null,
       };
 
+  /// Always on: [enabled] is kept in the stored shape for older files but no
+  /// longer gates anything. A launcher that is forgotten about must still
+  /// have a backup when the phone is lost.
   bool get isDue {
-    if (!enabled) return false;
     final last = lastRunAt;
     if (last == null) return true;
     final gap = interval;

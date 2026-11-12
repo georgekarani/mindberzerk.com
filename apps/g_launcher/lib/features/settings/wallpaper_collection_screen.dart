@@ -7,6 +7,7 @@ import 'package:g_launcher/i18n/i18n.dart';
 import '../../core/single_flight_picker.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../data/prefs/wallpaper_collections.dart';
+import '../../data/repositories/app_repository.dart';
 import '../../design/branded_message.dart';
 import '../../design/components/components.dart';
 import '../../engine/effective_theme.dart';
@@ -50,6 +51,7 @@ class WallpaperCollectionScreen extends ConsumerWidget {
       // and nothing to mutate, so an empty themed page beats a crash or a
       // phantom grid.
       return ThemedScaffold(
+        settingsLook: true,
         title: context.t('settings.collection'),
         body: const SizedBox.shrink(),
       );
@@ -58,14 +60,22 @@ class WallpaperCollectionScreen extends ConsumerWidget {
 
     final notifier = ref.read(wallpaperCollectionsProvider.notifier);
     final prefs = ref.read(prefsProvider(theme.spec.id).notifier);
+    final host = ref.read(launcherHostApiProvider);
+
+    // Every handler below awaits a picker, a dialog or a disk write before it
+    // resyncs, and the user can pop this page during any of them. The
+    // element's ref is dead by then ("Using ref when a widget is unmounted",
+    // the `WallpaperCollectionScreen.build.resync` crash), so post-await reads
+    // go through the app-lifetime container instead.
+    final container = ProviderScope.containerOf(context, listen: false);
 
     /// An ACTIVE rotation follows every content change immediately. Reads the
     /// post-mutation list back out of the provider, because [collections]
     /// above is the pre-mutation snapshot.
     Future<void> resync() {
-      final now = ref.read(wallpaperCollectionsProvider);
+      final now = container.read(wallpaperCollectionsProvider);
       return rescheduleRotation(
-        ref,
+        host,
         theme,
         now.hasValue ? now.requireValue : collections,
         source: theme.prefs.wallpaperRotationSource,
@@ -141,6 +151,7 @@ class WallpaperCollectionScreen extends ConsumerWidget {
     final c = ChromeScope.of(context).colors;
 
     return ThemedScaffold(
+      settingsLook: true,
       title: collection.name,
       body: ListView(
         // Clears the navigation bar. Trailing padding rather than a SafeArea,

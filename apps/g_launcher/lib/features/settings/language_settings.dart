@@ -30,6 +30,7 @@ class LanguageSettingsPage extends ConsumerWidget {
     }
 
     return ThemedScaffold(
+      settingsLook: true,
       title: ref.t('settings.language.title'),
       body: ListView(
         // The 28 is the list's own breathing room; the inset clears the

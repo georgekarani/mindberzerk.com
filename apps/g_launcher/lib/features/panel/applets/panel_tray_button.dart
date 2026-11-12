@@ -129,8 +129,7 @@ class PanelTrayButton extends ConsumerWidget {
                     packageName: kSettingsPackage,
                     size: _settingsSize,
                     color: ink,
-                    fallback:
-                        Icon(Icons.tune, size: _settingsSize, color: ink),
+                    fallback: Icon(Icons.tune, size: _settingsSize, color: ink),
                   )
                 else
                   Icon(glyphs[i], size: 16, color: ink),

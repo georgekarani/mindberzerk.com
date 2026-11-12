@@ -344,6 +344,7 @@ class AppRepository(context: Context) {
             isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
             category = categoryOf(appInfo),
             isGame = isGameOf(appInfo),
+            firstInstallTime = firstInstallTime,
         )
     }
 

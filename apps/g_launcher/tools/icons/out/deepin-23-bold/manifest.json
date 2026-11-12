@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "deepin-23-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 266, "sha256": "ca46c64c0b577d7457239b718b40b2436a69d526f029749b24410e41094b2091"},
+    {"path": "preview.png", "size": 22945, "sha256": "6601b3e33e8864b2033c415d76f2f9cf91c29375a20977fe3a370e9a968c17a9"}
+  ]
+}

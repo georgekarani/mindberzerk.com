@@ -275,7 +275,14 @@ data class AppEntry (
    * back to the legacy `FLAG_IS_GAME` for apps that predate the category and
    * never set it — a lot of the games actually installed on a budget phone.
    */
-  val isGame: Boolean
+  val isGame: Boolean,
+  /**
+   * When the package was first installed, in epoch milliseconds, from
+   * `LauncherActivityInfo.getFirstInstallTime()`. Feeds the Recently Added
+   * shelf of an App Library drawer. Zero for entries with no install of
+   * their own (web apps). APPENDED: new fields go at the end of this class.
+   */
+  val firstInstallTime: Long
 )
  {
   companion object {
@@ -291,7 +298,8 @@ data class AppEntry (
       val isSystem = pigeonVar_list[8] as Boolean
       val category = pigeonVar_list[9] as Long
       val isGame = pigeonVar_list[10] as Boolean
-      return AppEntry(componentKey, packageName, className, userSerial, label, updateToken, isWorkProfile, isSuspended, isSystem, category, isGame)
+      val firstInstallTime = pigeonVar_list[11] as Long
+      return AppEntry(componentKey, packageName, className, userSerial, label, updateToken, isWorkProfile, isSuspended, isSystem, category, isGame, firstInstallTime)
     }
   }
   fun toList(): List<Any?> {
@@ -307,6 +315,7 @@ data class AppEntry (
       isSystem,
       category,
       isGame,
+      firstInstallTime,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -317,7 +326,7 @@ data class AppEntry (
       return true
     }
     val other = other as AppEntry
-    return LauncherApiPigeonUtils.deepEquals(this.componentKey, other.componentKey) && LauncherApiPigeonUtils.deepEquals(this.packageName, other.packageName) && LauncherApiPigeonUtils.deepEquals(this.className, other.className) && LauncherApiPigeonUtils.deepEquals(this.userSerial, other.userSerial) && LauncherApiPigeonUtils.deepEquals(this.label, other.label) && LauncherApiPigeonUtils.deepEquals(this.updateToken, other.updateToken) && LauncherApiPigeonUtils.deepEquals(this.isWorkProfile, other.isWorkProfile) && LauncherApiPigeonUtils.deepEquals(this.isSuspended, other.isSuspended) && LauncherApiPigeonUtils.deepEquals(this.isSystem, other.isSystem) && LauncherApiPigeonUtils.deepEquals(this.category, other.category) && LauncherApiPigeonUtils.deepEquals(this.isGame, other.isGame)
+    return LauncherApiPigeonUtils.deepEquals(this.componentKey, other.componentKey) && LauncherApiPigeonUtils.deepEquals(this.packageName, other.packageName) && LauncherApiPigeonUtils.deepEquals(this.className, other.className) && LauncherApiPigeonUtils.deepEquals(this.userSerial, other.userSerial) && LauncherApiPigeonUtils.deepEquals(this.label, other.label) && LauncherApiPigeonUtils.deepEquals(this.updateToken, other.updateToken) && LauncherApiPigeonUtils.deepEquals(this.isWorkProfile, other.isWorkProfile) && LauncherApiPigeonUtils.deepEquals(this.isSuspended, other.isSuspended) && LauncherApiPigeonUtils.deepEquals(this.isSystem, other.isSystem) && LauncherApiPigeonUtils.deepEquals(this.category, other.category) && LauncherApiPigeonUtils.deepEquals(this.isGame, other.isGame) && LauncherApiPigeonUtils.deepEquals(this.firstInstallTime, other.firstInstallTime)
   }
 
   override fun hashCode(): Int {
@@ -333,10 +342,11 @@ data class AppEntry (
     result = 31 * result + LauncherApiPigeonUtils.deepHash(this.isSystem)
     result = 31 * result + LauncherApiPigeonUtils.deepHash(this.category)
     result = 31 * result + LauncherApiPigeonUtils.deepHash(this.isGame)
+    result = 31 * result + LauncherApiPigeonUtils.deepHash(this.firstInstallTime)
     return result
   }
   override fun toString(): String {
-    return "AppEntry(componentKey=$componentKey, packageName=$packageName, className=$className, userSerial=$userSerial, label=$label, updateToken=$updateToken, isWorkProfile=$isWorkProfile, isSuspended=$isSuspended, isSystem=$isSystem, category=$category, isGame=$isGame)"
+    return "AppEntry(componentKey=$componentKey, packageName=$packageName, className=$className, userSerial=$userSerial, label=$label, updateToken=$updateToken, isWorkProfile=$isWorkProfile, isSuspended=$isSuspended, isSystem=$isSystem, category=$category, isGame=$isGame, firstInstallTime=$firstInstallTime)"
   }
 }
 
@@ -1336,8 +1346,14 @@ interface LauncherHostApi {
    * [themeId] is part of every cache key. Change the style without changing the
    * id and you will serve stale icons — so version the id ("ubuntu-24-04.v2")
    * whenever you edit a theme's icon block.
+   *
+   * Async because loading the brand and hero packs parses up to ~26 MB of
+   * JSON and asks PackageManager for every installed app. On the main thread
+   * that froze the UI on every distro switch and was reported as an ANR.
+   * The reply is sent only after the packs are loaded, so Dart never
+   * re-requests icons against a half-loaded theme.
    */
-  fun setIconTheme(themeId: String, style: IconStyle)
+  fun setIconTheme(themeId: String, style: IconStyle, callback: (Result<Unit>) -> Unit)
   /**
    * PNG bytes for one icon at one size, under the active theme.
    * Null if the component vanished (uninstalled mid-scroll).
@@ -1420,6 +1436,13 @@ interface LauncherHostApi {
    * PNG bytes for the applied brand pack's drawing of [packageName] with no
    * tile: white on transparency, for the caller to tint. Null when the pack
    * has no drawing for that package.
+   *
+   * For chrome, not the grid. The panel's quick-settings button wears the
+   * distro pack's own Settings drawing, and through [getIcon] it would arrive
+   * on its plate and read as a small app icon sitting in the bar.
+   *
+   * A package name rather than a component key, because chrome has no
+   * launcher entry in hand, and a brand glyph names the package anyway.
    */
   fun getBareGlyph(packageName: String, sizePx: Long, callback: (Result<ByteArray?>) -> Unit)
   /** Nukes memory + disk. For a "rebuild icon cache" button in Settings. */
@@ -1804,7 +1827,14 @@ interface LauncherHostApi {
    * that it is NOT a version code. This one is.
    */
   fun getVersionCode(): Long
-  /** The package that handles one of the dock's seed roles, or null. */
+  /**
+   * The package that handles one of the dock's seed roles, or null.
+   *
+   * [role] is `dialer`, `sms`, `browser` or `camera`. The answer is the
+   * user's DEFAULT for that role when one is set, otherwise the first app
+   * that can handle it, otherwise null. Read once, when a distro with
+   * `layout.dockSeed` first pins its dock.
+   */
   fun defaultAppFor(role: String): String?
   /**
    * Open Android's folder picker and remember what the user chose.
@@ -2049,13 +2079,14 @@ interface LauncherHostApi {
             val args = message as List<Any?>
             val themeIdArg = args[0] as String
             val styleArg = args[1] as IconStyle
-            val wrapped: List<Any?> = try {
-              api.setIconTheme(themeIdArg, styleArg)
-              listOf(null)
-            } catch (exception: Throwable) {
-              LauncherApiPigeonUtils.wrapError(exception)
+            api.setIconTheme(themeIdArg, styleArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(LauncherApiPigeonUtils.wrapError(error))
+              } else {
+                reply.reply(LauncherApiPigeonUtils.wrapResult(null))
+              }
             }
-            reply.reply(wrapped)
           }
         } else {
           channel.setMessageHandler(null)
@@ -2105,13 +2136,13 @@ interface LauncherHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.getBareGlyph$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.previewGeneratedIcons$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val packageNameArg = args[0] as String
+            val componentKeysArg = args[0] as List<String>
             val sizePxArg = args[1] as Long
-            api.getBareGlyph(packageNameArg, sizePxArg) { result: Result<ByteArray?> ->
+            api.previewGeneratedIcons(componentKeysArg, sizePxArg) { result: Result<List<ByteArray?>> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(LauncherApiPigeonUtils.wrapError(error))
@@ -2126,13 +2157,13 @@ interface LauncherHostApi {
         }
       }
       run {
-        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.previewGeneratedIcons$separatedMessageChannelSuffix", codec)
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.getBareGlyph$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
             val args = message as List<Any?>
-            val componentKeysArg = args[0] as List<String>
+            val packageNameArg = args[0] as String
             val sizePxArg = args[1] as Long
-            api.previewGeneratedIcons(componentKeysArg, sizePxArg) { result: Result<List<ByteArray?>> ->
+            api.getBareGlyph(packageNameArg, sizePxArg) { result: Result<ByteArray?> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(LauncherApiPigeonUtils.wrapError(error))

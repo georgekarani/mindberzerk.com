@@ -95,6 +95,17 @@ const SETS = {
     license: 'CC-BY-SA-4.0',
     attribution: 'Arcticons by Donnnno, CC BY-SA 4.0',
   },
+  // Lawnicons, sold rebranded as Bold. Apache-2.0: rename, recolour and sell,
+  // with no share-alike. The licence text and this credit must travel with the
+  // art, and the Lawnicons and Lawnchair names are never used as our brand.
+  lawnicons: {
+    appfilter: 'app/assets/appfilter.xml',
+    icons: 'svgs',
+    viewBox: 192,
+    strokeWidth: 12,
+    license: 'Apache-2.0',
+    attribution: 'Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data.',
+  },
 };
 
 /**

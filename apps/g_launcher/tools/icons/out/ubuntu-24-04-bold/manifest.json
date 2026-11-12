@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "ubuntu-24-04-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 269, "sha256": "2c1d9b8acce65842be3e4e48368e708f2eb9bad7f1a2c7566dc711a1a03ec6d9"},
+    {"path": "preview.png", "size": 28122, "sha256": "eeb52866f19cbdf705a4a0d8b218aa32171f0183737cfd62900a07c7e679d3aa"}
+  ]
+}

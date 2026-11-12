@@ -19,6 +19,7 @@ import '../engine/effective_theme.dart';
 import '../engine/theme_spec.dart' show ThemePalette;
 import 'components/components.dart';
 import 'device_preview.dart';
+import 'settings_look.dart';
 import 'drawer_transition.dart';
 
 /// A page-level preview: one picture at the top of a settings section, showing
@@ -69,17 +70,31 @@ class SettingPreview extends StatelessWidget {
     if (query.isNotEmpty) return const SizedBox.shrink();
     final c = ChromeScope.of(context).colors;
 
+    if (SettingsLookScope.of(context) != null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 22),
+        child: SizedBox(
+          height: 168,
+          child: FittedBox(
+            child: SizedBox(width: 300, child: child),
+          ),
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
       child: Column(
         children: [
           child,
-          const SizedBox(height: 8),
-          Text(
-            caption,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: c.textFaint, fontSize: 12),
-          ),
+          if (SettingsLookScope.of(context) == null) ...[
+            const SizedBox(height: 8),
+            Text(
+              caption,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: c.textFaint, fontSize: 12),
+            ),
+          ],
         ],
       ),
     );
@@ -230,6 +245,35 @@ class PreviewChoice<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = ChromeScope.of(context).colors;
+    final look = SettingsLookScope.of(context);
+    final immersive = look != null;
+    final heading = title;
+    if (look != null && heading != null) {
+      String? current;
+      for (final o in options) {
+        if (o.value == value) current = o.label;
+      }
+      return LookValueRow(
+        look: look,
+        title: heading,
+        value: current,
+        onTap: !enabled
+            ? null
+            : () => showLookSheet(
+                  context,
+                  title: heading,
+                  builder: (sheet) => PreviewChoice<T>(
+                    options: options,
+                    value: value,
+                    perRow: perRow,
+                    onSelect: (v) {
+                      Navigator.of(sheet).pop();
+                      onSelect(v);
+                    },
+                  ),
+                ),
+      );
+    }
 
     // 0.4 is the alpha `SettingsToggleRow` dims its title by (settings_rows,
     // `enabled ? s.tx : s.mut.withValues(alpha: 0.4)`), so a greyed picture row
@@ -361,7 +405,7 @@ class PreviewChoice<T> extends StatelessWidget {
               // Drawn only when a pref IS set, so a row that is already
               // following says nothing. A chip that is present and inert on
               // most visits is a control people stop reading.
-              if (onFollow != null && !following)
+              if (!immersive && onFollow != null && !following)
                 GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: enabled ? onFollow : null,
@@ -375,7 +419,7 @@ class PreviewChoice<T> extends StatelessWidget {
                 ),
             ],
           ),
-          if (subtitle != null) ...[
+          if (!immersive && subtitle != null) ...[
             const SizedBox(height: 2),
             Text(
               subtitle!,
@@ -944,6 +988,20 @@ class PanelSlider extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final look = SettingsLookScope.of(context);
+    if (look != null) {
+      return LookSlider(
+        look: look,
+        label: label,
+        value: value,
+        min: min,
+        max: max,
+        divisions: divisions,
+        format: format,
+        onChanged: onChanged,
+      );
+    }
+
     final d = ChromeScope.of(context);
     final c = d.colors;
 

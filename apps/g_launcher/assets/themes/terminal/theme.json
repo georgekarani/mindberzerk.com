@@ -3,6 +3,7 @@
   "name": "Terminal",
   "version": "type-to-launch",
   "shell": "tui",
+  "settingsLook": "config",
   "tier": "free",
   "palette": {
     "bgTop": "#080D08",

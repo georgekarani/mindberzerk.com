@@ -188,30 +188,30 @@ class _GlassPill extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 7),
           child: ClipRRect(
-          borderRadius: radius,
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-            child: Container(
-              constraints: const BoxConstraints(minHeight: 34, minWidth: 64),
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                gradient: LiquidGlass.fill(dark: theme.glassDark),
-                border: Border.all(color: LiquidGlass.edge),
-                borderRadius: radius,
-              ),
-              foregroundDecoration: LiquidGlass.rim(radius),
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontFamily: theme.typography.display,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: theme.spec.palette.onDark,
+            borderRadius: radius,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 34, minWidth: 64),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: LiquidGlass.fill(dark: theme.glassDark),
+                  border: Border.all(color: LiquidGlass.edge),
+                  borderRadius: radius,
+                ),
+                foregroundDecoration: LiquidGlass.rim(radius),
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontFamily: theme.typography.display,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: theme.spec.palette.onDark,
+                  ),
                 ),
               ),
             ),
-          ),
           ),
         ),
       ),

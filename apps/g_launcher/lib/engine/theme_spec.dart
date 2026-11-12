@@ -39,10 +39,12 @@ class ThemeSpec {
     this.iconLooks = const [],
     required this.wallpapers,
     this.wallpapersLight = const [],
+    this.screenshots = const [],
     this.wallpaperMeta = const {},
     this.fonts = const [],
     required this.minAppVersion,
     ChromeFamily? chromeFamily,
+    this.settingsLook,
     this.logo,
     this.boot,
     this.splash,
@@ -89,6 +91,12 @@ class ThemeSpec {
   /// this. Kept private so a caller can't accidentally read the un-resolved
   /// override and get a null.
   final ChromeFamily? _chromeFamily;
+
+  /// The theme's explicit settings page grammar (`boxed`, `cinnamon`, `form`,
+  /// `dialog`, `grouped`, `config`), or null to derive it from the chrome
+  /// family and shell. Kept as the raw string: `SettingsLook` lives in the
+  /// design layer, which parses it, so the engine takes no dependency on it.
+  final String? settingsLook;
 
   /// The resolved chrome family (see [ChromeFamily]) — the STRUCTURAL design
   /// language of the launcher's own surfaces (Settings, dialogs, sheets), as
@@ -147,6 +155,11 @@ class ThemeSpec {
   /// `noble_light.webp` in its wallpapers list the whole time and nothing ever
   /// chose it.
   final List<String> wallpapersLight;
+
+  /// Real phone screenshots for the store, bare filenames shipped in the pack,
+  /// in display order (home, drawer, settings). Empty means the store draws
+  /// the distro from this spec instead.
+  final List<String> screenshots;
 
   /// How each of this theme's own wallpapers should meet the screen, keyed by
   /// the SAME string that appears in [wallpapers] or [wallpapersLight].
@@ -426,6 +439,7 @@ class ThemeSpec {
         iconLooks: iconLooks,
         wallpapers: wallpapers,
         wallpapersLight: wallpapersLight,
+        screenshots: screenshots,
         wallpaperMeta: wallpaperMeta,
         fonts: fonts,
         minAppVersion: minAppVersion,
@@ -435,6 +449,7 @@ class ThemeSpec {
         // one — and a later change to `defaultForShell` would then be ignored
         // for every theme that had been through here.
         chromeFamily: _chromeFamily,
+        settingsLook: settingsLook,
         logo: logo,
         boot: boot,
         splash: splash,
@@ -534,8 +549,7 @@ class ThemeSpec {
   static api.IconStyle _iconStyle(Map<String, dynamic> icons) => api.IconStyle(
         treatment: _treatment(icons['treatment'] as String?),
         cornerRadius: (icons['cornerRadius'] as num?)?.toDouble() ?? 0.22,
-        foregroundScale:
-            (icons['foregroundScale'] as num?)?.toDouble() ?? 1.0,
+        foregroundScale: (icons['foregroundScale'] as num?)?.toDouble() ?? 1.0,
         backgroundColor:
             parseColor(icons['backgroundColor'] as String?)?.toARGB32(),
         monochromeTint:
@@ -602,6 +616,11 @@ class ThemeSpec {
       wallpapersLight: ((json['wallpapersLight'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList(),
+      // String entries only; anything else is dropped rather than fatal.
+      screenshots: ((json['screenshots'] as List?) ?? const [])
+          .whereType<String>()
+          .where((e) => e.isNotEmpty)
+          .toList(),
       wallpaperMeta: _wallpaperMeta(json),
       fonts: ((json['fonts'] as List?) ?? const [])
           .whereType<Map>()
@@ -637,6 +656,8 @@ class ThemeSpec {
       // from a newer CDN theme) lets the ThemeSpec.chromeFamily getter fall
       // back to the shell default, so the bundled themes need no JSON change.
       chromeFamily: ChromeFamily.parse(json['chromeFamily'] as String?),
+      // Carried raw; an unknown value falls back to the derived look.
+      settingsLook: json['settingsLook'] as String?,
       // A malformed entry is DROPPED, not fatal, matching every other list in
       // this file. A category with no name is a rail slot nobody can read.
       categories: ((json['categories'] as List?) ?? const [])

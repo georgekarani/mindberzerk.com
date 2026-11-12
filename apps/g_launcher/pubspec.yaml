@@ -4,7 +4,7 @@ publish_to: "none"
 
 # versionCode MUST exceed whatever is live on Play right now. Check the console.
 # Live is 1; 2 is burned on a rejected release. Hence +6.
-version: 6.0.15+44
+version: 6.0.15+47
 
 # Pub workspace member. Without this the root `workspace:` list rejects it and
 # melos bootstrap fails with a message about resolution mode.
@@ -215,6 +215,8 @@ flutter:
     - assets/fonts/UBUNTU-FONT-LICENCE-1.0.txt
     - assets/fonts/catalogue.json
     - assets/fonts/licences/
+    # Icon set licences: GPL-3.0 travels with Papirus and Numix Circle.
+    - assets/licences/
   # Ubuntu + Ubuntu Mono are what make the Ubuntu theme feel real.
   #
   # These family names are load-bearing: they must match theme.json

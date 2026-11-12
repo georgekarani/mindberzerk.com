@@ -2,10 +2,11 @@
   "formatVersion": 1,
   "packType": "brand",
   "packId": "kde-plasma-6-line",
-  "version": 1787608616,
+  "version": 1794499055,
   "minAppVersion": 7,
   "keyId": "mh-2026-07",
   "files": [
-    {"path": "pack.json", "size": 208, "sha256": "50768df8fd6f03000dada73da5b71b14260743575a0147c998911c6b2f99cf83"}
+    {"path": "pack.json", "size": 208, "sha256": "50768df8fd6f03000dada73da5b71b14260743575a0147c998911c6b2f99cf83"},
+    {"path": "preview.png", "size": 36538, "sha256": "60a51b9a0f433f0375ada566d95408d947b7665df7d1ec0183281baca784bae3"}
   ]
 }

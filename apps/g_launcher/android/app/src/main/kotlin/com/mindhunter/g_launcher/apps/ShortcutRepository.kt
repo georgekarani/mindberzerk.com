@@ -159,6 +159,8 @@ class ShortcutRepository(context: Context) {
                 isSystem = false,
                 category = -1L,
                 isGame = false,
+                // A web app has no package install of its own to date.
+                firstInstallTime = 0L,
             )
         }
     }

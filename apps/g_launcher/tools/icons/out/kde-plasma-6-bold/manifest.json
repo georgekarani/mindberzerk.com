@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "kde-plasma-6-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 273, "sha256": "f5fc5a949a321956b6296faf9fe7069a3bf8e4c0470df08b33896b5dba215295"},
+    {"path": "preview.png", "size": 28338, "sha256": "a7441891bf3ee877ab341b1c2192eee0238dc6878860d047e4955cd13495d379"}
+  ]
+}

@@ -15,8 +15,7 @@ import '../../../design/device_preview.dart';
 import '../../../design/setting_previews.dart';
 import '../../../engine/capabilities.dart';
 import '../../../engine/effective_theme.dart';
-import '../../../engine/theme_spec.dart'
-    show DockSide, PanelModule, TopBarSide;
+import '../../../engine/theme_spec.dart' show DockSide, PanelModule, TopBarSide;
 import '../../dock/dock_animations.dart';
 import '../../home/workspaces/workspace_controller.dart';
 import '../../panel/modules/panel_cosmic_modules.dart' show setTiledHome;
@@ -41,9 +40,14 @@ List<Widget> desktopSection(
   ref.read(launcherHostApiProvider);
 
   // "Top bar" on the top edge, "Panel" on any other. See the Top bar group.
-  final panelWord = theme.panelSide == TopBarSide.top
-      ? 'settings.topBar'
-      : 'settings.panel';
+  final panelWord =
+      theme.panelSide == TopBarSide.top ? 'settings.topBar' : 'settings.panel';
+
+  // A section page folds Motion and Modules into one row each; search and
+  // the legacy page keep every row flat.
+  final look = SettingsLookScope.of(context);
+  final drillIn = look != null && q.isEmpty;
+  final moduleRows = _moduleRows(context, ref, theme);
 
   return [
     SettingPreview(
@@ -52,10 +56,15 @@ List<Widget> desktopSection(
       child: LayoutPreview(theme: theme),
     ),
 
-    // ── Layout ─────────────────────────────────────────────────────
+    // ── Dock ───────────────────────────────────────────────────────
+    //
+    // Groups follow the distro's own settings: what sits on the screen edge,
+    // the bar along the top or bottom, then the desktop itself. Rows a
+    // distro cannot do are hidden on a section page, so a dockless distro
+    // shows no Dock group at all.
     SettingsGroup(
-      label: context.t('settings.layout'),
-      scope: 'This distro',
+      key: const ValueKey('desk.dock'),
+      label: context.t('setup.step.dock'),
       query: q,
       rows: [
         // ── THE PICTURE IS THE CONTROL ─────────────────────────────
@@ -181,80 +190,42 @@ List<Widget> desktopSection(
             onFollow: () => notifier.edit((p) => p.clearing(dockOpacity: true)),
           ),
         ),
-        // ─── THE PANEL HAD NO ENTRY POINT AT ALL ───────────────────
+        // ─── MOTION: ONE ROW ON A SECTION PAGE ───────────────────────
         //
-        // The editor opened from a long press on the panel and nowhere else,
-        // which is a gesture nobody is told about on a surface most people
-        // will not think to hold. Every other part of the desktop is reachable
-        // from this page, and a user who moved the panel to an edge they did
-        // not want then had to find the hold to get it back.
-        //
-        // The row OPENS the editor rather than restating it. Modules, order,
-        // edge and thickness are four controls that already live together in
-        // one place, and splitting them across a settings page would be two
-        // ways to say the same thing that could disagree.
-        if (theme.panelEdit && theme.panels.isNotEmpty)
+        // Three animation rows read as three settings about the same
+        // thing. On a section page they fold into one row that opens them
+        // together; search and the legacy page still list them flat so
+        // each stays findable by name.
+        if (drillIn && theme.dock != DockSide.off)
           FilterRow(
-            const ['panel', 'taskbar', 'bar', 'modules', 'tray', 'edge'],
+            const ['motion', 'animation', 'hover', 'press', 'entrance'],
             SettingsRow(
-              icon: Icons.space_dashboard_outlined,
-              accent: true,
-              title: context.t('settings.panel'),
-              subtitle: context.t('settings.panelSub'),
-              trailing: const Icon(Icons.chevron_right, size: 18),
-              onTap: () => showPanelEditor(context, theme),
+              icon: Icons.animation,
+              title: context.t('settings.motion'),
+              subtitle: context.t(
+                dockAnimationFor(dockHoverModes, theme.dockHover)
+                    .labelKey('dockHover'),
+              ),
+              keepSubtitle: true,
+              trailing: const Chevron(),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SettingsSubPage(
+                    title: context.t('settings.motion'),
+                    look: look,
+                    builder: (context, ref, theme) => [
+                      SettingsGroup(
+                        label: context.t('setup.step.dock'),
+                        rows: _motionRows(context, ref, theme),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-          ),
-        // ─── THREE AXES, THREE ROWS, ONE HELPER ──────────────────────
-        //
-        // Beside the dock's position and opacity rather than in Appearance,
-        // because this is where somebody looking for the dock looks. Appearance
-        // is about the distro's palette and type; these are about one surface's
-        // behaviour.
-        //
-        // A sheet rather than a `Seg`, for the reason the panel-edge row gives:
-        // seven and ten values do not fit a segmented control at any font
-        // scale, and each of these needs a line of description anyway. Nobody
-        // knows what "Magnetic part" looks like from its name.
-        _animationRow(
-          context: context,
-          ref: ref,
-          theme: theme,
-          axis: 'dockHover',
-          icon: Icons.touch_app_outlined,
-          modes: dockHoverModes,
-          value: theme.dockHover,
-          terms: const ['dock', 'hover', 'magnify', 'animation', 'motion'],
-          write: (v) => notifier.edit((p) => p.copyWith(dockHover: v)),
-          follow: theme.prefs.dockHover == null,
-          clear: () => notifier.edit((p) => p.clearing(dockHover: true)),
-        ),
-        _animationRow(
-          context: context,
-          ref: ref,
-          theme: theme,
-          axis: 'dockPress',
-          icon: Icons.ads_click,
-          modes: dockPressModes,
-          value: theme.dockPress,
-          terms: const ['dock', 'press', 'tap', 'bounce', 'animation'],
-          write: (v) => notifier.edit((p) => p.copyWith(dockPress: v)),
-          follow: theme.prefs.dockPress == null,
-          clear: () => notifier.edit((p) => p.clearing(dockPress: true)),
-        ),
-        _animationRow(
-          context: context,
-          ref: ref,
-          theme: theme,
-          axis: 'dockEntrance',
-          icon: Icons.animation,
-          modes: dockEntranceModes,
-          value: theme.dockEntrance,
-          terms: const ['dock', 'entrance', 'appear', 'slide', 'animation'],
-          write: (v) => notifier.edit((p) => p.copyWith(dockEntrance: v)),
-          follow: theme.prefs.dockEntrance == null,
-          clear: () => notifier.edit((p) => p.clearing(dockEntrance: true)),
-        ),
+          )
+        else
+          ..._motionRows(context, ref, theme),
         FilterRow(
           const ['activities', 'grid button', 'app button', 'dock'],
           SettingsRow(
@@ -280,6 +251,175 @@ List<Widget> desktopSection(
             ),
           ),
         ),
+      ],
+    ),
+
+    // ── Top bar or panel ───────────────────────────────────────────
+    //
+    // "Top bar" only when it is on top: Mint, Zorin and Kali put their
+    // panel along the bottom, and the word follows the resolved edge.
+    SettingsGroup(
+      key: const ValueKey('desk.panel'),
+      label: context.t(panelWord),
+      query: q,
+      rows: [
+        FilterRow(
+          const ['top bar', 'status bar', 'gnome bar'],
+          SettingsToggleRow(
+            icon: Icons.web_asset_outlined,
+            accent: true,
+            title: context.t(panelWord),
+            // NOT gated on hasTopBar: this switch is what CREATES one, so
+            // greying it where there is none would be the row disabling
+            // itself. The rows that consume a bar are the ones that follow it.
+            value: theme.topBar,
+            onChanged: (v) => notifier.edit((p) => p.copyWith(topBar: v)),
+          ),
+        ),
+        // ─── THE OTHER BAR, DIRECTLY UNDER THE FIRST ─────────────────
+        //
+        // Two bars share one row of pixels on this phone, and until this row
+        // existed only one of them was ours to decide. Putting it anywhere
+        // else on the page asks the same question twice in two places.
+        //
+        // NOT gated on a capability, for the reason the switch above is not:
+        // a bar the system owns is not something a theme can lack. What the
+        // theme supplies is the default, which is what the subtitle names.
+        FilterRow(
+          const [
+            'status bar',
+            'system bar',
+            'android bar',
+            'fullscreen',
+            'immersive',
+            'notch',
+            'clock',
+            'battery icon',
+          ],
+          // ─── ON A DISTRO WITH A PANEL, THE QUESTION IS WHO OWNS THE ROW ───
+          //
+          // Asked the panel's way round: "status icons on the panel". On puts
+          // Wi-Fi, sound, battery and the clock on the panel and hides
+          // Android's status bar in the same write, because both at once is
+          // the same row twice. Off, the default, leaves the row to Android and
+          // the panel keeps one quick-settings button. It is the same stored
+          // `statusBar` pref, inverted, so nothing migrates.
+          //
+          // A distro with no panel keeps the plain status bar switch: there is
+          // nothing to hand the row to, and its own top row is the theme's.
+          // A dock with its own tray (Deepin) owns the row like a panel.
+          theme.panels.isEmpty && !theme.dockTray
+              ? SettingsToggleRow(
+                  icon: Icons.smartphone_outlined,
+                  accent: true,
+                  title: context.t('settings.statusBar'),
+                  subtitle: theme.spec.layout.statusBar
+                      ? context.t('settings.statusBarShownSub')
+                      : context.t('settings.statusBarHiddenSub', {
+                          'name': theme.spec.name,
+                        }),
+                  value: theme.statusBar,
+                  onChanged: (v) =>
+                      notifier.edit((p) => p.copyWith(statusBar: v)),
+                )
+              : SettingsToggleRow(
+                  icon: Icons.signal_wifi_4_bar,
+                  accent: true,
+                  title: context.t(theme.panels.isEmpty
+                      ? 'settings.dockStatusIcons'
+                      : 'settings.panelStatusIcons'),
+                  subtitle: context.t('settings.panelStatusIconsSub'),
+                  value: !theme.statusBar,
+                  onChanged: (v) =>
+                      notifier.edit((p) => p.copyWith(statusBar: !v)),
+                ),
+        ),
+        // ─── THE PANEL HAD NO ENTRY POINT AT ALL ───────────────────
+        //
+        // The editor opened from a long press on the panel and nowhere else,
+        // which is a gesture nobody is told about on a surface most people
+        // will not think to hold. Every other part of the desktop is reachable
+        // from this page, and a user who moved the panel to an edge they did
+        // not want then had to find the hold to get it back.
+        //
+        // The row OPENS the editor rather than restating it. Modules, order,
+        // edge and thickness are four controls that already live together in
+        // one place, and splitting them across a settings page would be two
+        // ways to say the same thing that could disagree.
+        if (theme.panelEdit && theme.panels.isNotEmpty)
+          FilterRow(
+            const ['panel', 'taskbar', 'bar', 'modules', 'tray', 'edge'],
+            SettingsRow(
+              icon: Icons.space_dashboard_outlined,
+              accent: true,
+              title: context.t('settings.panel'),
+              subtitle: context.t('settings.panelSub'),
+              trailing: const Icon(Icons.chevron_right, size: 18),
+              onTap: () => showPanelEditor(context, theme),
+            ),
+          ),
+        // ─── MODULES: ONE ROW ON A SECTION PAGE ──────────────────────
+        //
+        // One switch per authored module grew the group by up to four
+        // rows. They now sit one level down, behind a single row.
+        if (drillIn && moduleRows.isNotEmpty)
+          FilterRow(
+            const ['modules', 'clock', 'wifi', 'battery', 'sound'],
+            SettingsRow(
+              icon: Icons.widgets_outlined,
+              title: context.t('settings.modules'),
+              trailing: const Chevron(),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => SettingsSubPage(
+                    title: context.t('settings.modules'),
+                    look: look,
+                    builder: (context, ref, theme) => [
+                      SettingsGroup(
+                        label: context.t(
+                          theme.panelSide == TopBarSide.top
+                              ? 'settings.topBar'
+                              : 'settings.panel',
+                        ),
+                        rows: _moduleRows(context, ref, theme),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          )
+        else
+          ...moduleRows,
+        // Directly under the switch that turns the bar on, which is where
+        // someone deciding how the bar should look already is.
+        FilterRow(
+          const ['opacity', 'bar', 'panel', 'transparency', 'top'],
+          OpacityRow(
+            label: context.t('settings.barOpacity'),
+            // A slider that moves and changes nothing, on every distro without
+            // a bar. `hasTopBar` asks `panels` rather than the shell, so a
+            // distro that turns its bar off greys this by saying one thing.
+            enabled: theme.hasTopBar.available,
+            sub: theme.hasTopBar.available
+                ? context.t('settings.barOpacitySub')
+                : context.t(theme.hasTopBar.why!),
+            subWhenInert: true,
+            value: theme.barOpacity,
+            following: theme.prefs.barOpacity == null,
+            onChanged: (v) => notifier.edit((p) => p.copyWith(barOpacity: v)),
+            onFollow: () => notifier.edit((p) => p.clearing(barOpacity: true)),
+          ),
+        ),
+      ],
+    ),
+
+    // ── Desktop ────────────────────────────────────────────────────
+    SettingsGroup(
+      key: const ValueKey('desk.desktop'),
+      label: context.t('setup.step.distro'),
+      query: q,
+      rows: [
         // ── DESKTOP ICONS ──────────────────────────────────────────
         //
         // DIMMED AND INERT ON A DISTRO WITH NO GRID, which is the rule
@@ -397,155 +537,82 @@ List<Widget> desktopSection(
         ),
       ],
     ),
-    // ── Top bar ────────────────────────────────────────────────────
-    //
-    // MOVED FROM APPEARANCE, where it lived in a group called "Icons and
-    // bar". The bar and the dock are the same decision twice: both are
-    // permanent chrome, both are per distro because their placement is what
-    // makes a desktop recognisable, and both carry an opacity that follows
-    // the main surfaces slider until split. Having one on this page and the
-    // other two pages away was the clearest single fault in the old layout.
-    // ─── "TOP BAR" ONLY WHEN IT IS ON TOP ───────────────────────────────
-    //
-    // Mint, Zorin and Kali put their panel along the bottom, and a switch
-    // called "Top bar" that turns off a bottom panel reads as broken. The
-    // word follows the resolved edge.
-    SettingsGroup(
-      label: context.t(panelWord),
-      scope: 'This distro',
-      query: q,
-      rows: [
-        FilterRow(
-          const ['top bar', 'status bar', 'gnome bar'],
-          SettingsToggleRow(
-            icon: Icons.web_asset_outlined,
-            accent: true,
-            title: context.t(panelWord),
-            // NOT gated on hasTopBar: this switch is what CREATES one, so
-            // greying it where there is none would be the row disabling
-            // itself. The rows that consume a bar are the ones that follow it.
-            value: theme.topBar,
-            onChanged: (v) => notifier.edit((p) => p.copyWith(topBar: v)),
-          ),
-        ),
-        // ─── THE OTHER BAR, DIRECTLY UNDER THE FIRST ─────────────────
-        //
-        // Two bars share one row of pixels on this phone, and until this row
-        // existed only one of them was ours to decide. Putting it anywhere
-        // else on the page asks the same question twice in two places.
-        //
-        // NOT gated on a capability, for the reason the switch above is not:
-        // a bar the system owns is not something a theme can lack. What the
-        // theme supplies is the default, which is what the subtitle names.
-        FilterRow(
-          const [
-            'status bar',
-            'system bar',
-            'android bar',
-            'fullscreen',
-            'immersive',
-            'notch',
-            'clock',
-            'battery icon',
-          ],
-          // ─── ON A DISTRO WITH A PANEL, THE QUESTION IS WHO OWNS THE ROW ───
-          //
-          // Asked the panel's way round: "status icons on the panel". On puts
-          // Wi-Fi, sound, battery and the clock on the panel and hides
-          // Android's status bar in the same write, because both at once is
-          // the same row twice. Off, the default, leaves the row to Android and
-          // the panel keeps one quick-settings button. It is the same stored
-          // `statusBar` pref, inverted, so nothing migrates.
-          //
-          // A distro with no panel keeps the plain status bar switch: there is
-          // nothing to hand the row to, and its own top row is the theme's.
-          // A dock with its own tray (Deepin) owns the row like a panel.
-          theme.panels.isEmpty && !theme.dockTray
-              ? SettingsToggleRow(
-                  icon: Icons.smartphone_outlined,
-                  accent: true,
-                  title: context.t('settings.statusBar'),
-                  subtitle: theme.spec.layout.statusBar
-                      ? context.t('settings.statusBarShownSub')
-                      : context.t('settings.statusBarHiddenSub', {
-                          'name': theme.spec.name,
-                        }),
-                  value: theme.statusBar,
-                  onChanged: (v) =>
-                      notifier.edit((p) => p.copyWith(statusBar: v)),
-                )
-              : SettingsToggleRow(
-                  icon: Icons.signal_wifi_4_bar,
-                  accent: true,
-                  title: context.t(theme.panels.isEmpty
-                      ? 'settings.dockStatusIcons'
-                      : 'settings.panelStatusIcons'),
-                  subtitle: context.t('settings.panelStatusIconsSub'),
-                  value: !theme.statusBar,
-                  onChanged: (v) =>
-                      notifier.edit((p) => p.copyWith(statusBar: !v)),
-                ),
-        ),
-        // ─── ONE ROW PER DUPLICATE THE DISTRO AUTHORED ───────────────
-        //
-        // Not the whole module catalogue: adding and reordering is
-        // `panelEdit`, which is a product line rather than an oversight. These
-        // four are the ones that print something Android is already printing
-        // four pixels above them, and declining a duplicate is not arranging a
-        // panel. See `silenceableModules`.
-        //
-        // A row appears only when the DISTRO authored that module, so Kali's
-        // readout bar grows no switches for a clock it never had, and nobody
-        // is offered a control that would add something to their bar.
-        //
-        // The subtitle names the duplication while the system bar is on,
-        // because that is the whole reason the switch is worth finding.
-        // The status four only while the panel owns the status row: with
-        // Android's bar up they are not drawn at all, and a switch for
-        // something that cannot appear is a switch that lies.
-        //
-        // AND ONLY WITH A PANEL ON SCREEN. With the panel switched off these
-        // rows read the fallback module list, showed every module on, and a
-        // tap wrote a list nothing draws: switches that would not switch.
-        for (final m in silenceableModules)
-          if (theme.panels.isNotEmpty &&
-              _authoredOnPanel(theme, m) &&
-              (!theme.statusBar || !statusModules.contains(m)))
-            FilterRow(
-              ['top bar', panelModuleLabel(context, m).toLowerCase()],
-              SettingsToggleRow(
-                icon: panelModuleIcon(m),
-                title: panelModuleLabel(context, m),
-                subtitle: theme.statusBar
-                    ? context.t('settings.alsoInStatusBar')
-                    : null,
-                value: currentPanelItems(theme).any((e) => e.kind == m),
-                onChanged: (v) =>
-                    setPanelModuleEnabled(ref, theme, m, enabled: v),
-              ),
-            ),
-        // Directly under the switch that turns the bar on, which is where
-        // someone deciding how the bar should look already is.
-        FilterRow(
-          const ['opacity', 'bar', 'panel', 'transparency', 'top'],
-          OpacityRow(
-            label: context.t('settings.barOpacity'),
-            // A slider that moves and changes nothing, on every distro without
-            // a bar. `hasTopBar` asks `panels` rather than the shell, so a
-            // distro that turns its bar off greys this by saying one thing.
-            enabled: theme.hasTopBar.available,
-            sub: theme.hasTopBar.available
-                ? context.t('settings.barOpacitySub')
-                : context.t(theme.hasTopBar.why!),
-            subWhenInert: true,
-            value: theme.barOpacity,
-            following: theme.prefs.barOpacity == null,
-            onChanged: (v) => notifier.edit((p) => p.copyWith(barOpacity: v)),
-            onFollow: () => notifier.edit((p) => p.clearing(barOpacity: true)),
-          ),
-        ),
-      ],
+  ];
+}
+
+/// The three dock-animation rows, flat on the legacy page and in search,
+/// one level down behind Motion on a section page.
+List<FilterRow> _motionRows(
+  BuildContext context,
+  WidgetRef ref,
+  EffectiveTheme theme,
+) {
+  final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
+  return [
+    _animationRow(
+      context: context,
+      ref: ref,
+      theme: theme,
+      axis: 'dockHover',
+      icon: Icons.touch_app_outlined,
+      modes: dockHoverModes,
+      value: theme.dockHover,
+      terms: const ['dock', 'hover', 'magnify', 'animation', 'motion'],
+      write: (v) => notifier.edit((p) => p.copyWith(dockHover: v)),
+      follow: theme.prefs.dockHover == null,
+      clear: () => notifier.edit((p) => p.clearing(dockHover: true)),
     ),
+    _animationRow(
+      context: context,
+      ref: ref,
+      theme: theme,
+      axis: 'dockPress',
+      icon: Icons.ads_click,
+      modes: dockPressModes,
+      value: theme.dockPress,
+      terms: const ['dock', 'press', 'tap', 'bounce', 'animation'],
+      write: (v) => notifier.edit((p) => p.copyWith(dockPress: v)),
+      follow: theme.prefs.dockPress == null,
+      clear: () => notifier.edit((p) => p.clearing(dockPress: true)),
+    ),
+    _animationRow(
+      context: context,
+      ref: ref,
+      theme: theme,
+      axis: 'dockEntrance',
+      icon: Icons.animation,
+      modes: dockEntranceModes,
+      value: theme.dockEntrance,
+      terms: const ['dock', 'entrance', 'appear', 'slide', 'animation'],
+      write: (v) => notifier.edit((p) => p.copyWith(dockEntrance: v)),
+      follow: theme.prefs.dockEntrance == null,
+      clear: () => notifier.edit((p) => p.clearing(dockEntrance: true)),
+    ),
+  ];
+}
+
+/// The per-module switches for modules the distro authored on its panel.
+List<FilterRow> _moduleRows(
+  BuildContext context,
+  WidgetRef ref,
+  EffectiveTheme theme,
+) {
+  return [
+    for (final m in silenceableModules)
+      if (theme.panels.isNotEmpty &&
+          _authoredOnPanel(theme, m) &&
+          (!theme.statusBar || !statusModules.contains(m)))
+        FilterRow(
+          ['top bar', panelModuleLabel(context, m).toLowerCase()],
+          SettingsToggleRow(
+            icon: panelModuleIcon(m),
+            title: panelModuleLabel(context, m),
+            subtitle:
+                theme.statusBar ? context.t('settings.alsoInStatusBar') : null,
+            value: currentPanelItems(theme).any((e) => e.kind == m),
+            onChanged: (v) => setPanelModuleEnabled(ref, theme, m, enabled: v),
+          ),
+        ),
   ];
 }
 
@@ -582,6 +649,7 @@ FilterRow _animationRow({
       // answer "what is this set to" at a glance; the description belongs in
       // the sheet, beside the alternatives it is being compared with.
       subtitle: context.t(current.labelKey(axis)),
+      keepSubtitle: true,
       trailing: Icon(
         Icons.chevron_right,
         size: 20,

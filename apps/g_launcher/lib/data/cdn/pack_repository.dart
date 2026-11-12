@@ -66,6 +66,9 @@ final catalogueProvider = FutureProvider<List<PackInfo>>((ref) async {
 });
 
 final bundlesProvider = FutureProvider<List<BundleInfo>>((ref) async {
+  // Re-read whenever the catalogue is, so a bundle published or re-signed in
+  // the admin reaches the paywall on the same refresh as the packs it grants.
+  ref.watch(catalogueProvider);
   final api = ref.watch(packHostApiProvider);
   final bundles = await api.bundles();
   return bundles.whereType<BundleInfo>().toList();

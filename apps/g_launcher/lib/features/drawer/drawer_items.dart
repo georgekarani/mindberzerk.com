@@ -7,7 +7,6 @@ import '../../data/prefs/drawer_layout.dart';
 import '../../data/prefs/drawer_slots.dart';
 import '../../data/prefs/hidden_folder.dart';
 import '../../data/prefs/launcher_prefs.dart';
-import '../../data/prefs/new_apps.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../data/repositories/shell_apps.dart';
@@ -636,27 +635,53 @@ final drawerItemsProvider =
     ];
     final hiddenTile = hiddenFolderTile(ref);
 
-    // ─── RECENTLY ADDED, BESIDE SUGGESTIONS ON A GLASS LIBRARY ────────────
+    // ─── RECENTLY ADDED, BESIDE SUGGESTIONS ON AN APP LIBRARY ────────────
     //
-    // The second shelf a phone's App Library opens on. Fed by the first-seen
-    // record the new-app dot already keeps, newest first, and unlike the dot it
-    // keeps an app after it has been opened: it is a list of arrivals, not of
-    // unread ones. Zero means "here before the record began", so the first run
-    // shows nothing rather than claiming every app just arrived.
+    // The second shelf a phone's App Library opens on: the newest installs,
+    // newest first, from the package's own first-install time. It used to
+    // read the launcher's first-seen record, which starts empty, so a fresh
+    // install of G Launcher showed no shelf at all until something new
+    // arrived. The install time is known for every app on day one.
     //
-    // Only on a Liquid Glass distro, which is to say the one modelled on that
-    // phone. Every other library keeps the shelves it has.
-    final seen = theme.glass
-        ? (ref.watch(newAppsFirstSeenProvider).asData?.value ??
-            const <String, int>{})
-        : const <String, int>{};
-    final recentKeys = [
-      for (final e in seen.entries)
-        if (e.value > 0 && byKey[e.key] != null) e,
-    ]..sort((a, b) => b.value.compareTo(a.value));
-    final recent = [
-      for (final e in recentKeys.take(_kSuggestions)) byKey[e.key]!,
-    ];
+    // System apps are left out: their install time is the factory image, and
+    // a shelf of preinstalled apps is not what "recently added" means.
+    //
+    // On every App Library drawer: the Liquid Glass distro and any pack whose
+    // drawer is the library (Pocket and the iOS-like desktops).
+    final libraryShelves = theme.glass || theme.appDrawer == 'library';
+    final recent = !libraryShelves
+        ? const <AppEntry>[]
+        : ([
+            for (final a in byKey.values)
+              if (a.firstInstallTime > 0 && !a.isSystem) a,
+          ]..sort((a, b) => b.firstInstallTime.compareTo(a.firstInstallTime)))
+            .take(_kSuggestions)
+            .toList();
+
+    // ─── CATEGORY ORDER FOLLOWS USE ON AN APP LIBRARY ─────────────────────
+    //
+    // A phone's library ranks its category folders by how much you use what
+    // is in them, so the folder you open most sits near the top. Each folder
+    // ranks by its best member; folders with no usage keep the distro's own
+    // order behind the used ones.
+    if (libraryShelves) {
+      final base = {
+        for (var i = 0; i < categoryFolders.length; i++) categoryFolders[i]: i,
+      };
+      int best(DrawerItem f) {
+        var r = 1 << 30;
+        for (final a in (f as FolderDrawerItem).members) {
+          final v = rank[a.componentKey];
+          if (v != null && v < r) r = v;
+        }
+        return r;
+      }
+
+      categoryFolders.sort((a, b) {
+        final c = best(a).compareTo(best(b));
+        return c != 0 ? c : base[a]!.compareTo(base[b]!);
+      });
+    }
 
     return [
       // ─── SUGGESTIONS LEADS, AHEAD OF THE USER'S OWN ───────────────────

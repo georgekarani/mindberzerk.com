@@ -3176,7 +3176,20 @@ class _DropFeedback extends StatelessWidget {
     final merging = z == _DropZone.merge || (hovering && z == null);
     final accent = theme.palette.accent;
 
+    // ─── StackFit.expand: THE TILE IS THE CELL, NOT ITS CONTENTS ──────────
+    //
+    // A loose Stack sized the tile to its Column, then parked it at the
+    // cell's top-left. A Column is only as wide as its widest child, so an
+    // app with a short name sat flush left and one with a long name was
+    // centred over that name: icons in one column no longer lined up, and
+    // the launcher's own entries (which skip this wrapper) sat elsewhere
+    // again. It also shrank the box the drop zones are measured against, so
+    // "insert before/after" was read across the label, not the cell.
+    //
+    // Expanded, the Column fills the cell and centres itself across it,
+    // exactly like `_ActionTile`, and the merge wash covers the whole cell.
     return Stack(
+      fit: StackFit.expand,
       children: [
         AnimatedContainer(
           duration: const Duration(milliseconds: 120),

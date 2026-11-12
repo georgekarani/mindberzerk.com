@@ -9,6 +9,9 @@ import com.mindhunter.g_launcher.cdn.PackChangeNotifier
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.concurrent.read
+import kotlin.concurrent.write
 
 /**
  * The slice that decides whether the drawer scrolls.
@@ -71,6 +74,22 @@ class IconCache(
      */
     private val io = Executors.newFixedThreadPool(2)
 
+    /**
+     * Renders READ, switches WRITE.
+     *
+     * ─── WHY, NOW THAT A SWITCH IS OFF THE MAIN THREAD ───────────────────────
+     *
+     * [setTheme] flips [themeId] and [style] and then loads the new packs, and
+     * renders run on [io]. A render landing between the flip and the end of
+     * the load computed the NEW cache key and drew with the OLD pack, then
+     * wrote that bitmap to disk, where it stayed wrong for that app until the
+     * cache was cleared. The window was always there; moving the switch onto
+     * a background lane (the ANR and distro-freeze fix) made it seconds long
+     * on a budget phone. Holding renders back for the length of a switch closes
+     * it, and costs nothing the rest of the time: reads do not block reads.
+     */
+    private val switchLock = ReentrantReadWriteLock()
+
     private val memory = object : LruCache<String, ByteArray>(MEMORY_BUDGET_BYTES) {
         override fun sizeOf(key: String, value: ByteArray): Int = value.size
     }
@@ -127,8 +146,8 @@ class IconCache(
      * IconStyle is a data class, so this comparison is structural and free.
      * Do not "simplify" it away.
      */
-    fun setTheme(themeId: String, style: IconStyle) {
-        if (themeId == this.themeId && style == this.style) return
+    fun setTheme(themeId: String, style: IconStyle) = switchLock.write {
+        if (themeId == this.themeId && style == this.style) return@write
 
         this.themeId = themeId
         this.style = style
@@ -217,8 +236,17 @@ class IconCache(
         }
 
         io.execute {
-            val bytes = runCatching { loadOrRender(componentKey, key, sizePx) }.getOrNull()
-            if (bytes != null) memory.put(key, bytes)
+            // The key is taken again INSIDE the lock: a switch that finished
+            // while this waited has changed it, and the bitmap must be filed
+            // under the theme it was actually drawn with.
+            var drawnKey = key
+            val bytes = runCatching {
+                switchLock.read {
+                    drawnKey = cacheKey(componentKey, token, sizePx)
+                    loadOrRender(componentKey, drawnKey, sizePx)
+                }
+            }.getOrNull()
+            if (bytes != null) memory.put(drawnKey, bytes)
             callback(bytes)
         }
     }
@@ -379,9 +407,10 @@ class IconCache(
      * that information is not kept anywhere — nor should it be, to save one
      * re-render a day.
      */
-    fun onPackChanged(packId: String) {
-        // Both resolvers keep the id they were asked for, so an update — same
-        // id, new bytes — needs reload(), not load(). load() would early-return.
+    fun onPackChanged(packId: String) = switchLock.write {
+        // Both resolvers keep the id they were asked for, so an update, same
+        // id with new bytes, needs reload(), not load(). load() would return
+        // early. Under the switch lock for the reason [switchLock] gives.
         heroes.reload()
         brands.reload()
         clear()

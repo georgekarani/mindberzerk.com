@@ -499,8 +499,7 @@ class _Tile extends StatelessWidget {
             box: constraints,
             child: bounded
                 ? ConstrainedBox(
-                    constraints:
-                        BoxConstraints(maxWidth: constraints.maxWidth),
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
                     child: child,
                   )
                 : child,

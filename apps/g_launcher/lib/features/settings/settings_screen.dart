@@ -37,6 +37,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../data/prefs/prefs_repository.dart';
+import '../../data/prefs/prefs_reset.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../data/update/update_repository.dart';
 import '../../design/components/components.dart';
@@ -285,6 +286,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       context,
                       'Appearance',
                       appearanceSection,
+                      resets: const [
+                        PrefsSection.icons,
+                        PrefsSection.type,
+                        PrefsSection.wallpaper,
+                        PrefsSection.surfaces
+                      ],
                     ),
                   ),
                 ),
@@ -299,6 +306,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       context,
                       'Desktop and dock',
                       desktopSection,
+                      resets: const [PrefsSection.desktop],
                     ),
                   ),
                 ),
@@ -313,6 +321,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       context,
                       'Applications',
                       applicationsSection,
+                      resets: const [PrefsSection.drawer, PrefsSection.folders],
                     ),
                   ),
                 ),
@@ -323,8 +332,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     accent: true,
                     title: context.t('settings.gestures'),
                     trailing: const Chevron(),
-                    onTap: () =>
-                        _openSection(context, 'Gestures', gesturesSection),
+                    onTap: () => _openSection(
+                      context,
+                      'Gestures',
+                      gesturesSection,
+                      resets: const [PrefsSection.gestures],
+                    ),
                   ),
                 ),
               ],
@@ -609,11 +622,13 @@ typedef _SectionBuilder = List<Widget> Function(
 void _openSection(
   BuildContext context,
   String title,
-  _SectionBuilder builder,
-) {
+  _SectionBuilder builder, {
+  List<PrefsSection> resets = const [],
+}) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => _SectionPage(title: title, builder: builder),
+      builder: (_) =>
+          _SectionPage(title: title, builder: builder, resets: resets),
     ),
   );
 }
@@ -626,10 +641,17 @@ void _openSection(
 /// something. `q` is empty by construction: search happens on the landing page
 /// and never lands you here.
 class _SectionPage extends ConsumerWidget {
-  const _SectionPage({required this.title, required this.builder});
+  const _SectionPage({
+    required this.title,
+    required this.builder,
+    this.resets = const [],
+  });
 
   final String title;
   final _SectionBuilder builder;
+
+  /// What the page's one reset returns to the distro's defaults.
+  final List<PrefsSection> resets;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -649,16 +671,61 @@ class _SectionPage extends ConsumerWidget {
     final theme = async.requireValue;
     final workspaces = ref.watch(workspaceCountProvider);
 
+    final look = SettingsLook.forTheme(theme);
     return ThemedScaffold(
       title: title,
-      body: RowIcons(
-        show: false,
-        child: ListView(
-          padding: const EdgeInsets.only(top: 8, bottom: 28),
-          children: builder(context, ref, theme, workspaces, ''),
+      centerTitle: look.centeredTitle,
+      actions: [
+        if (resets.isNotEmpty)
+          IconButton(
+            tooltip: context.t(
+              'settings.resetToDistro',
+              {'name': theme.spec.name},
+            ),
+            icon: const Icon(Icons.settings_backup_restore),
+            onPressed: () => _resetPage(context, ref, theme),
+          ),
+      ],
+      body: SettingsLookScope(
+        look: look,
+        child: RowIcons(
+          show: false,
+          child: ListView(
+            padding: const EdgeInsets.only(top: 12, bottom: 28),
+            children: builder(context, ref, theme, workspaces, ''),
+          ),
         ),
       ),
     );
+  }
+
+  /// One reset per page, replacing the Follow chip that sat on every control.
+  Future<void> _resetPage(
+    BuildContext context,
+    WidgetRef ref,
+    EffectiveTheme theme,
+  ) async {
+    final title = context.t(
+      'settings.resetToDistro',
+      {'name': theme.spec.name},
+    );
+    final ok = await ThemedDialog.confirm(
+      context,
+      title: title,
+      message: context.t('settings.theseSettingsReturnTo'),
+      confirmLabel: context.t('settings.reset'),
+    );
+    if (ok != true) return;
+    await ref.read(prefsProvider(theme.spec.id).notifier).edit((p) {
+      var out = p;
+      for (final section in resets) {
+        out = PrefsReset.section(out, section);
+      }
+      return out;
+    });
+    if (resets.contains(PrefsSection.wallpaper)) {
+      await ref.read(launcherHostApiProvider).cancelWallpaperRotation();
+    }
   }
 }
 

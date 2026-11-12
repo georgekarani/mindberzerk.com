@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "arch-linux-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 271, "sha256": "f1a07b72131ea5d7d65d7706d919c26bf79adb8bb4a309780db4d9d2fc6d2fa1"},
+    {"path": "preview.png", "size": 28231, "sha256": "89032c80734582bbd1a617a913bc26f96de9c4dc52fb6b226b80a1fb3c102cd5"}
+  ]
+}

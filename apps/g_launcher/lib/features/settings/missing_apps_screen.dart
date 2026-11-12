@@ -54,6 +54,7 @@ class MissingAppsScreen extends ConsumerWidget {
         installable.where((a) => here.contains(a.packageName)).toList();
 
     return ThemedScaffold(
+      settingsLook: true,
       title: context.t('settings.apps'),
       body: ListView(
         padding: EdgeInsets.only(bottom: context.bottomInset),

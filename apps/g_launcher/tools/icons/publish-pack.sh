@@ -97,14 +97,25 @@ fi
 if [ "$KIND" = "icon" ]; then
   # The directory is signed WHOLE, so anything sitting in it ships to every
   # device. An icon pack is one known file, so anything else is a leftover.
-  STRAY="$(find "$DIR" -maxdepth 1 -type f ! -name 'pack.json' ! -name 'manifest.json' ! -name 'manifest.sig' | head -5)"
+  #
+  # Two named exceptions. `preview.png` is the store picture every icon pack may
+  # carry. A HERO pack is art per app, so its PNGs are the pack itself.
+  if [ "$TYPE" = "hero" ]; then
+    STRAY="$(find "$DIR" -maxdepth 1 -type f ! -name 'pack.json' ! -name 'manifest.json' ! -name 'manifest.sig' ! -name '*.png' | head -5)"
+  else
+    STRAY="$(find "$DIR" -maxdepth 1 -type f ! -name 'pack.json' ! -name 'manifest.json' ! -name 'manifest.sig' ! -name 'preview.png' | head -5)"
+  fi
   [ -z "$STRAY" ] || die "unexpected files in $DIR, which would be signed into the pack:
 $STRAY"
 
   echo "── 1. shape ──"
-  node "$ROOT/tools/icons/pack-shape.test.mjs" "$DIR/pack.json" >/dev/null \
-    || die 'pack.json failed the shape contract. Nothing signed.'
-  echo "   ok"
+  if [ "$TYPE" = "brand" ]; then
+    node "$ROOT/tools/icons/pack-shape.test.mjs" "$DIR/pack.json" >/dev/null \
+      || die 'pack.json failed the shape contract. Nothing signed.'
+    echo "   ok"
+  else
+    echo "   $TYPE pack, $(find "$DIR" -maxdepth 1 -type f | wc -l | tr -d ' ') files"
+  fi
 else
   # A theme's file set cannot be enumerated up front, so the equivalent check is
   # the narrow one: a stale manifest from a previous publish must not survive

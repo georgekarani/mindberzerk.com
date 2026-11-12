@@ -245,9 +245,8 @@ class CinnamonDrawer extends ConsumerWidget {
     final flyWidth = (size.width * 0.58).clamp(200.0, 320.0);
     final maxLeft = size.width - _inset - flyWidth;
     const wantLeft = _inset + menuWidth - 6;
-    final flyLeft = maxLeft < _inset
-        ? _inset
-        : (wantLeft < maxLeft ? wantLeft : maxLeft);
+    final flyLeft =
+        maxLeft < _inset ? _inset : (wantLeft < maxLeft ? wantLeft : maxLeft);
 
     void toggle(String key) {
       HapticFeedback.selectionClick();
@@ -395,8 +394,7 @@ class _Menu extends ConsumerWidget {
                         categories: categories,
                         // Back to Cinnamon's convention, where null is All.
                         // Nothing open maps to a key no row carries.
-                        active:
-                            active == _allKey ? null : (active ?? _noneKey),
+                        active: active == _allKey ? null : (active ?? _noneKey),
                         line: null,
                         chevrons: true,
                         onCategory: onCategory,
@@ -613,7 +611,8 @@ class _Categories extends StatelessWidget {
                 fontWeight: on ? FontWeight.w600 : FontWeight.w400,
                 // The BAR colour on the accent. Mint's green is bright enough
                 // that white on it is unreadable.
-                color: on ? palette.bar : palette.onDark.withValues(alpha: 0.66),
+                color:
+                    on ? palette.bar : palette.onDark.withValues(alpha: 0.66),
               ),
             ),
           ),

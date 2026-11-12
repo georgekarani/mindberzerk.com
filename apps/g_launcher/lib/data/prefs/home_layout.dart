@@ -394,10 +394,7 @@ class HomeLayout {
         folders: p.folders.where((x) => x.id != folderId).toList(),
         favourites: [
           for (final k in p.favourites)
-            if (k != dockKey)
-              k
-            else if (members.isNotEmpty)
-              members.first,
+            if (k != dockKey) k else if (members.isNotEmpty) members.first,
         ],
       );
     }
@@ -619,9 +616,8 @@ class HomeLayout {
       homeItems: [...kept, ...placed],
       // Ungrouping a DOCK folder sends its members to the grid: a dock of four
       // cannot take a folder of nine back as loose apps.
-      favourites: p.favourites
-          .where((k) => k != dockFolderKey(folderId))
-          .toList(),
+      favourites:
+          p.favourites.where((k) => k != dockFolderKey(folderId)).toList(),
     );
   }
 
@@ -1010,9 +1006,8 @@ class HomeLayout {
         ...p.homeItems,
         HomeItem(page: page, index: slot, folderId: folderId),
       ],
-      favourites: p.favourites
-          .where((k) => k != dockFolderKey(folderId))
-          .toList(),
+      favourites:
+          p.favourites.where((k) => k != dockFolderKey(folderId)).toList(),
     );
   }
 

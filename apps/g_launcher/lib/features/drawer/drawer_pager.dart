@@ -176,12 +176,21 @@ class DrawerPager extends StatefulWidget {
   /// cannot absorb a forty pixel strip; it was sized against the few-pixel
   /// causes that came before, and each of those really was fixed.
   ///
-  /// Both numbers are read off [_Dots] rather than guessed. Plain: 2 top plus
-  /// 10 bottom padding around a 6dp dot. With the add button: the same padding
-  /// around its hit box, which is 8 vertical either side of a 12dp glyph, and
-  /// the taller child is what the Row takes.
-  static const double dotsStripPlain = 18;
-  static const double dotsStripWithAdd = 40;
+  /// ─── DERIVED FROM THE PARTS, AND ENFORCED ─────────────────────────────
+  ///
+  /// These were hand-copied numbers, and the add button's went stale: the
+  /// comment described an 8dp pad around a 12dp glyph while [_AddPage] drew
+  /// 14dp around a 20dp one. The real strip was 60dp against a reserved 40,
+  /// so in Custom (the only mode with the "+") the pages were 20dp shorter
+  /// than the row count assumed and the last row lost its second label line.
+  ///
+  /// Now both are sums of the same constants [_Dots] and [_AddPage] draw
+  /// with, and [_Dots] is boxed to exactly this height, so the reservation
+  /// and the widget cannot disagree again.
+  static const double dotsStripPlain =
+      _Dots.padTop + _Dots.dotSize + _Dots.padBottom;
+  static const double dotsStripWithAdd =
+      _Dots.padTop + _AddPage.hitExtent + _Dots.padBottom;
 
   /// How much height the strip costs, for a caller that has to estimate rows
   /// before this widget has laid out. Shared rather than copied: app_drawer
@@ -729,6 +738,11 @@ class _DrawerPagerState extends State<DrawerPager> {
 class _Dots extends StatelessWidget {
   const _Dots({required this.count, required this.page, this.onAdd});
 
+  /// Strip geometry, shared with [DrawerPager.dotsStripFor].
+  static const double padTop = 2;
+  static const double padBottom = 10;
+  static const double dotSize = 6;
+
   final int count;
   final int page;
 
@@ -754,31 +768,37 @@ class _Dots extends StatelessWidget {
     // words. That is MORE useful at that count, not a degraded fallback: the
     // number is the only thing anyone could have got from fourteen dots.
     const dotWidth = 12.0;
-    const addWidth = 24.0;
+    const addWidth = _AddPage.hitExtent;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10, top: 2),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final needed = count * dotWidth + (onAdd != null ? addWidth : 0);
-          if (needed > constraints.maxWidth) {
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${page + 1} / $count',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: color.withValues(alpha: 0.55),
+    // Boxed to the height the pager reserved for it. See
+    // DrawerPager.dotsStripPlain: a strip taller than its reservation is
+    // taken straight out of the last row of the page above it.
+    return SizedBox(
+      height: DrawerPager.dotsStripFor(withAdd: onAdd != null),
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: padBottom, top: padTop),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final needed = count * dotWidth + (onAdd != null ? addWidth : 0);
+            if (needed > constraints.maxWidth) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    '${page + 1} / $count',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: color.withValues(alpha: 0.55),
+                    ),
                   ),
-                ),
-                if (onAdd != null) _AddPage(color: color, onAdd: onAdd!),
-              ],
-            );
-          }
+                  if (onAdd != null) _AddPage(color: color, onAdd: onAdd!),
+                ],
+              );
+            }
 
-          return _dots(color);
-        },
+            return _dots(color);
+          },
+        ),
       ),
     );
   }
@@ -793,8 +813,8 @@ class _Dots extends StatelessWidget {
       children: [
         for (var i = 0; i < count; i++)
           Container(
-            width: 6,
-            height: 6,
+            width: dotSize,
+            height: dotSize,
             margin: const EdgeInsets.symmetric(horizontal: 3),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
@@ -815,6 +835,12 @@ class _Dots extends StatelessWidget {
 class _AddPage extends StatelessWidget {
   const _AddPage({required this.color, required this.onAdd});
 
+  static const double _glyph = 20;
+  static const double _pad = 14;
+
+  /// The button's full height: a 48dp touch target around the glyph.
+  static const double hitExtent = _glyph + _pad * 2;
+
   final Color color;
   final VoidCallback onAdd;
 
@@ -831,10 +857,10 @@ class _AddPage extends StatelessWidget {
       child: Padding(
         // The add-page button was a 12dp glyph in 8dp of padding, a 28dp
         // target on the page strip where a miss changes page instead.
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        padding: const EdgeInsets.all(_pad),
         child: Icon(
           Icons.add,
-          size: 20,
+          size: _glyph,
           color: color.withValues(alpha: 0.45),
         ),
       ),

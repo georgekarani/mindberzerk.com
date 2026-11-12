@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "elementary-os-8-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 279, "sha256": "34966f9d79c4dc2abfe009b07f783381d4f49da1ddd9654727c34749391f13df"},
+    {"path": "preview.png", "size": 28313, "sha256": "ddb4fc23a86eec5ccc3c610b74f290031fbe9b1435b2b3268c166927cbc75a5b"}
+  ]
+}

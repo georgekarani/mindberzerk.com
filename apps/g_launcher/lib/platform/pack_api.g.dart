@@ -791,7 +791,6 @@ class PackCoverage {
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
-
   @override
   void writeValue(WriteBuffer buffer, Object? value) {
     if (value is int) {

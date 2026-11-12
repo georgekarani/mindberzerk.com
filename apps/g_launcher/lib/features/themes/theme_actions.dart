@@ -33,6 +33,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../../data/billing/bundle_offer.dart';
 import '../../data/billing/entitlements.dart';
 import '../../data/billing/pending_apply.dart';
 import '../../data/cdn/distro_packs.dart';
@@ -252,5 +253,38 @@ Future<void> runThemeCardAction(
 
     case CardStatus.requiresAppUpdate:
       context.showMessage('${card.name} needs a newer version of G Launcher');
+  }
+}
+
+/// Buy the all-distros bundle, from the distro page or the store banner.
+///
+/// [forCard] is the distro the buyer was reading, if any. Recording it as the
+/// pending apply is what makes the purchase end on that distro's desktop, the
+/// same promise a single purchase keeps; from the banner there is no such
+/// distro, so any stale intent is cleared instead of being applied later.
+Future<void> runBundlePurchase(
+  BuildContext context,
+  WidgetRef ref,
+  BundleOffer offer, {
+  ThemeCard? forCard,
+}) async {
+  final store = ref.read(prefsStoreProvider);
+  final viewing = forCard?.sku;
+  if (forCard != null &&
+      viewing != null &&
+      offer.covers(forCard.packIdOrSpec)) {
+    await PendingApply.set(store, viewing);
+  } else {
+    await PendingApply.clear(store);
+  }
+
+  final started = await ref.read(buyProvider)(offer.sku);
+  if (!started) {
+    // Play never opened, so nothing will consume the intent.
+    await PendingApply.clear(store);
+    if (context.mounted) {
+      context.showMessage(
+          context.t('themes.notAvailableToBuy', {'name': offer.title}));
+    }
   }
 }

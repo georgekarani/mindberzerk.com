@@ -1,10 +1,15 @@
 package com.mindhunter.g_launcher.backup
 
 import android.app.Activity
+import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
 import android.provider.DocumentsContract
+import androidx.annotation.RequiresApi
 import androidx.core.content.FileProvider
 import java.io.File
 import org.json.JSONObject
@@ -79,7 +84,7 @@ class BackupStore(context: Context) {
 
     /** The folder's display name, or null when there is no usable grant. */
     fun label(): String? {
-        val tree = treeUri() ?: return null
+        val tree = treeUri() ?: return if (autoFolderAvailable) AUTO_LABEL else null
         val doc = runCatching { documentUri(tree) }.getOrNull() ?: return null
         return runCatching {
             resolver.query(
@@ -121,6 +126,12 @@ class BackupStore(context: Context) {
         }
 
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+            // Opens ON the automatic folder, so after a reinstall finding the
+            // old backups is one tap on "Use this folder" rather than a walk
+            // through the phone's storage. Ignored where unsupported.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                putExtra(DocumentsContract.EXTRA_INITIAL_URI, AUTO_INITIAL_URI)
+            }
             addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
@@ -182,9 +193,20 @@ class BackupStore(context: Context) {
 
     /** Returns the new document URI, or null when nothing could be written. */
     fun write(fileName: String, bytes: ByteArray): String? {
-        val tree = treeUri() ?: return null
+        val tree = treeUri() ?: return writeAuto(fileName, bytes)
         return runCatching {
-            val parent = documentUri(tree)
+            val root = documentUri(tree)
+            val latest = fileName == LATEST_NAME
+            // The latest file keeps its name forever, so it is overwritten in
+            // place rather than created again (a second create would come back
+            // as "glauncher-backup (1).glbak" and the fixed name would be lost).
+            val existing = if (latest) childNamed(tree, root, fileName) else null
+            if (existing != null) {
+                resolver.openOutputStream(existing, "wt")?.use { it.write(bytes) }
+                    ?: return null
+                return existing.toString()
+            }
+            val parent = if (latest) root else historyDir(tree, root) ?: root
             val doc = DocumentsContract.createDocument(
                 resolver,
                 parent,
@@ -201,6 +223,45 @@ class BackupStore(context: Context) {
         }.getOrNull()
     }
 
+    /** A direct child of [parent] in [tree] with this display name, or null. */
+    private fun childNamed(tree: Uri, parent: Uri, name: String): Uri? = runCatching {
+        val children = DocumentsContract.buildChildDocumentsUriUsingTree(
+            tree,
+            DocumentsContract.getDocumentId(parent),
+        )
+        resolver.query(
+            children,
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            ),
+            null,
+            null,
+            null,
+        )?.use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == name) {
+                    return@runCatching DocumentsContract.buildDocumentUriUsingTree(
+                        tree,
+                        c.getString(0),
+                    )
+                }
+            }
+            null
+        }
+    }.getOrNull()
+
+    /** The History folder inside the chosen folder, created on first use. */
+    private fun historyDir(tree: Uri, root: Uri): Uri? =
+        childNamed(tree, root, HISTORY_DIR) ?: runCatching {
+            DocumentsContract.createDocument(
+                resolver,
+                root,
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                HISTORY_DIR,
+            )
+        }.getOrNull()
+
     /**
      * Everything in the folder that looks like one of ours, newest first.
      *
@@ -209,12 +270,27 @@ class BackupStore(context: Context) {
      * decides whether it is really a backup.
      */
     fun list(): List<String> {
-        val tree = treeUri() ?: return emptyList()
+        val chosen = listTree()
+        val seen = chosen.map { it.optString("name") }.toHashSet()
+        val auto = listAuto().filter { it.optString("name") !in seen }
+        return (chosen + auto)
+            .sortedByDescending { it.optLong("modified") }
+            .map { it.toString() }
+    }
 
+    private fun listTree(): List<JSONObject> {
+        val tree = treeUri() ?: return emptyList()
+        val root = runCatching { documentUri(tree) }.getOrNull() ?: return emptyList()
+        val history = childNamed(tree, root, HISTORY_DIR)
+        return listTreeDir(tree, root) +
+            (history?.let { listTreeDir(tree, it) } ?: emptyList())
+    }
+
+    private fun listTreeDir(tree: Uri, dir: Uri): List<JSONObject> {
         return runCatching {
             val children = DocumentsContract.buildChildDocumentsUriUsingTree(
                 tree,
-                DocumentsContract.getTreeDocumentId(tree),
+                DocumentsContract.getDocumentId(dir),
             )
 
             val rows = mutableListOf<JSONObject>()
@@ -232,9 +308,7 @@ class BackupStore(context: Context) {
             )?.use { c ->
                 while (c.moveToNext()) {
                     val name = c.getString(1) ?: continue
-                    if (EXTENSIONS.none { name.endsWith(it, ignoreCase = true) }) {
-                        continue
-                    }
+                    if (!isBackupName(name)) continue
                     val doc = DocumentsContract.buildDocumentUriUsingTree(
                         tree,
                         c.getString(0),
@@ -249,8 +323,6 @@ class BackupStore(context: Context) {
             }
 
             rows
-                .sortedByDescending { it.optLong("modified") }
-                .map { it.toString() }
         }.getOrDefault(emptyList())
     }
 
@@ -259,8 +331,137 @@ class BackupStore(context: Context) {
     }.getOrNull()
 
     fun delete(documentUri: String): Boolean = runCatching {
-        DocumentsContract.deleteDocument(resolver, Uri.parse(documentUri))
+        val uri = Uri.parse(documentUri)
+        if (uri.authority == MediaStore.AUTHORITY) {
+            resolver.delete(uri, null, null) > 0
+        } else {
+            DocumentsContract.deleteDocument(resolver, uri)
+        }
     }.getOrDefault(false)
+
+    // ---- the automatic folder ----------------------------------------------
+
+    /**
+     * Documents/G Launcher/Backups, written through MediaStore.
+     *
+     * ─── WHY THIS EXISTS AND WHAT IT CANNOT DO ───────────────────────────────
+     *
+     * Backups used to reach a visible folder only if the user picked one, and
+     * nobody did, so every backup lived in app storage and died with an
+     * uninstall. MediaStore lets an app create files in Documents with no
+     * permission at all (Android 10+), so every backup now lands somewhere the
+     * user can see in Files and that outlives the app.
+     *
+     * The limit is Android's, not ours: MediaStore only shows an app the files
+     * IT created, and a reinstall is a new owner. So after a reinstall this
+     * listing is empty even though the files are there; [choose], which opens
+     * on this folder, is the one tap that gets them back through SAF.
+     */
+    private val autoFolderAvailable: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun autoCollection(): Uri =
+        MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+    private fun writeAuto(fileName: String, bytes: ByteArray): String? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val latest = fileName == LATEST_NAME
+        val path = if (latest) AUTO_RELATIVE_PATH else AUTO_HISTORY_PATH
+        if (latest) {
+            // Ours from this install: overwrite, so the name never changes.
+            // A file left by an earlier install is invisible here, and the
+            // insert below then gets a numbered name, which the listing and
+            // the newest-first sort both still handle.
+            val existing = findAuto(path, fileName)
+            if (existing != null) {
+                val ok = runCatching {
+                    resolver.openOutputStream(existing, "wt")?.use { it.write(bytes) } != null
+                }.getOrDefault(false)
+                if (ok) return existing.toString()
+            }
+        }
+        return runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, MIME)
+                put(MediaStore.MediaColumns.RELATIVE_PATH, path)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(autoCollection(), values) ?: return null
+            val wrote = runCatching {
+                resolver.openOutputStream(uri, "w")?.use { it.write(bytes) } != null
+            }.getOrDefault(false)
+            if (!wrote) {
+                resolver.delete(uri, null, null)
+                return null
+            }
+            resolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null,
+            )
+            uri.toString()
+        }.getOrNull()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun findAuto(path: String, name: String): Uri? = runCatching {
+        val collection = autoCollection()
+        resolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID),
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME}=?",
+            arrayOf(path, name),
+            null,
+        )?.use { c ->
+            if (c.moveToFirst()) ContentUris.withAppendedId(collection, c.getLong(0)) else null
+        }
+    }.getOrNull()
+
+    private fun listAuto(): List<JSONObject> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        return runCatching {
+            val collection = autoCollection()
+            val rows = mutableListOf<JSONObject>()
+            resolver.query(
+                collection,
+                arrayOf(
+                    MediaStore.MediaColumns._ID,
+                    MediaStore.MediaColumns.DISPLAY_NAME,
+                    MediaStore.MediaColumns.SIZE,
+                    MediaStore.MediaColumns.DATE_MODIFIED,
+                ),
+                "${MediaStore.MediaColumns.RELATIVE_PATH} IN (?,?,?)",
+                arrayOf(AUTO_RELATIVE_PATH, AUTO_HISTORY_PATH, LEGACY_RELATIVE_PATH),
+                null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val name = c.getString(1) ?: continue
+                    if (!isBackupName(name)) continue
+                    val uri = ContentUris.withAppendedId(collection, c.getLong(0))
+                    rows += JSONObject().apply {
+                        put("uri", uri.toString())
+                        put("name", name)
+                        put("size", if (c.isNull(2)) 0L else c.getLong(2))
+                        // MediaStore keeps seconds; the SAF rows are millis.
+                        put("modified", if (c.isNull(3)) 0L else c.getLong(3) * 1000L)
+                    }
+                }
+            }
+            rows
+        }.getOrDefault(emptyList())
+    }
+
+    /**
+     * A backup file, by name. `contains` rather than `endsWith` for the
+     * native format, because some MediaStore builds append their own
+     * extension to a type they do not recognise (`x.glbak.bin`).
+     */
+    private fun isBackupName(name: String): Boolean =
+        name.contains(".glbak", ignoreCase = true) ||
+            name.endsWith(".json", ignoreCase = true)
 
     // ── SHARING ─────────────────────────────────────────────────────────────
 
@@ -352,7 +553,22 @@ class BackupStore(context: Context) {
          */
         const val MIME = "application/octet-stream"
 
-        val EXTENSIONS = listOf(".glbak", ".json")
+        /**
+         * Documents/GLauncher holds one file with a fixed name, always the
+         * newest backup, so a restore knows exactly what to open. Dated copies
+         * go to History beside it. The old Documents/G Launcher/Backups is
+         * still read, so backups made before the move are found.
+         */
+        const val AUTO_RELATIVE_PATH = "Documents/GLauncher/"
+        const val AUTO_HISTORY_PATH = "Documents/GLauncher/History/"
+        const val LEGACY_RELATIVE_PATH = "Documents/G Launcher/Backups/"
+        const val HISTORY_DIR = "History"
+        const val LATEST_NAME = "glauncher-backup.glbak"
+        const val AUTO_LABEL = "Documents/GLauncher"
+        val AUTO_INITIAL_URI: Uri = DocumentsContract.buildDocumentUri(
+            "com.android.externalstorage.documents",
+            "primary:Documents/GLauncher",
+        )
 
         /** Under cacheDir, and declared in res/xml/file_paths.xml. */
         const val SHARE_DIR = "shared"

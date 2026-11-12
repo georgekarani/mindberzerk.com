@@ -71,11 +71,9 @@ node tools/icons/inspect-iconset.mjs \
   --packages tools/icons/packages.txt
 ```
 
-Read the **art licence** line first and stop if it says **CANNOT SHIP**. GPL,
-LGPL and AGPL sets cannot go on the CDN in any form, including converted to path
-data, because a conversion is a derivative work and inherits the licence. That
-rules out **Papirus, Numix, Numix Circle and Flat Remix** permanently, however
-good they look.
+Read the **art licence** line first. A permissive or CC set may be sold. A GPL,
+LGPL or AGPL set (Papirus, Numix Circle) ships FREE only, as a hero pack with its
+licence and source link, through `ship-linux.sh`; never attach a SKU to one.
 
 **Art licence and repo licence are different things.** Icon repositories
 routinely license their build scripts and their drawings separately, and only

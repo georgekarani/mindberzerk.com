@@ -44,11 +44,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../../data/billing/bundle_offer.dart';
 import '../../data/billing/entitlements.dart';
 import '../../data/cdn/pack_repository.dart';
 import '../../design/components/components.dart';
 import '../../design/device_preview.dart';
 import 'store_preview.dart';
+import 'store_shots.dart';
 import 'theme_actions.dart';
 import 'theme_catalog.dart';
 import 'theme_peek.dart';
@@ -154,7 +156,7 @@ class ThemeDetailScreen extends ConsumerWidget {
               16,
               12 + MediaQuery.viewPaddingOf(context).bottom,
             ),
-            child: _ActionButton(
+            child: _BuyArea(
               card: card,
               // NO POP. Play's sheet opens over this page, the messages land
               // here, and the button relabels itself as the catalogue changes.
@@ -328,6 +330,38 @@ class _HeroState extends ConsumerState<_Hero> {
     // what shape a phone is.
     final height =
         (MediaQuery.sizeOf(context).height * 0.5).clamp(240.0, 520.0);
+
+    final shots = ref
+            .watch(
+              storeShotsProvider(
+                (packId: card.packIdOrSpec, version: card.remoteVersion),
+              ),
+            )
+            .value ??
+        const <ImageProvider>[];
+
+    // Real screenshots, full height and swiped, when the distro ships them.
+    // The drawn preview and its mode strip remain for packs without them.
+    if (shots.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Stack(
+          children: [
+            StoreShotPager(shots: shots, height: height),
+            if (progress != null)
+              Positioned(
+                left: 16,
+                right: 16,
+                top: height - 3,
+                child: ThemedProgress.linear(
+                  value: progress <= 0 ? null : progress,
+                  accent: card.preview.accent,
+                ),
+              ),
+          ],
+        ),
+      );
+    }
 
     return Column(
       children: [
@@ -638,6 +672,232 @@ class _SectionHeading extends StatelessWidget {
       child: Text(
         text,
         style: d.text.label.copyWith(fontSize: 11, letterSpacing: 0.7),
+      ),
+    );
+  }
+}
+
+/// The pinned purchase area: the action, plus the bundle choice above it when
+/// there is one to make.
+///
+/// The choice appears only for a LOCKED distro that the all-distros bundle
+/// covers and that the buyer does not own the bundle for. Everywhere else this
+/// is exactly the old single button.
+///
+/// ─── THE DEFAULT IS THE DISTRO ON SCREEN, NOT THE BUNDLE ────────────────────
+///
+/// Someone who opened Kali came to buy Kali. Pre-selecting the dearer option
+/// would earn a few accidental upgrades and the refunds and reviews that follow
+/// them; the bundle is offered first and highlighted, and the tap is theirs.
+class _BuyArea extends ConsumerStatefulWidget {
+  const _BuyArea({required this.card, required this.onTap});
+
+  final ThemeCard card;
+  final VoidCallback onTap;
+
+  @override
+  ConsumerState<_BuyArea> createState() => _BuyAreaState();
+}
+
+class _BuyAreaState extends ConsumerState<_BuyArea> {
+  bool _bundle = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final card = widget.card;
+    final offer = ref.watch(allDistrosOfferProvider);
+    final price = ref.watch(productPriceProvider(card.sku));
+
+    final action = _ActionButton(card: card, onTap: widget.onTap);
+    if (offer == null ||
+        offer.owned ||
+        card.status != CardStatus.locked ||
+        !offer.covers(card.packIdOrSpec)) {
+      return action;
+    }
+
+    final bundleOn = _bundle;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ChoiceTile(
+          selected: bundleOn,
+          onTap: () => setState(() => _bundle = true),
+          title: offer.title,
+          subtitle: _bundleSubtitle(offer),
+          price: offer.price,
+          strike: offer.worth,
+        ),
+        const SizedBox(height: 8),
+        _ChoiceTile(
+          selected: !bundleOn,
+          onTap: () => setState(() => _bundle = false),
+          title: '${card.name} only',
+          subtitle: 'This distro and its icons',
+          price: price,
+        ),
+        const SizedBox(height: 12),
+        if (bundleOn)
+          _BundleBuyButton(
+            label: offer.price == null
+                ? 'Buy everything'
+                : 'Buy everything · ${offer.price}',
+            onTap: () => unawaited(
+              runBundlePurchase(context, ref, offer, forCard: card),
+            ),
+          )
+        else
+          action,
+      ],
+    );
+  }
+}
+
+/// "12 distros, 15 icon packs", from the signed grants. Falls back to the
+/// bundle's own wording while the catalogue has not loaded.
+String _bundleSubtitle(BundleOffer offer) {
+  if (offer.distroCount == 0) return 'Every paid distro and icon pack';
+  final distros =
+      offer.distroCount == 1 ? '1 distro' : '${offer.distroCount} distros';
+  if (offer.iconPackCount == 0) return distros;
+  final icons = offer.iconPackCount == 1
+      ? '1 icon pack'
+      : '${offer.iconPackCount} icon packs';
+  return '$distros, $icons';
+}
+
+/// One selectable row of the bundle choice. A real button with a selected
+/// state, so TalkBack reads which option the Buy button will charge for.
+class _ChoiceTile extends StatelessWidget {
+  const _ChoiceTile({
+    required this.selected,
+    required this.onTap,
+    required this.title,
+    required this.subtitle,
+    required this.price,
+    this.strike,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+  final String title;
+  final String subtitle;
+  final String? price;
+  final String? strike;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ChromeScope.of(context).colors;
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: Material(
+        color: selected ? c.surfaceAlt : c.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: selected ? c.accent : c.line,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w600,
+                            color: c.text,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle,
+                          style: TextStyle(fontSize: 12, color: c.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (price != null)
+                        Text(
+                          price!,
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            fontWeight: FontWeight.w700,
+                            color: c.text,
+                          ),
+                        ),
+                      if (strike != null) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          strike!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: c.textMuted,
+                            decoration: TextDecoration.lineThrough,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The bundle's Buy button, styled as [_ActionButton] so the pinned area does
+/// not change shape when the choice flips.
+class _BundleBuyButton extends StatelessWidget {
+  const _BundleBuyButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ChromeScope.of(context).colors;
+    return Material(
+      color: c.accent,
+      borderRadius: BorderRadius.circular(11),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 13),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: c.onAccent,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

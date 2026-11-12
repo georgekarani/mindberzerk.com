@@ -117,6 +117,10 @@ node "$HERE/build-official-packs.mjs" | tail -20
 # One at a time, because `publish-pack.sh` reads the live index, merges one
 # entry and signs. Each read sees the previous write, so the fourteen accumulate
 # rather than racing.
+step "6b. store previews"
+# Built packs are wiped and rewritten above, so the previews are rendered after.
+bash "$HERE/py.sh" "$HERE/render-previews.py" "$OUT"/*-line || die 'preview render failed'
+
 step "7. publish the fourteen"
 VERSION="$(date +%s)"
 # Read ONCE rather than per pack: fourteen node startups to read the same

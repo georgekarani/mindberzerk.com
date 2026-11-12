@@ -264,8 +264,8 @@ class _HomeGridState extends ConsumerState<HomeGrid>
                     filled: HomeLayout.itemAt(prefs, page, i) != null,
                     focused: i == focusAt,
                     title: theme.windowTitles
-                        ? _titleOf(HomeLayout.itemAt(prefs, page, i), byKey,
-                            prefs)
+                        ? _titleOf(
+                            HomeLayout.itemAt(prefs, page, i), byKey, prefs)
                         : null,
                     child: _Slot(
                       theme: theme,
@@ -343,8 +343,13 @@ class _HomeGridState extends ConsumerState<HomeGrid>
           },
         );
 
-        if (!editing) return grid;
-
+        // ─── ONE TREE IN AND OUT OF EDIT MODE ─────────────────────────────
+        //
+        // This returned the bare grid when not editing and a Stack around it
+        // when editing. On Pocket a hold now TURNS ON edit mode while the held
+        // tile is mid-drag, and swapping the parent remounted every tile and
+        // threw that drag away. The Stack is always there; only Done comes
+        // and goes. Same reasoning in [_Removable] and `_wobble` below.
         // ─── SAY HOW TO LEAVE ────────────────────────────────────────────
         //
         // Tapping bare wallpaper exits, and on a full desktop there is no bare
@@ -356,31 +361,32 @@ class _HomeGridState extends ConsumerState<HomeGrid>
         return Stack(
           children: [
             grid,
-            Positioned(
-              top: 4,
-              right: 10,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => ref.read(deskletEditProvider.notifier).exit(),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                  decoration: BoxDecoration(
-                    color: theme.palette.onDark.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    context.t('shell.done'),
-                    style: TextStyle(
-                      fontFamily: theme.typography.display,
-                      fontSize: 13 * theme.textScale,
-                      fontWeight: FontWeight.w600,
-                      color: theme.palette.accent,
+            if (editing)
+              Positioned(
+                top: 4,
+                right: 10,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => ref.read(deskletEditProvider.notifier).exit(),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: theme.palette.onDark.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      context.t('shell.done'),
+                      style: TextStyle(
+                        fontFamily: theme.typography.display,
+                        fontSize: 13 * theme.textScale,
+                        fontWeight: FontWeight.w600,
+                        color: theme.palette.accent,
+                      ),
                     ),
                   ),
                 ),
               ),
-            ),
           ],
         );
       },
@@ -420,42 +426,43 @@ class _Removable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!editing) return child;
-
     final badge = (size * 0.34).clamp(16.0, 24.0);
 
+    // Always a Stack, so turning edit mode on mid-drag does not remount the
+    // child carrying the drag. See the note in the grid's build.
     return Stack(
       clipBehavior: Clip.none,
       children: [
         child,
-        Positioned(
-          // Top LEFT, matching the Library. The label sits under the icon and a
-          // badge on the right would overlap the neighbouring tile's icon on a
-          // four-column grid, where the Library's cells are wider.
-          top: -badge * 0.20,
-          left: -badge * 0.20,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onRemove();
-            },
-            child: Container(
-              width: badge,
-              height: badge,
-              decoration: BoxDecoration(
-                color: theme.palette.onDark,
-                shape: BoxShape.circle,
-              ),
-              // A phone's remove badge is a minus; a desktop's is a cross.
-              child: Icon(
-                theme.phoneHome ? Icons.remove : Icons.close,
-                size: badge * 0.62,
-                color: theme.palette.bar,
+        if (editing)
+          Positioned(
+            // Top LEFT, matching the Library. The label sits under the icon and a
+            // badge on the right would overlap the neighbouring tile's icon on a
+            // four-column grid, where the Library's cells are wider.
+            top: -badge * 0.20,
+            left: -badge * 0.20,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onRemove();
+              },
+              child: Container(
+                width: badge,
+                height: badge,
+                decoration: BoxDecoration(
+                  color: theme.palette.onDark,
+                  shape: BoxShape.circle,
+                ),
+                // A phone's remove badge is a minus; a desktop's is a cross.
+                child: Icon(
+                  theme.phoneHome ? Icons.remove : Icons.close,
+                  size: badge * 0.62,
+                  color: theme.palette.bar,
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -735,13 +742,13 @@ class _Slot extends ConsumerWidget {
   /// sine, because a sine spends most of its time near the extremes and turns
   /// a full grid into something unpleasant to look at for more than a second.
   Widget _wobble(Widget child) {
-    if (!editing) return child;
+    // Always mounted, still when not editing: see [_Removable].
     return AnimatedBuilder(
       animation: jiggle,
       builder: (context, c) {
         final t = (jiggle.value + (index.isEven ? 0.0 : 0.5)) % 1.0;
         return Transform.rotate(
-          angle: (t < 0.5 ? t * 2 - 0.5 : 1.5 - t * 2) * 0.024,
+          angle: editing ? (t < 0.5 ? t * 2 - 0.5 : 1.5 - t * 2) * 0.024 : 0,
           child: c,
         );
       },
@@ -1126,6 +1133,13 @@ class _AppCellState extends ConsumerState<_AppCell> {
         // Arms the edge sensors, so a held icon can turn the page.
         ref.read(homeDragActiveProvider.notifier).set(true);
         if (mounted) setState(() => _held = true);
+        // Pocket: the hold that lifts an icon also sets every app shaking,
+        // as on an iPhone. The lifted icon carries on moving, and a release
+        // where it started still opens its menu (below).
+        if (widget.theme.phoneHome &&
+            !ref.read(deskletEditProvider).editingApps) {
+          ref.read(deskletEditProvider.notifier).enterApps();
+        }
       },
       onDraggableCanceled: (_, offset) {
         // Nothing accepted it. If it never moved, the user was holding.
@@ -1434,11 +1448,10 @@ class _Label extends StatelessWidget {
         fontSize: fontSize,
         textScaler: MediaQuery.textScalerOf(context).scale(1.0),
       ),
-      child: Text(
+      // Shrinks to fit rather than ending in "…". See [FitLabel].
+      child: FitLabel(
         text,
         maxLines: theme.labelLines,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
         style: TextStyle(
           color: theme.palette.onDark,
           fontSize: fontSize,

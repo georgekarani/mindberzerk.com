@@ -2,10 +2,11 @@
   "formatVersion": 1,
   "packType": "brand",
   "packId": "linux-mint-22-line",
-  "version": 1787608616,
+  "version": 1794499055,
   "minAppVersion": 7,
   "keyId": "mh-2026-07",
   "files": [
-    {"path": "pack.json", "size": 209, "sha256": "015dcf3872b431c57828fd18c6bf4c9788e2ee8c55e169a6f2225a67f407af19"}
+    {"path": "pack.json", "size": 209, "sha256": "015dcf3872b431c57828fd18c6bf4c9788e2ee8c55e169a6f2225a67f407af19"},
+    {"path": "preview.png", "size": 36880, "sha256": "d82f41c0ce0fca3c9e27c49de672c5209ab7e5fe73bfb5d62d4e1c88b5eb559f"}
   ]
 }

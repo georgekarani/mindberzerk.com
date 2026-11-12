@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "manjaro-kde-bold",
+  "name": "Manjaro Bold",
+  "extends": "g-bold",
+  "tint": "#35bf5c",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

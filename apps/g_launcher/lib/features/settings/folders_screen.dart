@@ -57,6 +57,7 @@ class FoldersScreen extends ConsumerWidget {
     final rows = theme.prefs.folderRows ?? 3;
 
     return ThemedScaffold(
+      settingsLook: true,
       // "Apps and folders", because hiding an app landed here and the page
       // stopped being only about folders. Naming it after half its contents is
       // how a setting becomes unfindable.

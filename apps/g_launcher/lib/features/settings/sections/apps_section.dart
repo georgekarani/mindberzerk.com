@@ -56,7 +56,7 @@ List<Widget> applicationsSection(
   // What is left is the capability, read inline at each row, which is the only
   // half a user cannot act on.
 
-  return [
+  final groups = <Widget>[
     // The columns stepper, the scroll style and the grouping all describe this
     // one picture, and none of them is legible as a number. The stepper's own
     // ChipValue already shows a thumbnail while you drag it; this is the same
@@ -74,8 +74,8 @@ List<Widget> applicationsSection(
     ),
 
     SettingsGroup(
+      key: const ValueKey('apps.drawer'),
       label: context.t('settings.appDrawer_2'),
-      scope: 'All distros',
       query: q,
       rows: [
         FilterRow(
@@ -308,7 +308,14 @@ List<Widget> applicationsSection(
             ),
           ),
         ),
+      ],
+    ),
 
+    SettingsGroup(
+      key: const ValueKey('apps.list'),
+      label: context.t('settings.list'),
+      query: q,
+      rows: [
         // ── GROUPING, AND WHY IT IS A SEPARATE ROW ──────────────────
         //
         // A-to-Z needs letter headings, and letter headings need a
@@ -598,7 +605,14 @@ List<Widget> applicationsSection(
             ),
           ),
         ),
+      ],
+    ),
 
+    SettingsGroup(
+      key: const ValueKey('apps.search'),
+      label: context.t('searchSettings.title'),
+      query: q,
+      rows: [
         // Three positions, not two. 'off' hides the bar for people who
         // reach search by gesture or by the desktop search desklet; the
         // drawer keeps its empty first row either way, because that gap
@@ -672,6 +686,7 @@ List<Widget> applicationsSection(
                 icon: Icons.travel_explore,
                 accent: true,
                 title: context.t('searchSettings.title'),
+                keepSubtitle: true,
                 subtitle: search.bangs.isEmpty
                     ? search.engine.label
                     : context.t('settings.searchEngineAndBangs', {
@@ -684,6 +699,14 @@ List<Widget> applicationsSection(
             },
           ),
         ),
+      ],
+    ),
+
+    SettingsGroup(
+      key: const ValueKey('apps.folders'),
+      label: context.t('setup.step.folders'),
+      query: q,
+      rows: [
         FilterRow(
           const [
             'folders',
@@ -733,11 +756,11 @@ List<Widget> applicationsSection(
     // nothing has been removed, rather than a row reading zero.
     if (theme.prefs.dockExcluded.isNotEmpty)
       SettingsGroup(
+        key: const ValueKey('apps.dock'),
         // Raw, because there is no key for it yet and filing a DOCK row under
         // the App drawer heading is exactly the misplacement the regroup just
         // undid. It joins the i18n sweep with the scope labels.
         label: context.t('setup.step.dock'),
-        scope: 'This distro',
         query: q,
         rows: [
           FilterRow(
@@ -764,8 +787,8 @@ List<Widget> applicationsSection(
     // beside the setting it enables rather than in a Permissions group of
     // one, three pages away from anything it affects.
     SettingsGroup(
+      key: const ValueKey('apps.badges'),
       label: context.t('settings.badges'),
-      scope: 'All distros',
       query: q,
       rows: [
         FilterRow(
@@ -781,8 +804,8 @@ List<Widget> applicationsSection(
     ),
 
     SettingsGroup(
+      key: const ValueKey('apps.permissions'),
       label: context.t('settings.permissions'),
-      scope: 'All distros',
       query: q,
       rows: const [
         FilterRow(
@@ -791,6 +814,53 @@ List<Widget> applicationsSection(
         ),
       ],
     ),
+  ];
+
+  // A section page shows the drawer's list options as one row; they only
+  // apply to list drawers, and most distros hide all four.
+  final look = SettingsLookScope.of(context);
+  if (look == null || q.isNotEmpty) return groups;
+
+  return [
+    for (final w in groups)
+      if (w is SettingsGroup && w.key == const ValueKey('apps.list'))
+        if (w.rows.any((r) => !isInertSettingsRow(r.child)))
+          SettingsGroup(
+            key: const ValueKey('apps.list.drill'),
+            label: '',
+            rows: [
+              FilterRow(
+                const ['list', 'group', 'index', 'rows', 'shape'],
+                SettingsRow(
+                  icon: Icons.view_list_outlined,
+                  title: context.t('settings.list'),
+                  trailing: const Chevron(),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SettingsSubPage(
+                        title: context.t('settings.list'),
+                        look: look,
+                        builder: (context, ref, theme) => [
+                          for (final g in applicationsSection(
+                            context,
+                            ref,
+                            theme,
+                            workspaces,
+                            '',
+                          ))
+                            if (g.key == const ValueKey('apps.list')) g,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          )
+        else
+          const SizedBox.shrink()
+      else
+        w,
   ];
 }
 

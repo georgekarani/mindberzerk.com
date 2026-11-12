@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "manjaro-kde-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 269, "sha256": "c7ca2ee79a7dd7b9a622b7fe1fe645106759e404f9e8192a4d18aac156071227"},
+    {"path": "preview.png", "size": 28587, "sha256": "eb5ebf48428388506c9a80ef75f2502996e856d2a4ab895f077b2dc883d3b3d2"}
+  ]
+}

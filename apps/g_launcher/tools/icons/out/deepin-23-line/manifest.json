@@ -2,10 +2,11 @@
   "formatVersion": 1,
   "packType": "brand",
   "packId": "deepin-23-line",
-  "version": 1787608616,
+  "version": 1794499055,
   "minAppVersion": 7,
   "keyId": "mh-2026-07",
   "files": [
-    {"path": "pack.json", "size": 201, "sha256": "4794f40f71ae542db169993cf0caa35c00e81e6d1a61c4b6a92f178245f5c000"}
+    {"path": "pack.json", "size": 201, "sha256": "4794f40f71ae542db169993cf0caa35c00e81e6d1a61c4b6a92f178245f5c000"},
+    {"path": "preview.png", "size": 29119, "sha256": "665d333417302f611e08a2241171c6f7b7ac1dae2daa68f099a15e1488fa0bf8"}
   ]
 }

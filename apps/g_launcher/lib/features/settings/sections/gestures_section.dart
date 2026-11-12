@@ -169,6 +169,42 @@ class _GestureServiceCard extends ConsumerWidget {
       return const SizedBox.shrink();
     }
 
+    // On a section page the card is one row: what it unlocks, why (behind
+    // the info button, which keeps the disclosure one tap away), and the
+    // action. The two-line card stays on the legacy page.
+    if (SettingsLookScope.of(context) != null) {
+      return SettingsGroup(
+        label: '',
+        rows: [
+          FilterRow(
+            const ['accessibility', 'shade', 'recents', 'lock'],
+            SettingsRow(
+              icon: Icons.accessibility_new,
+              title: context.t('settings.shadeQuickSettingsRecents'),
+              onTap: () => requestGestureService(context, ref),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _InfoButton(
+                    title: context.t('settings.whyAnAccessibilityService'),
+                    body: _explainer,
+                  ),
+                  Text(
+                    context.t('settings.turnItOn'),
+                    style: TextStyle(
+                      color: s.acc,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return Container(
       margin: EdgeInsets.fromLTRB(
         s.framing.cardInset,
@@ -278,8 +314,8 @@ List<Widget> gesturesSection(
     // ── Gestures ───────────────────────────────────────────────────
     const _GestureServiceCard(),
     SettingsGroup(
+      key: const ValueKey('gest.gestures'),
       label: context.t('settings.gestures'),
-      scope: 'This distro',
       query: q,
       rows: [
         for (final g in Gesture.values)

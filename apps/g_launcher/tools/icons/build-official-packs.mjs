@@ -2,7 +2,7 @@
 /**
  * BUILD THE FOURTEEN OFFICIAL ICON PACKS.
  *
- *   node tools/icons/build-official-packs.mjs
+ *   node tools/icons/build-official-packs.mjs [--family line|bold]
  *
  * Reads `distros.json`, writes fourteen directories under `out/`, each holding
  * a `pack.json` of about 207 bytes. `ship-icons.sh` publishes them.
@@ -74,7 +74,39 @@ try {
   die(`cannot read distros.json: ${e.message}`);
 }
 
-const { base, distros, minAppVersion } = table;
+const { distros, minAppVersion } = table;
+
+/**
+ * ─── TWO FAMILIES FROM ONE TABLE ────────────────────────────────────────────
+ *
+ * `line` is Arcticons, one SKU per distro, as it always was. `bold` is
+ * Lawnicons rebranded: the same fourteen colours pointing at `g-bold`, all
+ * sold together under ONE SKU, so a single purchase unlocks Bold in every
+ * colour. The colours stay in `distros.json`, so a distro's Line and Bold can
+ * never disagree about its hex.
+ */
+const FAMILIES = {
+  line: {
+    base: table.base,
+    id: (d) => d.packId,
+    name: (d) => `${d.title} Icons`,
+    sku: (d) => d.sku,
+  },
+  bold: {
+    base: {
+      packId: 'g-bold',
+      license: 'Apache-2.0',
+      attribution:
+        'Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data.',
+    },
+    id: (d) => `${d.base}-bold`,
+    name: (d) => `${d.title} Bold`,
+    sku: () => 'icons_bold',
+  },
+};
+const family = FAMILIES[opts.family ?? 'line'];
+if (!family) die(`unknown --family ${opts.family}; expected line or bold`);
+const base = family.base;
 if (!base?.packId) die('distros.json has no base pack');
 if (!Array.isArray(distros) || distros.length === 0) die('distros.json has no distros');
 
@@ -94,7 +126,8 @@ for (const d of distros) {
   // Two rows writing one id means the second silently overwrites the first at
   // publish, and the distro that lost points at another distro's colour.
   if (seenPack.has(d.packId)) die(`duplicate pack id: ${d.packId}`);
-  if (seenSku.has(d.sku)) die(`duplicate sku: ${d.sku}`);
+  // Bold shares one SKU by design, so only Line's per-distro SKUs must differ.
+  if (family === FAMILIES.line && seenSku.has(d.sku)) die(`duplicate sku: ${d.sku}`);
   seenPack.add(d.packId);
   seenSku.add(d.sku);
 }
@@ -102,7 +135,8 @@ for (const d of distros) {
 let total = 0;
 const rows = [];
 for (const d of distros) {
-  const dir = join(outDir, d.packId);
+  const id = family.id(d);
+  const dir = join(outDir, id);
   // WIPED, not merged. `sign-pack.mjs` signs a directory WHOLE and lists every
   // file it finds, so a stray leftover from an earlier run would be signed into
   // the pack and shipped to every device.
@@ -111,8 +145,8 @@ for (const d of distros) {
 
   const pack = {
     v: 1,
-    id: d.packId,
-    name: `${d.title} Icons`,
+    id,
+    name: family.name(d),
     extends: base.packId,
     tint: d.tint.toLowerCase(),
     license: base.license,
@@ -123,7 +157,7 @@ for (const d of distros) {
 
   const bytes = Buffer.byteLength(json, 'utf8');
   total += bytes;
-  rows.push({ id: d.packId, name: pack.name, tint: pack.tint, sku: d.sku, bytes });
+  rows.push({ id, name: pack.name, tint: pack.tint, sku: family.sku(d), bytes });
 }
 
 const pad = (s, n) => String(s).padEnd(n);

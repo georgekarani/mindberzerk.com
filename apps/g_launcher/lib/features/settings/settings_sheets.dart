@@ -34,6 +34,15 @@ Future<T?> settingsSheet<T>(
   Widget child, {
   bool scrollControlled = false,
 }) {
+  // A distro look draws the sheet in its own frame; the content's own head
+  // (`settingsSheetHead`) reads that frame and draws the matching header.
+  if (SettingsLook.resolve(context) != null) {
+    return ThemedSheet.show<T>(
+      context,
+      isScrollControlled: scrollControlled,
+      builder: (_) => child,
+    );
+  }
   final data = ChromeScope.of(context);
   final s = SettingsSkin.fromData(data);
   return showModalBottomSheet<T>(
@@ -47,35 +56,49 @@ Future<T?> settingsSheet<T>(
   );
 }
 
-Widget settingsSheetHead(BuildContext context, String title) {
-  final s = SettingsSkin.of(context);
-  return Padding(
-    padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Center(
-          child: Container(
-            width: 36,
-            height: 4,
-            margin: const EdgeInsets.only(bottom: 14),
-            decoration: BoxDecoration(
-              color: s.card2,
-              borderRadius: BorderRadius.circular(2),
+Widget settingsSheetHead(BuildContext context, String title) =>
+    _SheetHead(title: title);
+
+/// Built inside the sheet, not at the call site, so it can see the frame the
+/// sheet was opened in: the call site's context is the page underneath.
+class _SheetHead extends StatelessWidget {
+  const _SheetHead({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final look = SheetLookScope.of(context);
+    if (look != null) return LookSheetHeader(look: look, title: title);
+    final s = SettingsSkin.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 14),
+              decoration: BoxDecoration(
+                color: s.card2,
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
           ),
-        ),
-        Text(
-          title,
-          style: TextStyle(
-            color: s.tx,
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
+          Text(
+            title,
+            style: TextStyle(
+              color: s.tx,
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+            ),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 void showShapeSheet(

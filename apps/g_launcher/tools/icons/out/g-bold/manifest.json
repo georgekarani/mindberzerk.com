@@ -1,0 +1,11 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "g-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 3861790, "sha256": "188f07cf81915ed9e06b36a90f19fcca8c0a8ccf1956cd33d7169a338bae62bd"}
+  ]
+}

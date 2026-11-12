@@ -731,6 +731,12 @@ class _AquaShellState extends ConsumerState<AquaShell> {
                     _dockDropOnto(drag, onto, visible: dockKeys),
                 onFull: _dockFull,
                 onRemove: (entry, anchor) => entry.onLongPress?.call(anchor),
+                // Pocket: a hold shakes the apps, as an iPhone's does. The
+                // held icon keeps moving, and letting it go where it started
+                // still opens its menu.
+                onHold: theme.phoneHome
+                    ? () => ref.read(deskletEditProvider.notifier).enterApps()
+                    : null,
                 capacity: capacity,
                 folders: theme.dockFolders,
                 editing: editing,
@@ -745,8 +751,7 @@ class _AquaShellState extends ConsumerState<AquaShell> {
                 launcherSlot: theme.dockLauncher,
                 restSlot: dockRest,
                 restSpacing: dockSpacing,
-                trayWidth:
-                    theme.dockTray ? _DockTray.widthFor(theme) : 0,
+                trayWidth: theme.dockTray ? _DockTray.widthFor(theme) : 0,
               ),
             ),
           ),

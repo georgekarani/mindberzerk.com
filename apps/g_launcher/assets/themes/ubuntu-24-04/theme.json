@@ -3,6 +3,7 @@
   "name": "Ubuntu",
   "version": "24.04",
   "shell": "gnome",
+  "settingsLook": "boxed",
   "tier": "free",
   "palette": {
     "bgTop": "#622A4C",

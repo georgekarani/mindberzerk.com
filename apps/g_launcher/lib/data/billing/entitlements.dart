@@ -331,7 +331,50 @@ final packBridgeProvider = Provider<void>((ref) {
       for (final p in packs)
         if (p.sku == sku) p
     ];
-    if (mine.isEmpty) return;
+
+    // ─── A BUNDLE CARRIES NO PACK OF ITS OWN ──────────────────────────────
+    //
+    // No pack in the catalogue has `bundle_all_distros` as its sku, so the
+    // match above is empty for a bundle and nothing would install. Installing
+    // all 26 granted packs would be hundreds of megabytes on a budget phone,
+    // so only the distro the buyer was looking at is installed and applied;
+    // every other granted card turns to Get on its own once the entitlement
+    // push lands.
+    if (mine.isEmpty) {
+      final store = ref.read(prefsStoreProvider);
+      final wanted = await PendingApply.take(store);
+      if (wanted == null) return;
+
+      List<BundleInfo> bundles;
+      try {
+        bundles = await ref.read(bundlesProvider.future);
+      } catch (_) {
+        return;
+      }
+      BundleInfo? bundle;
+      for (final b in bundles) {
+        if (b.sku == sku) bundle = b;
+      }
+      if (bundle == null) return;
+
+      final target = [
+        for (final p in packs)
+          if (p.sku == wanted &&
+              (bundle.grantsAll || bundle.grantedPackIds.contains(p.packId)))
+            p
+      ];
+      final actions = ref.read(packActionsProvider);
+      for (final p in target) {
+        await actions.install(p.packId);
+      }
+      for (final p in target) {
+        if (p.packType == 'theme') {
+          await ref.read(selectedThemeIdProvider.notifier).select(p.packId);
+          break;
+        }
+      }
+      return;
+    }
 
     // Sequential: each install verifies signatures and writes to disk, and two
     // at once on a budget phone is how a download that would have worked runs

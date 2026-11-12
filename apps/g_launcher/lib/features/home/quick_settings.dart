@@ -132,8 +132,7 @@ class QuickSettingsPanel extends ConsumerWidget {
             Positioned(
               left: 8,
               right: 8,
-              bottom:
-                  panelHeight + _gap + MediaQuery.paddingOf(context).bottom,
+              bottom: panelHeight + _gap + MediaQuery.paddingOf(context).bottom,
               child: _Sheet(theme: theme),
             ),
         ],
@@ -168,9 +167,8 @@ class _Sheet extends ConsumerWidget {
       // counts the sheet can outgrow a 800dp phone above its panel.
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: side
-              ? double.infinity
-              : MediaQuery.sizeOf(context).height * 0.7,
+          maxHeight:
+              side ? double.infinity : MediaQuery.sizeOf(context).height * 0.7,
         ),
         child: SingleChildScrollView(
           child: Column(

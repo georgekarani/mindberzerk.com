@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/analytics.dart';
 import '../../data/cdn/distro_packs.dart';
+import '../../data/prefs/backup_folder.dart';
 import '../../data/prefs/backup_store.dart';
 import '../../data/prefs/desklet_layout.dart';
 import '../../data/prefs/folder_suggestions.dart';
@@ -40,6 +41,10 @@ import '../drawer/drawer_actions.dart';
 import '../drawer/folder_glyph.dart';
 import '../settings/backup_restore_screen.dart';
 import 'setup_chrome.dart';
+import 'setup_desktop_pager.dart';
+import 'setup_hello.dart';
+import 'setup_permissions.dart';
+import 'setup_ready.dart';
 
 /// **Initial setup, as a distro installer.** T1.
 ///
@@ -371,6 +376,17 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
   int _homeAttempts = 0;
   bool _showHomeWarning = false;
 
+  /// Make it yours is showing its last step, Before installing.
+  bool _onPermissions = false;
+
+  /// How many times Before installing has opened Android's home picker.
+  /// Asked once, then once more with the reason, then setup goes on.
+  int _homeAsks = 0;
+
+  /// Install sent the user to a system screen and should carry on by itself
+  /// when they come back, rather than wait for a second tap.
+  bool _installPending = false;
+
   @override
   void initState() {
     super.initState();
@@ -400,7 +416,9 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
   /// same observer for the same reason.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _refreshDefaultLauncher();
+    if (state != AppLifecycleState.resumed) return;
+    ref.invalidate(notificationAccessProvider);
+    unawaited(_refreshDefaultLauncher().then((_) => _resumeInstall()));
   }
 
   Future<void> _refreshDefaultLauncher() async {
@@ -461,19 +479,47 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
   /// through `firstRunBootPendingProvider`, exactly as the install step does,
   /// and the restored distro's own boot sequence plays on the way in.
   Future<void> _openRestore() async {
+    final record = await _findFolderBackup() ?? await _pickBackupFile();
+    if (record == null || !mounted) return;
+    await _restore(record);
+  }
+
+  /// The newest backup in Documents/G Launcher/Backups, or null.
+  ///
+  /// ─── FOLDER FIRST, FILE PICKER SECOND ─────────────────────────────────────
+  ///
+  /// Every backup is saved to that folder now, so on a reinstall or a new
+  /// phone it is almost always where the backup is. The picker opens on it,
+  /// one tap on "Use this folder" brings the backups in, and the newest is
+  /// restored. Back out of the picker, or pick a folder with none in it, and
+  /// the open-a-file flow runs instead.
+  Future<BackupRecord?> _findFolderBackup() async {
+    final notifier = ref.read(backupsProvider.notifier);
+    var added = await notifier.absorbFolder();
+    if (added == 0) {
+      final picked = await ref.read(backupFolderProvider.notifier).choose();
+      if (picked == null) return null;
+      added = await notifier.absorbFolder();
+    }
+    if (added == 0) return null;
+    final records = await ref.read(backupsProvider.future);
+    return records.isEmpty ? null : records.first;
+  }
+
+  Future<BackupRecord?> _pickBackupFile() async {
     // No type filter. Several document providers hand back a display name with
     // no extension, and `.glbak` is ours alone so there is nothing for a
     // provider to match on anyway. The bytes are sniffed below, which is the
     // check that decides.
     final file = await FilePicker.pickFile(type: FileType.any);
-    if (file == null) return;
+    if (file == null) return null;
 
     final bytes = Uint8List.fromList(await file.readAsBytes());
     final summary = PrefsBackup.inspect(bytes);
-    if (!mounted) return;
+    if (!mounted) return null;
     if (summary == null) {
       context.showMessage(context.t('settings.thatIsNotA'));
-      return;
+      return null;
     }
 
     // Copied in BEFORE the restore is offered, and kept either way. A file
@@ -481,12 +527,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
     // and the picker's own path cannot be relied on to find it again.
     final record =
         await ref.read(backupsProvider.notifier).adopt(bytes, summary);
-    if (!mounted) return;
+    if (!mounted) return null;
     if (record == null) {
       context.showMessage(context.t('settings.couldNotReadThat'));
-      return;
     }
+    return record;
+  }
 
+  Future<void> _restore(BackupRecord record) async {
     final restored = await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         builder: (_) => BackupRestoreScreen(
@@ -541,32 +589,7 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
     // require finding a button, and unticking the row is the opt-out.
     // Best-effort like the desktop seeding — a grouping failure must never
     // block setup.
-    if (inPage.contains(_SetupStep.folders)) {
-      try {
-        final theme = ref.read(effectiveThemeProvider).asData?.value;
-        if (theme != null) {
-          final apps = ref.read(shellAppsProvider(theme));
-          // FILTERED, not gated. `acceptAll` has always taken a list, so a
-          // partial selection needs no new engine call: the folders the user
-          // unticked simply are not in the list handed to it. Everything about
-          // ids, membership and ordering stays where it already lives.
-          final suggestions = FolderSuggestions.propose(apps, theme.prefs)
-              .where((sg) => !_skippedFolders.contains(sg.name))
-              .toList();
-          if (suggestions.isNotEmpty) {
-            await ref.read(prefsProvider(theme.spec.id).notifier).edit(
-                  (p) => FolderSuggestions.acceptAll(
-                    p,
-                    suggestions,
-                    newFolderId: newDrawerFolderId,
-                  ),
-                );
-          }
-        }
-      } catch (e, s) {
-        debugPrint('setup: creating suggested folders failed: $e\n$s');
-      }
-    }
+    if (inPage.contains(_SetupStep.folders)) await _commitFolders();
 
     // ── DESKLETS, PLACED ON THE WAY OUT ───────────────────────────────
     //
@@ -737,6 +760,130 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
     }
   }
 
+  /// Creates the suggested folders the user left switched on.
+  ///
+  /// Best-effort: a grouping failure must never block setup.
+  Future<void> _commitFolders() async {
+    try {
+      final theme = ref.read(effectiveThemeProvider).asData?.value;
+      if (theme != null) {
+        final apps = ref.read(shellAppsProvider(theme));
+        // FILTERED, not gated. `acceptAll` has always taken a list, so a
+        // partial selection needs no new engine call: the folders the user
+        // unticked simply are not in the list handed to it. Everything about
+        // ids, membership and ordering stays where it already lives.
+        final suggestions = FolderSuggestions.propose(apps, theme.prefs)
+            .where((sg) => !_skippedFolders.contains(sg.name))
+            .toList();
+        if (suggestions.isNotEmpty) {
+          await ref.read(prefsProvider(theme.spec.id).notifier).edit(
+                (p) => FolderSuggestions.acceptAll(
+                  p,
+                  suggestions,
+                  newFolderId: newDrawerFolderId,
+                ),
+              );
+        }
+      }
+    } catch (e, s) {
+      debugPrint('setup: creating suggested folders failed: $e\n$s');
+    }
+  }
+
+  /// Leaving the desktop pager for Make it yours.
+  ///
+  /// The icon answer is written here, as the old desktop page wrote it, which
+  /// is what starts the distro's icon download in the background while the
+  /// user is still deciding the rest. The terminal has nothing to make its
+  /// own, so it goes straight to Before installing.
+  Future<void> _toReady() async {
+    final theme = ref.read(effectiveThemeProvider).asData?.value;
+    if (theme == null) return;
+    final tui = theme.shell == ShellKind.tui;
+    if (!tui) {
+      try {
+        await _commitIcons(theme);
+      } catch (e, s) {
+        debugPrint('setup: writing the icon choice failed: $e\n$s');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _onPermissions = tui;
+      _step = _SetupStep.dock;
+    });
+  }
+
+  /// The icon sheet's answer, written at once so the live desktop shows it.
+  void _setDistroIcons(bool v) {
+    setState(() => _distroIcons = v);
+    final theme = ref.read(effectiveThemeProvider).asData?.value;
+    if (theme == null) return;
+    unawaited(
+      _commitIcons(theme).catchError(
+        (Object e) => debugPrint('setup: writing the icon choice failed: $e'),
+      ),
+    );
+  }
+
+  /// Install on Before installing.
+  ///
+  /// ─── THE HOME ROLE FIRST, BECAUSE IT IS THE ONE THAT KEEPS USERS ──────
+  ///
+  /// Someone who installs a launcher, closes it and never sets it as home has
+  /// uninstalled it in all but name. So Install opens Android's picker itself.
+  /// A no is met once more, after the card has said why, and then respected:
+  /// a wizard that cannot be left except by granting a role is uninstalled.
+  ///
+  /// Badges are asked after it, once, and only when a style is chosen. Each
+  /// system screen ends with the user back here, and [_resumeInstall] picks
+  /// the sequence up without a second tap.
+  Future<void> _install() async {
+    final theme = ref.read(effectiveThemeProvider).asData?.value;
+    if (theme == null) return;
+
+    if (!_isDefault && _homeAsks < 2) {
+      setState(() => _homeAsks++);
+      Analytics.homeRolePrompt(attempt: _homeAsks, granted: false);
+      _installPending = true;
+      await _openHomePicker();
+      return;
+    }
+
+    final offersBadges =
+        theme.shell != ShellKind.tui && theme.shell != ShellKind.tiling;
+    if (offersBadges &&
+        !_badgeAsked &&
+        badgeStyleFor(theme) != BadgeStyle.none) {
+      var granted = false;
+      try {
+        granted = await ref.read(notificationAccessProvider.future);
+      } catch (_) {
+        granted = false;
+      }
+      if (!granted) {
+        _badgeAsked = true;
+        _installPending = true;
+        await openNotificationAccessSettings();
+        return;
+      }
+    }
+
+    await _commitFolders();
+    if (mounted) setState(() => _step = _SetupStep.install);
+  }
+
+  /// Back from a system screen that Install opened.
+  ///
+  /// A first no to the home picker stops here, so the card can show why it
+  /// matters before Install asks again. Everything else carries on.
+  void _resumeInstall() {
+    if (!_installPending || !mounted) return;
+    _installPending = false;
+    if (!_isDefault && _homeAsks == 1) return;
+    unawaited(_install());
+  }
+
   void _back() {
     final pages = _pagesFor(_shell);
     final at = pages.indexOf(_page);
@@ -850,6 +997,29 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
       _seedWidgetChoice(theme);
     }
 
+    // ── THE IMMERSIVE SCREENS ────────────────────────────────────────────
+    //
+    // Hello and Choose your desktop are full bleed: the distro's wallpaper
+    // with one panel over it, no installer window. The pages after them still
+    // run in the installer frame until their own redesign lands.
+    if (theme != null &&
+        (_page == _SetupPage.hello ||
+            _page == _SetupPage.desktop ||
+            _page == _SetupPage.look)) {
+      return ChromeScope(
+        data: chrome,
+        child: Scaffold(
+          backgroundColor: theme.spec.palette.bgBottom,
+          // The distro's own face for every line on these screens, which are
+          // drawn with plain text styles rather than the chrome's.
+          body: DefaultTextStyle.merge(
+            style: TextStyle(fontFamily: chrome.text.body.fontFamily),
+            child: _immersive(theme, packs),
+          ),
+        ),
+      );
+    }
+
     return ChromeScope(
       data: chrome,
       child: Scaffold(
@@ -893,9 +1063,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
                       // The list can shrink under the user (terminal drops two
                       // pages), so never trust a stale page: fall back to the
                       // first rather than rendering nothing.
-                      final i = !pages.contains(_page)
-                          ? 0
-                          : pages.indexOf(_page);
+                      final i =
+                          !pages.contains(_page) ? 0 : pages.indexOf(_page);
                       final page = pages[i];
                       final lead = _pageSteps(page, theme.shell).first;
 
@@ -919,9 +1088,8 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
                             : !_isDefault && i > 0
                                 ? _NagLine(onFix: _openHomePicker)
                                 : null,
-                        onBack: i == 0 || page == _SetupPage.install
-                            ? null
-                            : _back,
+                        onBack:
+                            i == 0 || page == _SetupPage.install ? null : _back,
                         onNext: _next,
                         nextLabel: switch (page) {
                           _SetupPage.hello => ref.t('setup.next.getStarted'),
@@ -940,6 +1108,87 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
                     },
                   ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Hello or the desktop pager, cross-faded, with system back wired.
+  ///
+  /// Back on the pager returns to Hello rather than leaving the app, which is
+  /// what the on-screen arrow does too. Hello is the root, so back there is
+  /// left to the system.
+  Widget _immersive(EffectiveTheme theme, DistroPackState packs) {
+    final onHello = _page == _SetupPage.hello;
+    final specs =
+        ref.watch(setupDistrosProvider).asData?.value ?? const <ThemeSpec>[];
+
+    final Widget body;
+    if (_page == _SetupPage.look) {
+      body = _onPermissions
+          ? SetupPermissions(
+              theme: theme,
+              isDefault: _isDefault,
+              homeAsks: _homeAsks,
+              onInstall: _install,
+              onBack: () => setState(() {
+                if (theme.shell == ShellKind.tui) {
+                  _step = _SetupStep.distro;
+                } else {
+                  _onPermissions = false;
+                }
+              }),
+            )
+          : SetupReady(
+              theme: theme,
+              distroIcons: _distroIcons,
+              onDistroIcons: _setDistroIcons,
+              skippedFolders: _skippedFolders,
+              onToggleFolder: (name) => setState(() {
+                if (!_skippedFolders.remove(name)) _skippedFolders.add(name);
+              }),
+              onContinue: () => setState(() => _onPermissions = true),
+              onBack: () => setState(() => _step = _SetupStep.distro),
+            );
+    } else if (onHello) {
+      body = SetupHello(
+        theme: theme,
+        onInstall: () => setState(() => _step = _SetupStep.distro),
+        onRestore: _openRestore,
+      );
+    } else if (specs.isEmpty) {
+      // The bundled specs load within a frame or two. Nothing rather than a
+      // spinner, matching the old deck.
+      body = const SizedBox.expand();
+    } else {
+      body = SetupDesktopPager(
+        free: specs,
+        activeId: theme.spec.id,
+        describe: (spec) {
+          final tagline = ref.t(_taglineKeyFor(spec.shell));
+          return spec.version.isEmpty ? tagline : '${spec.version}. $tagline';
+        },
+        onSelected: _ensurePacksFor,
+        // Leaving the pager commits the desktop page exactly as Continue did,
+        // which is what writes the icon choice and starts the icon download.
+        // Held while this distro's own theme pack is still transferring.
+        onUse: _mayAdvance(_SetupStep.distro, packs, theme) ? _toReady : null,
+        onBack: () => setState(() => _step = _SetupStep.welcome),
+      );
+    }
+
+    return PopScope(
+      canPop: onHello,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _page == _SetupPage.desktop) {
+          setState(() => _step = _SetupStep.welcome);
+        }
+      },
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 280),
+        child: KeyedSubtree(
+          key: ValueKey('${_page.name}-$_onPermissions'),
+          child: body,
         ),
       ),
     );

@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "terminal-bold",
+  "name": "Terminal Bold",
+  "extends": "g-bold",
+  "tint": "#33ff33",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}

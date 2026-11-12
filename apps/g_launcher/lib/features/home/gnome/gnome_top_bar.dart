@@ -84,8 +84,7 @@ class GnomeTopBar extends ConsumerWidget {
   /// it is a Windows-style taskbar: the menu, the apps, the tray. So a panel on
   /// any other edge takes the Xfce path, the authored height and the solid
   /// fill, and every GNOME top bar is unchanged.
-  bool get _taskbar =>
-      theme != null && (_xfce || panel.side != TopBarSide.top);
+  bool get _taskbar => theme != null && (_xfce || panel.side != TopBarSide.top);
 
   /// Is ANDROID's status bar on screen above this one?
   ///
@@ -240,14 +239,14 @@ class GnomeTopBar extends ConsumerWidget {
       PanelModule.activities => (theme?.activitiesPill ?? false) && !stacked
           ? _WorkspacePill(onTap: onActivities, color: palette.onDark)
           : _Activities(
-          onTap: onActivities,
-          color: palette.onDark,
-          fontFamily: displayFontFamily,
-          // Glyph only on a vertical panel: the word does not fit in 40dp
-          // and setting it sideways would be the one thing on screen a
-          // person has to tilt their head for.
-          compact: stacked,
-        ),
+              onTap: onActivities,
+              color: palette.onDark,
+              fontFamily: displayFontFamily,
+              // Glyph only on a vertical panel: the word does not fit in 40dp
+              // and setting it sideways would be the one thing on screen a
+              // person has to tilt their head for.
+              compact: stacked,
+            ),
       PanelModule.spacer => const Spacer(),
 
       // The three readouts share one widget and one stats subscription, so

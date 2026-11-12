@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../engine/effective_theme.dart';
+import 'settings_look.dart';
 
 /// Tone of a transient message. Maps to an accent colour, nothing else — the
 /// card shape, the logo and the layout never change.
@@ -19,6 +20,7 @@ class MessageSkin {
     required this.foreground,
     required this.accent,
     required this.uiFamily,
+    this.look,
   });
 
   final Color background;
@@ -28,6 +30,10 @@ class MessageSkin {
   /// Family name as declared in pubspec.yaml — 'Ubuntu' for the GNOME shells,
   /// 'UbuntuMono' for the terminal shell. Null falls back to Roboto.
   final String? uiFamily;
+
+  /// How the active distro shows a passing message: a toast, a
+  /// notification, a status line. Null keeps the house card.
+  final SettingsLook? look;
 
   Color accentFor(MessageTone tone) => switch (tone) {
         MessageTone.neutral => accent,
@@ -45,10 +51,12 @@ class MessageSkin {
           other.background == background &&
           other.foreground == foreground &&
           other.accent == accent &&
-          other.uiFamily == uiFamily;
+          other.uiFamily == uiFamily &&
+          other.look == look;
 
   @override
-  int get hashCode => Object.hash(background, foreground, accent, uiFamily);
+  int get hashCode =>
+      Object.hash(background, foreground, accent, uiFamily, look);
 
   /// Ubuntu 24.04 values. Used until the provider below is bound to the real
   /// theme, and as the fallback if the theme fails to resolve.
@@ -86,6 +94,7 @@ final messageSkinProvider = Provider<MessageSkin>((ref) {
         foreground: theme.palette.onDark,
         accent: theme.palette.accent,
         uiFamily: theme.typography.display,
+        look: SettingsLook.forTheme(theme),
       );
     }),
   );

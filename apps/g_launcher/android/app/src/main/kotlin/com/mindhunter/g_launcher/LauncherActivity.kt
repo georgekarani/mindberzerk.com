@@ -60,6 +60,10 @@ class LauncherActivity : FlutterActivity() {
         // AFTER Activity.onCreate has run inside super, so catching it here is
         // safe, and the user gets a screen that explains the fix instead of
         // "G Launcher keeps stopping" on every press of home.
+        // Builds the cached engine and the bridges if the idle warm-up has not
+        // run yet. Must precede super, which looks the engine up by id.
+        (application as LauncherApplication).start()
+
         if (!installComplete) {
             try {
                 super.onCreate(savedInstanceState)

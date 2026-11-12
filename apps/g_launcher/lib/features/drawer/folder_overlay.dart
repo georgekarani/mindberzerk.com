@@ -455,13 +455,19 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
                   }
                 },
                 child: BackdropFilter(
-                  filter: ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                  // Heavier than it was (28), so the icons and labels behind
+                  // dissolve into colour and the open folder is the only thing
+                  // on screen with edges. At 28 the home grid stayed readable
+                  // through the backdrop and competed with the folder's own
+                  // contents. One filter for the whole screen, so the cost on a
+                  // budget phone is the same pass at a wider kernel.
+                  filter: ui.ImageFilter.blur(sigmaX: 44, sigmaY: 44),
                   child: ColoredBox(
-                    // Not opaque: the wallpaper and the drawer stay legible
-                    // through it, which is the whole effect. Tinted with the
-                    // distro's own deep background so a light theme dims toward
-                    // its own colour rather than toward black.
-                    color: palette.bgBottom.withValues(alpha: 0.55),
+                    // Not opaque: the wallpaper's colour still comes through,
+                    // which is the whole effect. Tinted with the distro's own
+                    // deep background so a light theme dims toward its own
+                    // colour rather than toward black.
+                    color: palette.bgBottom.withValues(alpha: 0.62),
                   ),
                 ),
               ),
@@ -757,11 +763,11 @@ class _Title extends StatelessWidget {
       onTap: onStartRename,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Text(
+        // The whole name, shrunk to fit, never "Productivity & Fin…".
+        child: FitLabel(
           unnamed ? 'Folder name' : name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
+          maxLines: 2,
+          minFontSize: 13,
           style: unnamed
               ? style.copyWith(color: palette.onDark.withValues(alpha: 0.45))
               : style,
@@ -818,19 +824,19 @@ class _Actions extends StatelessWidget {
           ),
           // No symbol to choose on a glass folder: it is drawn as its apps.
           if (!theme.folderGlass) ...[
-          const SizedBox(width: 18),
-          Builder(
-            // The context this needs is one below [ChromeScope], and the
-            // closure above was created in the State's build, which is one
-            // above. A Builder is the cheapest way to get a context from the
-            // right side of that boundary.
-            builder: (inner) => _GlyphButton(
-              theme: theme,
-              icon: resolveFolderGlyph(folderGlyph: glyph),
-              semantic: context.t('drawer.chooseAnIconForThisFolder'),
-              onTap: () => onIcon(inner),
+            const SizedBox(width: 18),
+            Builder(
+              // The context this needs is one below [ChromeScope], and the
+              // closure above was created in the State's build, which is one
+              // above. A Builder is the cheapest way to get a context from the
+              // right side of that boundary.
+              builder: (inner) => _GlyphButton(
+                theme: theme,
+                icon: resolveFolderGlyph(folderGlyph: glyph),
+                semantic: context.t('drawer.chooseAnIconForThisFolder'),
+                onTap: () => onIcon(inner),
+              ),
             ),
-          ),
           ],
           const SizedBox(width: 18),
           _GlyphButton(
@@ -1182,8 +1188,6 @@ class _PanelState extends State<_Panel> {
     final pageCount = widget.pageCount;
     final controller = widget.controller;
 
-    final palette = theme.palette;
-
     // The tile is icon + gap + the LABEL BLOCK. Derived from the live icon
     // size rather than fixed, so the folder still fits itself when the icon
     // size setting changes, and now from the resolved labelLines too: the
@@ -1193,114 +1197,168 @@ class _PanelState extends State<_Panel> {
     // the 12sp label with its line height.
     final tileH = theme.iconSizeDp + 34 + (theme.labelLines - 1) * 16.0;
 
+    // ─── A GLASS FOLDER IS A COMPACT PANEL OF SQUARE CELLS ─────────────────
+    //
+    // The panel used to stretch to the screen width minus 40 whatever the
+    // column count, so Pocket's three columns were each far wider than an
+    // icon: the gaps between columns came out several times the gaps between
+    // rows, which is the uneven spacing in the review. An iPhone folder is a
+    // panel sized to its grid, centred, with the same pitch both ways. So the
+    // cell is square (as wide as it is tall), the panel is exactly the grid
+    // plus an even inset, and it only shrinks when a narrow screen forces it.
+    final glass = theme.folderGlass;
+    const glassInset = 18.0;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: theme.folderGlass
-            // Liquid Glass. The backdrop behind is already blurred, so the
-            // pane needs only its tint; the edge and rim go on the foreground
-            // below, where they take no layout.
-            ? BoxDecoration(
-                gradient: LiquidGlass.fill(dark: theme.glassDark),
-                borderRadius: BorderRadius.circular(34),
-              )
-            : BoxDecoration(
-                // Lifted off the blurred backdrop rather than transparent, or
-                // the grid reads as floating loose on the wallpaper and the
-                // label text fights whatever photo is behind it.
-                color: palette.bgBottom.withValues(alpha: 0.72),
-                borderRadius: BorderRadius.circular(34),
-                border:
-                    Border.all(color: palette.onDark.withValues(alpha: 0.08)),
-              ),
-        foregroundDecoration: theme.folderGlass
-            ? BoxDecoration(
-                borderRadius: BorderRadius.circular(34),
-                border: Border.all(color: LiquidGlass.edge),
-                gradient: LiquidGlass.rim(BorderRadius.zero).gradient,
-              )
-            : null,
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
-        child: SizedBox(
-          height: rows * tileH,
-          // A panel-wide target that catches the drag in the GAPS.
-          //
-          // ─── WHY IT ACCEPTS, WHEN IT DOES NOTHING WITH A DROP ───────────
-          //
-          // It returned false here, which looked right (the member tiles are
-          // the real targets) and silently broke the edge flip. Flutter's
-          // `_DragAvatar.updateDrag` calls `didMove` on the ACTIVE target only,
-          // and the active target is the first one whose `onWillAccept`
-          // returned true. A target that refuses never becomes active, so its
-          // `onMove` is never called and this whole timer was unreachable.
-          //
-          // Accepting costs nothing. The hit-test path runs innermost first, so
-          // whenever the pointer is over a member tile that tile is active and
-          // this one is not consulted; it only becomes active in the padding
-          // and the gaps, which is the one case the tiles cannot report.
-          // `onAcceptWithDetails` deliberately does nothing: a drop in the gap
-          // means "not on anything", and the member returns to where it was.
-          child: DragTarget<String>(
-            // ─── BACK TO false, AND ACCEPTING HERE WAS A REGRESSION ─────
-            //
-            // This was flipped to `true` so the panel would become the active
-            // drag target and receive `onMove`, because Flutter only calls
-            // `didMove` on the target that accepted. That worked for the edge
-            // flip and silently broke the LONG-PRESS MENU inside every folder.
-            //
-            // Hold a member and release without moving. The source tile refuses
-            // its own drop (`!_isSource`), so with this accepting, THIS target
-            // took it. An accepted drop means `onDraggableCanceled` never
-            // fires, and that callback is the entire mechanism by which a hold
-            // becomes a menu. So Uninstall, Pin to dock and Remove from folder
-            // all became unreachable from inside a folder, with the tile simply
-            // springing back.
-            //
-            // The flip does not need this. Member tiles forward their hover
-            // position through `onDragOver`, and a finger near the panel's edge
-            // is over the leftmost or rightmost TILE, not over the 8dp of
-            // padding beyond it. So the tiles cover the zone anyone can
-            // actually aim at, and this target goes back to watching without
-            // claiming anything.
-            onWillAcceptWithDetails: (_) => false,
-            onLeave: (_) => _stopFlip(),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final gridW = glass
+              ? math.min(cols * tileH, box.maxWidth - glassInset * 2)
+              : null;
+          final panel = _panel(
+            context,
+            theme: theme,
+            members: members,
+            folderId: folderId,
+            cols: cols,
+            rows: rows,
+            perPage: perPage,
+            pageCount: pageCount,
+            controller: controller,
+            tileH: tileH,
+            gridW: gridW,
+            inset: glassInset,
+          );
+          return glass ? Center(child: panel) : panel;
+        },
+      ),
+    );
+  }
 
-            builder: (context, _, __) => PageView.builder(
-              controller: controller,
-              // One page of members always fits by construction, so the page
-              // itself never scrolls — which is what keeps the horizontal swipe
-              // unambiguous.
-              itemCount: pageCount,
-              itemBuilder: (_, page) {
-                final start = page * perPage;
-                final count = math.min(perPage, members.length - start);
-
-                return GridView.builder(
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: EdgeInsets.zero,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    mainAxisExtent: tileH,
-                    crossAxisSpacing: 4,
-                  ),
-                  itemCount: count,
-                  itemBuilder: (_, i) => _MemberTile(
-                    editable: widget.editable,
-                    store: widget.store,
-                    theme: theme,
-                    entry: members[start + i],
-                    folderId: folderId,
-                    // The tiles are the active drag target for most of the
-                    // panel's area, so they are the only thing that sees the
-                    // pointer there. Without this the flip would arm only in the
-                    // few dp of padding at the very edge, which is not a zone
-                    // anyone can aim at.
-                    onDragOver: _onDragMove,
-                    onDragDone: _stopFlip,
-                  ),
-                );
-              },
+  Widget _panel(
+    BuildContext context, {
+    required EffectiveTheme theme,
+    required List<AppEntry> members,
+    required String folderId,
+    required int cols,
+    required int rows,
+    required int perPage,
+    required int pageCount,
+    required PageController controller,
+    required double tileH,
+    required double? gridW,
+    required double inset,
+  }) {
+    final palette = theme.palette;
+    final glass = gridW != null;
+    return Container(
+      decoration: theme.folderGlass
+          // Liquid Glass. The backdrop behind is already blurred, so the
+          // pane needs only its tint; the edge and rim go on the foreground
+          // below, where they take no layout.
+          ? BoxDecoration(
+              gradient: LiquidGlass.fill(dark: theme.glassDark),
+              borderRadius: BorderRadius.circular(34),
+            )
+          : BoxDecoration(
+              // Lifted off the blurred backdrop rather than transparent, or
+              // the grid reads as floating loose on the wallpaper and the
+              // label text fights whatever photo is behind it.
+              color: palette.bgBottom.withValues(alpha: 0.72),
+              borderRadius: BorderRadius.circular(34),
+              border: Border.all(color: palette.onDark.withValues(alpha: 0.08)),
             ),
+      foregroundDecoration: theme.folderGlass
+          ? BoxDecoration(
+              borderRadius: BorderRadius.circular(34),
+              border: Border.all(color: LiquidGlass.edge),
+              gradient: LiquidGlass.rim(BorderRadius.zero).gradient,
+            )
+          : null,
+      padding: glass
+          ? EdgeInsets.all(inset)
+          : const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
+      child: SizedBox(
+        width: gridW,
+        height: rows * tileH,
+        // A panel-wide target that catches the drag in the GAPS.
+        //
+        // ─── WHY IT ACCEPTS, WHEN IT DOES NOTHING WITH A DROP ───────────
+        //
+        // It returned false here, which looked right (the member tiles are
+        // the real targets) and silently broke the edge flip. Flutter's
+        // `_DragAvatar.updateDrag` calls `didMove` on the ACTIVE target only,
+        // and the active target is the first one whose `onWillAccept`
+        // returned true. A target that refuses never becomes active, so its
+        // `onMove` is never called and this whole timer was unreachable.
+        //
+        // Accepting costs nothing. The hit-test path runs innermost first, so
+        // whenever the pointer is over a member tile that tile is active and
+        // this one is not consulted; it only becomes active in the padding
+        // and the gaps, which is the one case the tiles cannot report.
+        // `onAcceptWithDetails` deliberately does nothing: a drop in the gap
+        // means "not on anything", and the member returns to where it was.
+        child: DragTarget<String>(
+          // ─── BACK TO false, AND ACCEPTING HERE WAS A REGRESSION ─────
+          //
+          // This was flipped to `true` so the panel would become the active
+          // drag target and receive `onMove`, because Flutter only calls
+          // `didMove` on the target that accepted. That worked for the edge
+          // flip and silently broke the LONG-PRESS MENU inside every folder.
+          //
+          // Hold a member and release without moving. The source tile refuses
+          // its own drop (`!_isSource`), so with this accepting, THIS target
+          // took it. An accepted drop means `onDraggableCanceled` never
+          // fires, and that callback is the entire mechanism by which a hold
+          // becomes a menu. So Uninstall, Pin to dock and Remove from folder
+          // all became unreachable from inside a folder, with the tile simply
+          // springing back.
+          //
+          // The flip does not need this. Member tiles forward their hover
+          // position through `onDragOver`, and a finger near the panel's edge
+          // is over the leftmost or rightmost TILE, not over the 8dp of
+          // padding beyond it. So the tiles cover the zone anyone can
+          // actually aim at, and this target goes back to watching without
+          // claiming anything.
+          onWillAcceptWithDetails: (_) => false,
+          onLeave: (_) => _stopFlip(),
+
+          builder: (context, _, __) => PageView.builder(
+            controller: controller,
+            // One page of members always fits by construction, so the page
+            // itself never scrolls — which is what keeps the horizontal swipe
+            // unambiguous.
+            itemCount: pageCount,
+            itemBuilder: (_, page) {
+              final start = page * perPage;
+              final count = math.min(perPage, members.length - start);
+
+              return GridView.builder(
+                physics: const NeverScrollableScrollPhysics(),
+                padding: EdgeInsets.zero,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  mainAxisExtent: tileH,
+                  crossAxisSpacing: glass ? 0 : 4,
+                ),
+                itemCount: count,
+                itemBuilder: (_, i) => _MemberTile(
+                  editable: widget.editable,
+                  store: widget.store,
+                  theme: theme,
+                  entry: members[start + i],
+                  folderId: folderId,
+                  // The tiles are the active drag target for most of the
+                  // panel's area, so they are the only thing that sees the
+                  // pointer there. Without this the flip would arm only in the
+                  // few dp of padding at the very edge, which is not a zone
+                  // anyone can aim at.
+                  onDragOver: _onDragMove,
+                  onDragDone: _stopFlip,
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -1451,31 +1509,36 @@ class _MemberTileState extends ConsumerState<_MemberTile> {
     // `_AppTile`.
     final located = ref.watch(locateTargetProvider) == entry.componentKey;
 
-    final content = Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        PressPop(
-          held: _held || located,
-          radius: theme.iconSizeDp * 0.24,
-          ringColor: theme.palette.onDark,
-          child: AppIcon(entry: entry, size: theme.iconSizeDp),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          entry.label,
-          // The RESOLVED line count, two by default, so "Culimix Delivery"
-          // wraps whole instead of truncating. The ellipsis stays as the
-          // runtime backstop for names longer than even two lines.
-          maxLines: theme.labelLines,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            fontFamily: theme.typography.display,
-            fontSize: 12,
-            color: theme.palette.onDark,
+    // ─── THE FULL CELL WIDTH, SO A COLUMN IS A COLUMN ────────────────────
+    //
+    // The tile sat top-left in its cell at the width of its own LABEL, so a
+    // short name ("Clock") made a narrow tile pushed left and a long name made
+    // a full-width one with its icon centred. Icons in the same column landed
+    // at different x positions, which is the uneven columns in the review.
+    // As wide as the cell, every icon centres on the column's axis.
+    final content = SizedBox(
+      width: double.infinity,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PressPop(
+            held: _held || located,
+            radius: theme.iconSizeDp * 0.24,
+            ringColor: theme.palette.onDark,
+            child: AppIcon(entry: entry, size: theme.iconSizeDp),
           ),
-        ),
-      ],
+          const SizedBox(height: 6),
+          FitLabel(
+            entry.label,
+            maxLines: theme.labelLines,
+            style: TextStyle(
+              fontFamily: theme.typography.display,
+              fontSize: 12,
+              color: theme.palette.onDark,
+            ),
+          ),
+        ],
+      ),
     );
 
     // ─── THE DROP IS ALWAYS AN INSERT, NEVER A MERGE ────────────────────────

@@ -185,7 +185,8 @@ abstract final class AquaDockMetrics {
     final restRun = count * base + (count - 1) * spacing;
     final restShift = (available - restRun) / 2;
     final rest = <double>[
-      for (var i = 0; i < count; i++) restShift + base / 2 + i * (base + spacing),
+      for (var i = 0; i < count; i++)
+        restShift + base / 2 + i * (base + spacing),
     ];
 
     var sizes = <double>[];
@@ -209,7 +210,8 @@ abstract final class AquaDockMetrics {
       sizes = [for (final s in sizes) s * k];
     }
 
-    final total = sizes.fold<double>(0, (a, b) => a + b) + (count - 1) * spacing;
+    final total =
+        sizes.fold<double>(0, (a, b) => a + b) + (count - 1) * spacing;
     final shift = (available - total) / 2;
 
     final out = <AquaSlot>[];

@@ -30,6 +30,7 @@ Future<void> main() async {
   await _initFirebase();
 
   _registerFontLicences();
+  _registerIconLicences();
 
   // Resolved before the first frame so the shell never renders with defaults
   // and then flickers into the user's real settings a frame later.
@@ -158,6 +159,59 @@ void _registerFontLicences() {
         // the one screen a reviewer is guaranteed to open.
         debugPrint('Licence text $licence.txt missing: $e');
       }
+    }
+  });
+}
+
+/// The icon sets the launcher draws, credited as each licence requires.
+///
+/// Line is Arcticons, recoloured (CC BY-SA 4.0, which a link satisfies). Bold
+/// is Lawnicons, renamed and recoloured (Apache-2.0, which needs the text and
+/// a note that it was modified). Papirus and Numix Circle are GPL-3.0 and ship
+/// free, with the licence text and a link to their source.
+///
+/// Registered whatever is installed, like the fonts above: the page lists what
+/// the launcher can draw, and a few kilobytes buys an honest page.
+void _registerIconLicences() {
+  LicenseRegistry.addLicense(() async* {
+    yield const LicenseEntryWithLineBreaks(
+      ['Line icons (Arcticons)'],
+      'Line icons are Arcticons by Donnnno and the Arcticons contributors, '
+          'recoloured for each distro.\n\n'
+          'Licensed under Creative Commons Attribution-ShareAlike 4.0: '
+          'https://creativecommons.org/licenses/by-sa/4.0/\n\n'
+          'Source: https://github.com/Arcticons-Team/Arcticons',
+    );
+
+    try {
+      final apache =
+          await rootBundle.loadString('assets/fonts/licences/apache.txt');
+      yield LicenseEntryWithLineBreaks(
+        const ['Bold icons'],
+        'Bold icons are based on Lawnicons by the Lawnchair team and '
+        'contributors, modified: recoloured for each distro and converted to '
+        'path data. Lawnicons and Lawnchair are names of their owners and are '
+        'not used here as a brand.\n\n'
+        'Source: https://github.com/LawnchairLauncher/lawnicons\n\n$apache',
+      );
+    } catch (e) {
+      debugPrint('Licence text apache.txt missing: $e');
+    }
+
+    try {
+      final gpl = await rootBundle.loadString('assets/licences/gpl-3.0.txt');
+      yield LicenseEntryWithLineBreaks(
+        const ['Papirus Icon Theme', 'Numix Circle'],
+        'Papirus by the Papirus Development Team: '
+        'https://github.com/PapirusDevelopmentTeam/papirus-icon-theme\n'
+        'Numix Circle by the Numix Project: '
+        'https://github.com/numixproject/numix-icon-theme-circle\n\n'
+        'Both are free software, distributed free of charge under the GNU '
+        'General Public License version 3, rendered to PNG for this launcher.'
+        '\n\n$gpl',
+      );
+    } catch (e) {
+      debugPrint('Licence text gpl-3.0.txt missing: $e');
     }
   });
 }

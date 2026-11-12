@@ -12,11 +12,17 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../data/search/search_text.dart';
 import '../../design/components/components.dart';
+import '../../design/setting_previews.dart' show PreviewChoice;
+import '../../design/settings_look.dart';
+import '../../engine/effective_theme.dart';
 import '../../engine/theme_spec.dart' show ChromeFamily;
+
+export '../../design/settings_look.dart';
 
 class SettingsFraming {
   const SettingsFraming({
@@ -184,8 +190,144 @@ class SettingsGroup extends StatelessWidget {
   /// Already trimmed; may be empty (no search active).
   final String query;
 
+  /// The group as the distro's own settings app draws it. See [SettingsLook].
+  ///
+  /// Three things the legacy group does are dropped here on purpose: the
+  /// scope suffix (the page is already the distro's page), the per-group
+  /// Reset (one reset per page, in the app bar), and rows the distro cannot
+  /// do, which are hidden rather than greyed with a reason under them.
+  Widget _immersive(BuildContext context, SettingsLook look) {
+    final d = ChromeScope.of(context);
+    final c = d.colors;
+    final labelHit = SearchText.contains(label, query);
+    final visible = <Widget>[
+      for (final r in rows)
+        if ((labelHit || r.matches(query)) && !isInertSettingsRow(r.child))
+          r.child,
+    ];
+    if (visible.isEmpty) return const SizedBox.shrink();
+
+    final title = label.isEmpty
+        ? label
+        : '${label[0].toUpperCase()}${label.substring(1)}';
+
+    final header = switch (look) {
+      SettingsLook.config => Text(
+          '[${configKey(label)}]',
+          style: d.text.value.copyWith(color: c.warn),
+        ),
+      SettingsLook.grouped => Text(
+          title.toUpperCase(),
+          style: TextStyle(
+            color: c.textMuted,
+            fontSize: 12.5,
+            letterSpacing: 0.4,
+          ),
+        ),
+      SettingsLook.form => Row(
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                color: c.text,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(child: Divider(height: 1, thickness: 1, color: c.line)),
+          ],
+        ),
+      SettingsLook.boxed ||
+      SettingsLook.cinnamon ||
+      SettingsLook.dialog =>
+        Text(
+          title,
+          style: TextStyle(
+            color: c.text,
+            fontSize: look == SettingsLook.cinnamon ? 13.5 : 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+    };
+
+    final headerPad = switch (look) {
+      SettingsLook.grouped => const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      SettingsLook.form => const EdgeInsets.fromLTRB(0, 4, 0, 10),
+      SettingsLook.config || SettingsLook.dialog => const EdgeInsets.only(
+          bottom: 8,
+        ),
+      SettingsLook.boxed ||
+      SettingsLook.cinnamon =>
+        const EdgeInsets.fromLTRB(4, 0, 4, 8),
+    };
+
+    final Widget body;
+    if (look.bare) {
+      // Rows straight on the page: Kirigami forms, Xfce frames and a config
+      // file have no card behind them. Xfce indents under its legend.
+      body = Padding(
+        padding: EdgeInsets.only(left: look == SettingsLook.dialog ? 12 : 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: visible,
+        ),
+      );
+    } else {
+      final divided = <Widget>[];
+      for (var i = 0; i < visible.length; i++) {
+        if (i > 0) {
+          divided.add(
+            Divider(
+              height: 1,
+              thickness: look == SettingsLook.grouped ? 0.5 : 1,
+              indent: look == SettingsLook.grouped ? 16 : 0,
+              color: c.line,
+            ),
+          );
+        }
+        divided.add(visible[i]);
+      }
+      final radius = look == SettingsLook.cinnamon ? 6.0 : 12.0;
+      body = DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          border:
+              look == SettingsLook.cinnamon ? Border.all(color: c.line) : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius),
+          child: Material(
+            color: c.surface,
+            child: Column(children: divided),
+          ),
+        ),
+      );
+    }
+
+    final side = switch (look) {
+      SettingsLook.boxed => 12.0,
+      SettingsLook.grouped => 16.0,
+      SettingsLook.config => 10.0,
+      SettingsLook.cinnamon || SettingsLook.form || SettingsLook.dialog => 14.0,
+    };
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(side, 0, side, look.groupGap),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (label.isNotEmpty) Padding(padding: headerPad, child: header),
+          body,
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final look = SettingsLookScope.of(context);
+    if (look != null) return _immersive(context, look);
     final s = SettingsSkin.of(context);
     final f = s.framing;
     final q = query;
@@ -303,6 +445,7 @@ class SettingsRow extends StatelessWidget {
     this.subtitleTint,
     this.accent = false,
     this.onTap,
+    this.keepSubtitle = false,
   });
 
   final IconData icon;
@@ -318,8 +461,133 @@ class SettingsRow extends StatelessWidget {
   final Widget trailing;
   final VoidCallback? onTap;
 
+  /// Whether [subtitle] is a VALUE (the current language, the chosen motion)
+  /// rather than a description. Section pages drop descriptions and show a
+  /// value at the right of the row, the way every distro's settings app does.
+  final bool keepSubtitle;
+
+  /// The row inside a section page. Title, value, control; no description.
+  Widget _immersive(BuildContext context, SettingsLook look) {
+    final d = ChromeScope.of(context);
+    final c = d.colors;
+    final value = keepSubtitle ? subtitle : settingsValueText(trailing);
+    final navigates = isNavigationTrailing(trailing);
+
+    if (look == SettingsLook.form) {
+      final control = navigates ? _FormButton(text: value) : trailing;
+      return InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: look.rowHeight),
+          child: Row(
+            children: [
+              SizedBox(
+                width: SettingsLook.formLabelWidth,
+                child: Text(
+                  '$title:',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(color: c.text, fontSize: 13.5),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Flexible(
+                child: Align(alignment: Alignment.centerLeft, child: control),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (look == SettingsLook.config) {
+      final shown = navigates
+          ? (value != null
+              ? Text(value, style: d.text.value)
+              : Icon(Icons.chevron_right, size: 16, color: c.textMuted))
+          : trailing;
+      return InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: look.rowHeight),
+          child: Row(
+            children: [
+              Text(
+                configKey(title),
+                style: d.text.value.copyWith(color: c.accent),
+              ),
+              Text(' = ', style: d.text.value.copyWith(color: c.textFaint)),
+              Flexible(
+                child: Align(alignment: Alignment.centerLeft, child: shown),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Boxed, Cinnamon, Xfce dialog and iOS grouped: one line, title left.
+    final shown = navigates
+        ? Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (value != null) ...[
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 150),
+                  child: Text(
+                    value,
+                    maxLines: 1,
+                    overflow: TextOverflow.fade,
+                    softWrap: false,
+                    style: TextStyle(
+                      color: c.textMuted,
+                      fontSize: look == SettingsLook.grouped ? 16 : 14,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
+              Icon(Icons.chevron_right, size: 18, color: c.textMuted),
+            ],
+          )
+        : trailing;
+    final titleSize = switch (look) {
+      SettingsLook.grouped => 16.0,
+      SettingsLook.dialog => 13.5,
+      SettingsLook.cinnamon => 14.0,
+      _ => 14.5,
+    };
+    final side = switch (look) {
+      SettingsLook.dialog => 0.0,
+      SettingsLook.grouped => 16.0,
+      _ => 14.0,
+    };
+    return InkWell(
+      onTap: onTap,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(minHeight: look.rowHeight),
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: side),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(color: c.text, fontSize: titleSize),
+                ),
+              ),
+              const SizedBox(width: 12),
+              shown,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final look = SettingsLookScope.of(context);
+    if (look != null) return _immersive(context, look);
     final s = SettingsSkin.of(context);
     return InkWell(
       onTap: onTap,
@@ -413,8 +681,115 @@ class SettingsToggleRow extends StatelessWidget {
   /// a control that half-works, which is worse than either.
   final bool enabled;
 
+  /// Checkbox, config value or iOS switch, depending on the page's look.
+  /// Boxed and Cinnamon fall through to the legacy row, which already drops
+  /// its description inside a section page.
+  Widget? _immersive(BuildContext context, SettingsLook look) {
+    final d = ChromeScope.of(context);
+    final c = d.colors;
+    void flip() {
+      if (enabled) onChanged(!value);
+    }
+
+    if (look.checkboxes) {
+      return InkWell(
+        onTap: flip,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: look.rowHeight),
+          child: Row(
+            children: [
+              if (look == SettingsLook.form)
+                const SizedBox(width: SettingsLook.formLabelWidth + 4),
+              Checkbox(
+                value: value,
+                onChanged: enabled ? (v) => onChanged(v ?? false) : null,
+                activeColor: c.accent,
+                checkColor: c.onAccent,
+                side: BorderSide(color: c.textMuted, width: 1.4),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  title,
+                  style: TextStyle(color: c.text, fontSize: 13.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (look == SettingsLook.config) {
+      return InkWell(
+        onTap: flip,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: look.rowHeight),
+          child: Row(
+            children: [
+              Text(
+                configKey(title),
+                style: d.text.value.copyWith(color: c.accent),
+              ),
+              Text(' = ', style: d.text.value.copyWith(color: c.textFaint)),
+              Text(
+                value ? 'true' : 'false',
+                style: d.text.value.copyWith(
+                  color: value ? c.text : c.textMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (look == SettingsLook.grouped) {
+      // iOS green, regardless of the distro accent: that is what the
+      // platform being imitated does with every switch.
+      const green = Color(0xFF34C759);
+      return InkWell(
+        onTap: flip,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: look.rowHeight),
+          child: Padding(
+            padding: const EdgeInsets.only(left: 16, right: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(color: c.text, fontSize: 16),
+                  ),
+                ),
+                Switch(
+                  value: value,
+                  onChanged: enabled ? onChanged : null,
+                  thumbColor: const WidgetStatePropertyAll(Colors.white),
+                  trackColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? green
+                        : c.surfaceAlt,
+                  ),
+                  trackOutlineColor:
+                      const WidgetStatePropertyAll(Colors.transparent),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final look = SettingsLookScope.of(context);
+    final custom = look == null ? null : _immersive(context, look);
+    if (custom != null) return custom;
     final s = SettingsSkin.of(context);
     final row = SettingsRow(
       icon: icon,
@@ -631,8 +1006,108 @@ class Seg extends StatelessWidget {
   /// Clears the pref so the distro's own answer applies again.
   final VoidCallback? onFollow;
 
+  /// The choice as each toolkit draws a short exclusive set, without the
+  /// per-control Follow chip (the page has one reset, in the app bar).
+  Widget _immersive(BuildContext context, SettingsLook look) {
+    final d = ChromeScope.of(context);
+    final c = d.colors;
+
+    if (look == SettingsLook.config) {
+      // A config value cycles: tap moves to the next option.
+      final keys = options.keys.toList();
+      final i = keys.indexOf(value);
+      return GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled && keys.isNotEmpty
+            ? () => onChanged(keys[(i + 1) % keys.length])
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            options[value] ?? value,
+            style: d.text.value.copyWith(color: c.text),
+          ),
+        ),
+      );
+    }
+
+    final joined = look == SettingsLook.form ||
+        look == SettingsLook.cinnamon ||
+        look == SettingsLook.dialog;
+    final radius = switch (look) {
+      SettingsLook.form => 3.0,
+      SettingsLook.dialog => 4.0,
+      SettingsLook.cinnamon => 5.0,
+      SettingsLook.grouped => 9.0,
+      _ => 10.0,
+    };
+    final entries = options.entries.toList();
+
+    Color fill(bool on) {
+      if (!on) return Colors.transparent;
+      return switch (look) {
+        SettingsLook.form => c.accent.withValues(alpha: 0.32),
+        SettingsLook.grouped => c.text.withValues(alpha: 0.22),
+        _ => c.accent,
+      };
+    }
+
+    Color ink(bool on) {
+      if (!on) return c.textMuted;
+      return switch (look) {
+        SettingsLook.form || SettingsLook.grouped => c.text,
+        _ => c.onAccent,
+      };
+    }
+
+    return Container(
+      padding: joined ? EdgeInsets.zero : const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: joined ? null : c.surfaceAlt,
+        border: joined ? Border.all(color: c.line) : null,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < entries.length; i++)
+            GestureDetector(
+              onTap: enabled ? () => onChanged(entries[i].key) : null,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 34),
+                alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: fill(entries[i].key == value),
+                  borderRadius:
+                      joined ? null : BorderRadius.circular(radius - 2),
+                  border: joined && i > 0
+                      ? Border(left: BorderSide(color: c.line))
+                      : null,
+                ),
+                child: Text(
+                  entries[i].value,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: entries[i].key == value
+                        ? FontWeight.w600
+                        : FontWeight.w400,
+                    color: ink(entries[i].key == value),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final look = SettingsLookScope.of(context);
+    if (look != null) return _immersive(context, look);
     final s = SettingsSkin.of(context);
     final control = Container(
       padding: const EdgeInsets.all(3),
@@ -903,6 +1378,19 @@ class OpacityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final look = SettingsLookScope.of(context);
+    if (look != null) {
+      return LookSlider(
+        look: look,
+        label: label ?? context.t('settings.surfaceOpacity'),
+        value: value,
+        min: 0.6,
+        max: 1.0,
+        divisions: 8,
+        format: (v) => '${(v * 100).round()}%',
+        onChanged: enabled ? onChanged : null,
+      );
+    }
     final d = ChromeScope.of(context);
     final c = d.colors;
 
@@ -963,5 +1451,123 @@ class OpacityRow extends StatelessWidget {
     // and the words above it would not, which reads as a rendering fault
     // rather than as a setting that does not apply here.
     return enabled ? row : Opacity(opacity: 0.45, child: row);
+  }
+}
+
+/// Whether [w] is a row the current distro cannot act on.
+///
+/// The section builders already compute this for the legacy page, where the
+/// row is greyed and a reason is written under it. A section page hides it
+/// instead, so this reads the same flags back rather than asking every call
+/// site to pass a second one.
+bool isInertSettingsRow(Widget w) => switch (w) {
+      SettingsToggleRow(:final enabled) => !enabled,
+      OpacityRow(:final enabled) => !enabled,
+      PreviewChoice(:final enabled) => !enabled,
+      SettingsRow(:final trailing, :final onTap) =>
+        (trailing is Seg && !trailing.enabled) ||
+            (onTap == null &&
+                (trailing is ValueLabel ||
+                    trailing is ChipValue ||
+                    trailing is ValueChevron)),
+      _ => false,
+    };
+
+/// The value a trailing widget already displays, for rows that show it as
+/// plain text at the right instead.
+String? settingsValueText(Widget trailing) => switch (trailing) {
+      ValueLabel(:final text) => text,
+      ValueChevron(:final text) => text,
+      ChipValue(:final label) => label,
+      _ => null,
+    };
+
+/// Whether a trailing widget means "opens something" rather than being the
+/// control itself.
+bool isNavigationTrailing(Widget trailing) =>
+    trailing is Chevron ||
+    trailing is ValueLabel ||
+    trailing is ValueChevron ||
+    trailing is ChipValue ||
+    trailing is SysBadge ||
+    (trailing is Icon && trailing.icon == Icons.chevron_right);
+
+/// A Kirigami push button standing in for a chevron in [SettingsLook.form].
+class _FormButton extends StatelessWidget {
+  const _FormButton({this.text});
+
+  final String? text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ChromeScope.of(context).colors;
+    return Container(
+      constraints: const BoxConstraints(minHeight: 32),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border.all(color: c.line),
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (text != null) ...[
+            Flexible(
+              child: Text(
+                text!,
+                maxLines: 1,
+                overflow: TextOverflow.fade,
+                softWrap: false,
+                style: TextStyle(color: c.text, fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Icon(Icons.chevron_right, size: 16, color: c.textMuted),
+        ],
+      ),
+    );
+  }
+}
+
+/// A page one level below a section page, in the same look.
+///
+/// Rebuilds from the live theme, so a switch flipped here repaints at once,
+/// and carries the section page's [SettingsLook] across the route boundary.
+class SettingsSubPage extends ConsumerWidget {
+  const SettingsSubPage({
+    super.key,
+    required this.title,
+    required this.look,
+    required this.builder,
+  });
+
+  final String title;
+  final SettingsLook look;
+  final List<Widget> Function(
+    BuildContext context,
+    WidgetRef ref,
+    EffectiveTheme theme,
+  ) builder;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final async = ref.watch(effectiveThemeProvider);
+    if (!async.hasValue) return const SizedBox.shrink();
+    return ThemedScaffold(
+      title: title,
+      centerTitle: look.centeredTitle,
+      body: SettingsLookScope(
+        look: look,
+        child: RowIcons(
+          show: false,
+          child: ListView(
+            padding: const EdgeInsets.only(top: 12, bottom: 28),
+            children: builder(context, ref, async.requireValue),
+          ),
+        ),
+      ),
+    );
   }
 }

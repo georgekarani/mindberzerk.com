@@ -115,6 +115,7 @@ class AquaDock extends StatefulWidget {
     this.onDropOnto,
     this.onFull,
     this.onRemove,
+    this.onHold,
     this.capacity = AquaDockMetrics.maxApps,
     this.folders = false,
     this.editing = false,
@@ -227,6 +228,11 @@ class AquaDock extends StatefulWidget {
   /// The edit-mode badge on an entry was tapped.
   final void Function(DockEntry entry, Rect? anchor)? onRemove;
 
+  /// An icon has been held long enough to lift. Pocket starts its jiggle
+  /// here, so the apps shake the moment a press becomes a hold, as an
+  /// iPhone's do. Null on the desktops, where a hold only lifts.
+  final VoidCallback? onHold;
+
   /// How many entries the dock holds. A gap only opens while there is room,
   /// or for one of the dock's own entries, which frees its slot as it lifts.
   final int capacity;
@@ -300,6 +306,10 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
   /// The finger has stayed on [_onto] long enough to make a folder.
   bool _armed = false;
 
+  /// The finger is on the right half of [_onto], so a quick drop there lands
+  /// after it rather than before.
+  bool _ontoAfter = false;
+
   Timer? _arm;
 
   /// The run width from the last layout, and the app slots laid out in it,
@@ -349,7 +359,17 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
 
   void _track(PointerEvent e) {
     if (e is PointerMoveEvent || e is PointerDownEvent) _pointer = e.position;
+    if (e is PointerDownEvent) {
+      _downAt = e.position;
+      _editingAtDown = widget.editing;
+    }
   }
+
+  /// Where the current press went down, and whether edit mode was already on
+  /// then. Together they decide whether a lifted icon that is let go where it
+  /// started was a HOLD (open the menu) or nothing at all (already editing).
+  Offset? _downAt;
+  bool _editingAtDown = false;
 
   void _syncJiggle() {
     if (widget.editing && !_jiggle.isAnimating) {
@@ -385,6 +405,9 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
 
   /// How long a finger rests on an icon's centre before a folder is armed.
   static const _armDelay = Duration(milliseconds: 450);
+
+  /// How far a lifted icon may wander and still count as held still.
+  static const _stillSlop = 12.0;
 
   /// How close to a centre counts as ON the icon rather than beside it, as a
   /// share of the slot. Inside this the gap stays put; outside it the gap
@@ -457,6 +480,9 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
         }
       }
       if (onto != null) {
+        for (final (id, s) in _shown) {
+          if (id == onto) _ontoAfter = x > s.center;
+        }
         if (onto != _onto) {
           setState(() {
             _clearOnto();
@@ -509,6 +535,17 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
     HapticFeedback.mediumImpact();
     if (onto != null && armed) {
       widget.onDropOnto?.call(drag, onto);
+    } else if (onto != null && order.contains(onto)) {
+      // ─── A QUICK DROP ON AN ICON IS A MOVE, NOT NOTHING ──────────────────
+      //
+      // On a folder dock the centre of every icon is a folder target, and the
+      // gap is only recomputed off-centre. On Pocket's four big slots that
+      // left a sliver between icons as the only place a drop reordered: let
+      // go on an icon before the folder armed and nothing happened, which is
+      // what "the dock cannot be rearranged" was. Released before the arm, it
+      // takes that icon's place, on the side the finger was on.
+      final at = order.indexOf(onto) + (_ontoAfter ? 1 : 0);
+      widget.onDropAt?.call(drag, order, at);
     } else if (gap != null) {
       widget.onDropAt?.call(drag, order, gap);
     } else if (!room) {
@@ -595,16 +632,17 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
         final radius = phone
             ? BorderRadius.circular((tallest + vPad * 2) * 0.4)
             : switch (style) {
-              // Plank meets the bottom edge, so its lower corners are not corners
-              // at all. Rounding them would draw a gap that is not there.
-              AquaDockStyle.flat => BorderRadius.vertical(
-                  top: Radius.circular(tallest * 0.22),
-                ),
-              // Deepin's is rounder than a Mac's: fashion mode is a pill on the
-              // wallpaper, and that extra radius is most of what tells the two
-              // apart at a glance.
-              AquaDockStyle.floating => BorderRadius.circular(tallest * 0.42),
-              AquaDockStyle.magnified => BorderRadius.circular(tallest * 0.28),
+                // Plank meets the bottom edge, so its lower corners are not corners
+                // at all. Rounding them would draw a gap that is not there.
+                AquaDockStyle.flat => BorderRadius.vertical(
+                    top: Radius.circular(tallest * 0.22),
+                  ),
+                // Deepin's is rounder than a Mac's: fashion mode is a pill on the
+                // wallpaper, and that extra radius is most of what tells the two
+                // apart at a glance.
+                AquaDockStyle.floating => BorderRadius.circular(tallest * 0.42),
+                AquaDockStyle.magnified =>
+                  BorderRadius.circular(tallest * 0.28),
               };
 
         // A sliding slot animates; a swelling one must track the finger
@@ -788,7 +826,8 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
   }
 
   /// One app or folder slot: motion, press, the wobble and the badge.
-  Widget _slot(DockEntry entry, AquaSlot slot, int index, ThemePalette palette) {
+  Widget _slot(
+      DockEntry entry, AquaSlot slot, int index, ThemePalette palette) {
     final focus = _focus;
     Widget view = _AquaSlotView(
       entry: entry,
@@ -798,27 +837,48 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
       dots: widget.restSlot == null,
       target: _onto == entry.id,
       armed: _onto == entry.id && _armed,
-      onLift: () => setState(() {
-        _lifted = entry.id;
-        _liftedFrom = slot;
-      }),
+      onLift: () {
+        setState(() {
+          _lifted = entry.id;
+          _liftedFrom = slot;
+        });
+        if (!widget.editing) widget.onHold?.call();
+      },
       onSettle: () {
         if (_lifted == entry.id) setState(() => _lifted = null);
       },
+      // ─── A HOLD THAT NEVER TRAVELLED IS THE MENU ─────────────────────
+      //
+      // The same contract the home grid's tiles keep. The menu used to sit on
+      // a GestureDetector long press under the draggable, and on Pocket that
+      // long press won: the sheet opened, the drag was cancelled before it
+      // began, and the dock could not be rearranged at all. Now the hold
+      // always lifts, and letting go where it started opens the menu.
+      onStillRelease: (end, anchor) {
+        final from = _downAt;
+        if (from == null || _editingAtDown) return;
+        if ((end - from).distance > _stillSlop) return;
+        entry.onLongPress?.call(anchor);
+      },
     );
 
-    if (widget.editing) {
-      view = _wobble(index, view);
-      if (widget.onRemove != null) {
-        view = _Badge(
-          size: slot.size,
-          palette: palette,
-          onTap: (anchor) => widget.onRemove!(entry, anchor),
-          minus: widget.restSlot != null,
-          child: view,
-        );
-      }
-    }
+    // ─── THE SAME WRAPPERS IN AND OUT OF EDIT MODE ──────────────────────
+    //
+    // These used to be added only while editing. On Pocket a hold on a dock
+    // icon is also what STARTS edit mode, so the hold that was lifting the
+    // icon rebuilt the slot under two new widget types, Flutter replaced the
+    // element, and the LongPressDraggable carrying the drag was thrown away
+    // with it: the icon would not lift, or lifted and then dropped nowhere.
+    // Always mounted, switched off by a flag, the draggable survives.
+    view = _wobble(index, view, on: widget.editing);
+    view = _Badge(
+      size: slot.size,
+      palette: palette,
+      show: widget.editing && widget.onRemove != null,
+      onTap: (anchor) => widget.onRemove?.call(entry, anchor),
+      minus: widget.restSlot != null,
+      child: view,
+    );
 
     return DockSlotMotion(
       // ─── MAGNIFY IS ALREADY DONE HERE ────────────────────────────────
@@ -856,12 +916,13 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
   }
 
   /// The home grid's wobble: a triangle wave, odd slots half a cycle out.
-  Widget _wobble(int index, Widget child) => AnimatedBuilder(
+  Widget _wobble(int index, Widget child, {required bool on}) =>
+      AnimatedBuilder(
         animation: _jiggle,
         builder: (context, c) {
           final t = (_jiggle.value + (index.isEven ? 0.0 : 0.5)) % 1.0;
           return Transform.rotate(
-            angle: (t < 0.5 ? t * 2 - 0.5 : 1.5 - t * 2) * 0.024,
+            angle: on ? (t < 0.5 ? t * 2 - 0.5 : 1.5 - t * 2) * 0.024 : 0,
             child: c,
           );
         },
@@ -900,8 +961,13 @@ class _Badge extends StatelessWidget {
     required this.palette,
     required this.onTap,
     required this.child,
+    this.show = true,
     this.minus = false,
   });
+
+  /// Hidden rather than removed, so the slot's widget tree is the same shape
+  /// in and out of edit mode. See the note in `_slot`.
+  final bool show;
 
   /// A phone's badge is a minus; a desktop's is a cross.
   final bool minus;
@@ -918,30 +984,31 @@ class _Badge extends StatelessWidget {
       clipBehavior: Clip.none,
       children: [
         Positioned.fill(child: child),
-        Positioned(
-          top: -badge * 0.25,
-          left: -badge * 0.25,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () {
-              HapticFeedback.selectionClick();
-              onTap(AnchoredMenu.anchorOf(context));
-            },
-            child: Container(
-              width: badge,
-              height: badge,
-              decoration: BoxDecoration(
-                color: palette.onDark,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                minus ? Icons.remove : Icons.close,
-                size: badge * 0.62,
-                color: palette.bar,
+        if (show)
+          Positioned(
+            top: -badge * 0.25,
+            left: -badge * 0.25,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                HapticFeedback.selectionClick();
+                onTap(AnchoredMenu.anchorOf(context));
+              },
+              child: Container(
+                width: badge,
+                height: badge,
+                decoration: BoxDecoration(
+                  color: palette.onDark,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  minus ? Icons.remove : Icons.close,
+                  size: badge * 0.62,
+                  color: palette.bar,
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -958,7 +1025,12 @@ class _AquaSlotView extends ConsumerWidget {
     required this.armed,
     required this.onLift,
     required this.onSettle,
+    required this.onStillRelease,
   });
+
+  /// The drag ended at [end], a global position. The dock decides whether
+  /// that was a still hold.
+  final void Function(Offset end, Rect? anchor) onStillRelease;
 
   final DockEntry entry;
   final double size;
@@ -1046,6 +1118,10 @@ class _AquaSlotView extends ConsumerWidget {
       label: entry.label,
       child: LongPressDraggable<DrawerDrag>(
         data: data,
+        // In edit mode the icons are already loose, as on an iPhone: a short
+        // touch picks one up. Outside it the normal hold applies, so a tap
+        // still launches and a still hold still opens the menu.
+        delay: editing ? const Duration(milliseconds: 120) : kLongPressTimeout,
         // The swell carries each icon's drop target with it, so it stands down
         // for the drag. See `dockDragActiveProvider`.
         onDragStarted: () {
@@ -1054,8 +1130,12 @@ class _AquaSlotView extends ConsumerWidget {
           ref.read(homeDragActiveProvider.notifier).set(true);
           onLift();
         },
-        onDragEnd: (_) => settle(),
-        onDraggableCanceled: (_, __) => settle(),
+        onDragEnd: (d) {
+          settle();
+          onStillRelease(d.offset, AnchoredMenu.anchorOf(context));
+        },
+        // onDragEnd runs for a cancelled drag too, so the menu check and the
+        // settle both live there alone; here they would run twice.
         dragAnchorStrategy: pointerDragAnchorStrategy,
         // CENTRED on the finger, as the home grid's feedback is, at the
         // resting size rather than whatever a swell made it this frame.
@@ -1078,9 +1158,8 @@ class _AquaSlotView extends ConsumerWidget {
           onTap: editing ? null : entry.onTap,
           // Same measured rect as the GNOME slot. The draggable above consumes
           // the long press, so this fires only on a hold that never travelled.
-          onLongPress: entry.onLongPress == null
-              ? null
-              : () => entry.onLongPress!(AnchoredMenu.anchorOf(context)),
+          // No onLongPress: the draggable owns the hold. See
+          // `onStillRelease` in the dock for where the menu went.
           behavior: HitTestBehavior.opaque,
           child: core,
         ),

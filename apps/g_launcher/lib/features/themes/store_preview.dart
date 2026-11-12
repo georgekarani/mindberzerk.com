@@ -27,15 +27,17 @@
 /// The same split `DistroPreview` and `DevicePreview` already have: one file
 /// knows the domain, the other knows the pixels.
 ///
-/// ─── THE WALLPAPER IS THE USER'S, AND IT COMES FROM THE ACTIVE THEME ────────
+/// ─── THE WALLPAPER IS THE DISTRO'S OWN ──────────────────────────────────────
 ///
-/// Not the peeked one. A peek fetches `theme.json` and nothing else, so an
-/// unowned pack's wallpaper is not on the device; the spec still NAMES one, and
-/// nothing on this phone backs the name. See [PeekedTheme.assetsOnDisk].
+/// It used to be the user's current wallpaper, on the reasoning that a card
+/// should show this phone. Every distro then looked like the one being worn,
+/// which made the picture of a product inaccurate exactly where it should be
+/// most specific. Applying a distro starts on its own wallpaper, so that is
+/// what buying it looks like.
 ///
-/// Drawing the user's own is also the better picture rather than a consolation:
-/// a card should show this distro's chrome over the background this phone
-/// actually has, because that is what buying it would look like.
+/// Installed packs read the file from disk. Others read the CDN copy beside
+/// the pack's signed files, display only. The user's wallpaper remains the
+/// fallback while that loads or when the distro names none.
 ///
 /// [wallpaperImageFor] and [previewWallpaperFor] are reused from the wallpaper
 /// screen rather than reimplemented. They already know the three kinds of
@@ -72,6 +74,7 @@ library;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/cdn/pack_preview_url.dart';
 import '../../data/repositories/shell_apps.dart';
 import '../../design/device_preview.dart';
 import '../../design/distro_preview.dart';
@@ -176,10 +179,36 @@ class StorePreview extends ConsumerWidget {
     var framing = const WallpaperFraming();
     var dockTiles = const <Widget>[];
 
+    // The distro's own first wallpaper, resolved where its files are.
+    final ownName = peeked.spec.wallpapers.isEmpty
+        ? null
+        : peeked.spec.wallpapers.first;
+    final folder = ownName == null || peeked.assetsOnDisk
+        ? null
+        : ref.watch(packCdnFolderProvider(card.packIdOrSpec)).value;
+    ImageProvider? own;
+    if (ownName != null) {
+      final asset = peeked.spec.source.asset(ownName);
+      if (peeked.assetsOnDisk && asset.existsSync) {
+        own = asset.image;
+      } else if (folder != null) {
+        own = NetworkImage(folder + ownName.split('/').last);
+      }
+    }
+
+    if (own != null && ownName != null) {
+      wallpaper = own;
+      framing = resolveWallpaperFraming(
+        user: const {},
+        authored: peeked.spec.wallpaperMeta,
+        source: ownName,
+      );
+    }
+
     if (active != null) {
       final source = previewWallpaperFor(active);
-      wallpaper = wallpaperImageFor(active, source);
-      if (source != null) {
+      if (own == null) wallpaper = wallpaperImageFor(active, source);
+      if (own == null && source != null) {
         framing = resolveWallpaperFraming(
           user: active.prefs.wallpaperFraming,
           authored: active.spec.wallpaperMeta,

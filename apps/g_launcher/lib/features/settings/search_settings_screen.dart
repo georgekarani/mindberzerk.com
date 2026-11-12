@@ -33,6 +33,7 @@ class SearchSettingsScreen extends ConsumerWidget {
     // ChromeScope is provided BY ThemedScaffold, so the body reads it from
     // below through a Builder.
     return ThemedScaffold(
+      settingsLook: true,
       title: context.t('searchSettings.title'),
       body: Builder(
         builder: (context) {

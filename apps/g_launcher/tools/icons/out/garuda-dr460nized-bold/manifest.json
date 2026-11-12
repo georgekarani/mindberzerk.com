@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "packType": "brand",
+  "packId": "garuda-dr460nized-bold",
+  "version": 1794498292,
+  "minAppVersion": 7,
+  "keyId": "mh-2026-07",
+  "files": [
+    {"path": "pack.json", "size": 274, "sha256": "3130926c6e0367ad8a387e8335a272e5a5b3e752bbef121dfa9597519abe710b"},
+    {"path": "preview.png", "size": 27991, "sha256": "ef7b68a923fd01bafc1c3ecd2f41f5acac4f649c553a32bb0eae10fc12a2f593"}
+  ]
+}

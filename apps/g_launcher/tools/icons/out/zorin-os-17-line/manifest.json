@@ -2,10 +2,11 @@
   "formatVersion": 1,
   "packType": "brand",
   "packId": "zorin-os-17-line",
-  "version": 1787608616,
+  "version": 1794499055,
   "minAppVersion": 7,
   "keyId": "mh-2026-07",
   "files": [
-    {"path": "pack.json", "size": 205, "sha256": "b33b97db50ac0b6375041af5ab984472dd36fd0ad9145f06d0f9175c0a33519e"}
+    {"path": "pack.json", "size": 205, "sha256": "b33b97db50ac0b6375041af5ab984472dd36fd0ad9145f06d0f9175c0a33519e"},
+    {"path": "preview.png", "size": 36437, "sha256": "9c7917b6a4bdf515d6cb9451ac4a911f13372de196ef6deeffd44a92381953dd"}
   ]
 }

@@ -5,13 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../../data/billing/bundle_offer.dart';
 import '../../data/billing/entitlements.dart';
 import '../../data/cdn/pack_auto_update.dart';
 import '../../data/cdn/pack_repository.dart';
-import '../../design/branded_message.dart';
 import '../../design/components/components.dart';
 import '../../design/tokens/typography.dart';
 import 'store_preview.dart';
+import 'store_shots.dart';
 import 'theme_actions.dart';
 import 'theme_catalog.dart';
 import 'theme_detail_screen.dart';
@@ -60,21 +61,38 @@ import 'theme_detail_screen.dart';
 /// needs the signed index to carry the flag, so it would list only bundled
 /// distros until that lands. Swapping this arm for it is one filter and one
 /// label.
+/// The storefront filters.
+///
+/// ─── TWO SLICES THAT DO NOT OVERLAP ─────────────────────────────────────────
+///
+/// These were Installed and Paid, and a distro you had bought was both, so the
+/// counts read "Installed 15, Paid 12" on a 15-distro catalogue and Paid kept
+/// listing things that were already yours. Ownership is the question a buyer
+/// is actually asking, so the split is by that: what you can use now (free,
+/// bought or covered by a bundle, on the phone or one tap from it) and what
+/// still costs money. Every card is in exactly one of the two.
 enum ThemeTab {
   all,
-  installed,
-  paid;
+  yours,
+  toBuy;
 
-  String get label => switch (this) {
-        ThemeTab.all => 'All',
-        ThemeTab.installed => 'Installed',
-        ThemeTab.paid => 'Paid',
+  String get labelKey => switch (this) {
+        ThemeTab.all => 'themes.tab.all',
+        ThemeTab.yours => 'themes.tab.yours',
+        ThemeTab.toBuy => 'themes.tab.toBuy',
       };
+
+  /// Still costs money. A paid distro that needs a newer app is not yours
+  /// yet either (its status says "update the app", not "owned"), so it waits
+  /// under To buy with the locked ones rather than sitting among Yours.
+  static bool _forSale(ThemeCard c) =>
+      c.status == CardStatus.locked ||
+      (c.status == CardStatus.requiresAppUpdate && c.sku != null);
 
   bool matches(ThemeCard c) => switch (this) {
         ThemeTab.all => true,
-        ThemeTab.installed => c.status.onDevice,
-        ThemeTab.paid => c.sku != null,
+        ThemeTab.yours => !_forSale(c),
+        ThemeTab.toBuy => _forSale(c),
       };
 }
 
@@ -105,7 +123,6 @@ class ThemesScreen extends ConsumerWidget {
     // So a reload is invisible and the grid only changes when its contents
     // genuinely do.
     final cards = ref.watch(themeCatalogProvider).value ?? const <ThemeCard>[];
-    final more = ref.watch(themeMoreProvider);
     final progress = ref.watch(packProgressProvider);
 
     // THE FETCH. `catalogueProvider` is the cached index and never hits the
@@ -236,6 +253,11 @@ class ThemesScreen extends ConsumerWidget {
             ),
             SliverToBoxAdapter(child: _Tabs(cards: cards)),
 
+            // The all-distros offer, above the list it would replace. Hidden
+            // on Yours, where nothing is for sale.
+            if (tab != ThemeTab.yours)
+              SliverToBoxAdapter(child: _BundleBanner(cards: cards)),
+
             // A filter can legitimately be empty: Paid before any paid distro
             // is published, for one. Says so rather than showing a blank page,
             // which is indistinguishable from a catalogue that failed to load.
@@ -248,11 +270,11 @@ class ThemesScreen extends ConsumerWidget {
                     // `context.t` keys here would be the only localised text in
                     // the file and would need keys that do not exist yet; the
                     // screen localises as a unit or not at all.
-                    switch (tab) {
-                      ThemeTab.installed => 'Nothing installed yet.',
-                      ThemeTab.paid => 'No paid distros yet.',
-                      ThemeTab.all => 'No distros to show.',
-                    },
+                    context.t(switch (tab) {
+                      ThemeTab.yours => 'themes.empty.yours',
+                      ThemeTab.toBuy => 'themes.empty.toBuy',
+                      ThemeTab.all => 'themes.empty.all',
+                    }),
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: ChromeScope.of(context).colors.textMuted,
@@ -302,7 +324,7 @@ class ThemesScreen extends ConsumerWidget {
                 // slot.
                 itemBuilder: (context, i) => Padding(
                   key: ValueKey(shown[i].packIdOrSpec),
-                  padding: EdgeInsets.only(top: i == 0 ? 0 : 12),
+                  padding: EdgeInsets.only(top: i == 0 ? 0 : 26),
                   child: _ThemeCard(
                     card: shown[i],
                     active: isActive(shown[i]),
@@ -315,39 +337,6 @@ class ThemesScreen extends ConsumerWidget {
                 ),
               ),
             ),
-
-            // ── More ──────────────────────────────────────────────────────
-            //
-            // RENDERS NOTHING WHEN EMPTY, header included. `themeMoreProvider`
-            // returns no entries now that the storefront shows only what is
-            // actually available, and a lone "More themes" heading over blank
-            // space reads as a list that failed to load. The grid above already
-            // carries every theme the signed index advertises, so an empty
-            // section here is the correct and complete state, not a gap.
-            if (more.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const _MoreHeader(),
-                      for (final m in more)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 9),
-                          child: _MoreRow(
-                            entry: m,
-                            onGet: () => context.showMessage(
-                              m.pro
-                                  ? '${m.name} is a paid distro, coming soon'
-                                  : '${m.name} ships in an update, coming soon',
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
 
             const SliverToBoxAdapter(child: SizedBox(height: 28)),
           ],
@@ -383,7 +372,7 @@ class _Tabs extends ConsumerWidget {
           for (final t in ThemeTab.values) ...[
             if (t != ThemeTab.values.first) const SizedBox(width: 8),
             _TabChip(
-              label: t.label,
+              label: context.t(t.labelKey),
               // No count on All: it is the total, and a number there is the one
               // figure on the strip that tells you nothing you can act on.
               count: t == ThemeTab.all ? null : cards.where(t.matches).length,
@@ -468,92 +457,51 @@ class _ThemeCard extends StatelessWidget {
   final bool active;
   final VoidCallback onTap;
 
-  /// 0.0-1.0 while downloading, null otherwise.
+  /// Download progress, null when nothing is in flight for this pack.
   final double? progress;
 
+  /// Height of the picture. Three portrait screenshots at this height fit a
+  /// 360dp screen with the page gutters, so the common card never scrolls.
+  static const double pictureHeight = 208;
+
+  /// Full bleed: the picture is the card. No surface, no border and no feature
+  /// text; the name and one action sit under it, and everything that explains
+  /// the distro lives on its page.
   @override
   Widget build(BuildContext context) {
     final d = ChromeScope.of(context);
     final c = d.colors;
-    return Material(
-      color: c.surface,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: active ? c.accent : c.line,
-          width: active ? 1.5 : 1,
-        ),
-      ),
+    return Semantics(
+      button: true,
+      selected: active,
       child: InkWell(
         onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          // MIN, now that nothing above fixes this card's height. Without it
-          // the Column takes the unbounded height a Column parent offers and
-          // the card stretches to whatever the page can give it.
           mainAxisSize: MainAxisSize.min,
           children: [
-            // FIXED, not Expanded. Nothing above fixes this card's height any
-            // more, so an Expanded preview would eat whatever the feature rows
-            // did not use and a distro with no features would get a taller
-            // picture than one with two. Same picture on every card, regardless
-            // of how much it has to say, which also means the panes are the
-            // same size on every card and the row of them reads as a row.
             SizedBox(
-              // ── 176, AND IT WAS 152 ──────────────────────────────────
-              //
-              // The band no longer holds one picture stretched across it, it
-              // holds three phone-shaped panes, and a pane's width is its
-              // height times this device's aspect. `PreviewStrip` gives three
-              // panes 0.86 of the band, so on an S22 this is 151 tall and 70
-              // wide; at the old 152 it was 60, which is under the width the
-              // dock and the panel need before their own clamps take over.
-              //
-              // Three panes plus two 10dp gaps come to 230dp of the 328 a card
-              // has on a 360dp phone, so the band is HEIGHT limited and this
-              // is the one number to raise if the panes read small. 200 gives
-              // 79dp panes and still fits the width. `PreviewStrip` fits on
-              // both axes regardless, so a narrower screen shrinks the panes
-              // rather than overflowing.
-              height: 176,
+              height: pictureHeight,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  // ─── THE REAL DISTRO, WITH THE OLD PICTURE AS THE FLOOR ──
-                  //
-                  // See [_CardPreview]. `ThemePreview` is not deleted and must
-                  // not be: it is what renders offline, before the peek lands,
-                  // and whenever the peek fails.
                   _CardPreview(card: card),
-                  // Over the preview, not under the title: the preview is the
-                  // part of the card the eye is already on, and a bar tucked
-                  // into the meta row competes with the tag for two-thirds of
-                  // the width.
                   if (progress != null)
                     Positioned(
                       left: 0,
                       right: 0,
                       bottom: 0,
                       child: ThemedProgress.linear(
-                        // Indeterminate until the first real chunk arrives.
-                        // Showing 0% for the DNS lookup and TLS handshake reads
-                        // as stalled, which is when people tap again.
                         value: progress! <= 0 ? null : progress,
-                        // THE PACK'S COLOUR, not the chrome's. Null for a pack
-                        // published before `previewAccent` existed, which the
-                        // component floors to the chrome accent.
                         accent: card.preview.accent,
                       ),
                     ),
                 ],
               ),
             ),
-            Container(
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: c.line)),
-              ),
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(2, 10, 0, 0),
               child: Row(
                 children: [
                   Expanded(
@@ -567,30 +515,18 @@ class _ThemeCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: c.text,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w500,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        // ─── NOTHING, WHEN THERE IS NOTHING TO SAY ───────
-                        //
-                        // This used to print the pack version whenever the
-                        // summary was empty, and the catalogue currently ships
-                        // fourteen empty summaries, so every card in the store
-                        // read `v1787590303`. A build number is a developer
-                        // lever and the storefront is not the place for it.
-                        //
-                        // The gap is deliberate: a name alone is plain, a name
-                        // over a timestamp is broken.
                         if (card.subtitle.isNotEmpty) ...[
-                          const SizedBox(height: 1),
+                          const SizedBox(height: 2),
                           Text(
                             card.subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            // Mono, from the chrome's value ramp, so the meta
-                            // line reads like a package string on any distro.
-                            style: d.text.value.copyWith(
-                              fontSize: 11,
+                            style: TextStyle(
+                              fontSize: 12,
                               color: c.textMuted,
                             ),
                           ),
@@ -598,160 +534,15 @@ class _ThemeCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   _Trailing(card: card, active: active),
                 ],
               ),
             ),
-
-            // ─── WHAT THIS DISTRO DOES ──────────────────────────────────
-            //
-            // The first two EXCLUSIVE features, in authored order, so the order
-            // written in the panel is the order they sell in. Skin entries are
-            // filtered out here rather than being shown last: a card with two
-            // rows has room to say something the settings cannot already do,
-            // and "Noto Sans, squircle icons" is not that.
-            //
-            // Renders NOTHING when the list is empty, which is every CDN pack
-            // until the signed index carries a features block. An empty gap is
-            // honest; invented rows on a paid product are not.
-            ..._featureRows(context),
-
-            // ─── AND WHAT IS IN THE BOX ─────────────────────────────────
-            //
-            // The rows above are EDITORIAL: someone has to have something true
-            // to write, and for four distros nobody does. Manjaro, Fedora,
-            // Zorin and Deepin have no honest exclusive claim, two of them are
-            // paid, and until now their cards were a name over a rectangle
-            // with a price beside it.
-            //
-            // This strip is MECHANICAL and counted at publish, so it cannot be
-            // blank on a pack that has contents and cannot flatter one that
-            // does not. It sits BELOW the features on purpose: a reason to buy
-            // outranks a bill of materials, and the card should read in that
-            // order even on the distros that have both.
-            //
-            // Renders nothing at all until the index carries the fields, which
-            // is every pack today. See [ThemeCard.contentsChips].
-            ..._contentsStrip(context),
           ],
         ),
       ),
     );
-  }
-
-  /// The contents chips, or nothing.
-  ///
-  /// Reads the scope from context for the same reason [_featureRows] does: the
-  /// type of `d.colors` is not named anywhere in this file, and inventing a
-  /// signature for it here would be guessing at an API for one call site.
-  List<Widget> _contentsStrip(BuildContext context) {
-    final d = ChromeScope.of(context);
-    final c = d.colors;
-
-    final chips = card.contentsChips;
-    if (chips.isEmpty) return const [];
-
-    return [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 11),
-        child: Wrap(
-          spacing: 5,
-          runSpacing: 5,
-          children: [
-            for (final chip in chips)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: c.line,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  chip,
-                  // Mono, from the chrome's value ramp, the same face the
-                  // subtitle uses. These are quantities and package names, and
-                  // they should read as the meta line's continuation rather
-                  // than as more prose competing with the feature rows.
-                  style: d.text.value.copyWith(
-                    fontSize: 10.5,
-                    height: 1.1,
-                    color: c.textMuted,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    ];
-  }
-
-  /// Takes the context and re-reads the scope rather than accepting the colours
-  /// as a parameter. `d.colors`' type is not named anywhere in this file, and
-  /// naming it here to write a signature would be guessing at an API for the
-  /// sake of one call site.
-  List<Widget> _featureRows(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-    final shown = [
-      for (final f in card.features)
-        if (f.exclusive) f,
-    ].take(2).toList();
-
-    if (shown.isEmpty) return const [];
-
-    return [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            for (final f in shown)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // The accent dot carries the "exclusive" claim without a
-                    // tag: every row here is exclusive by construction, so a
-                    // label reading EX on all of them would say nothing.
-                    Container(
-                      width: 5,
-                      height: 5,
-                      margin: const EdgeInsets.only(top: 5, right: 7),
-                      decoration: BoxDecoration(
-                        color: c.accent,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          children: [
-                            TextSpan(
-                              text: '${f.title}. ',
-                              style: TextStyle(
-                                color: c.text,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            TextSpan(
-                              text: f.body,
-                              style: TextStyle(color: c.textMuted),
-                            ),
-                          ],
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 11.5, height: 1.35),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
-      ),
-    ];
   }
 }
 
@@ -784,16 +575,33 @@ class _ThemeCard extends StatelessWidget {
 /// preview is a real picture; it is simply a less specific one, and replacing it
 /// when a better one arrives is invisible in the good case and harmless in the
 /// bad one.
-class _CardPreview extends StatelessWidget {
+class _CardPreview extends ConsumerWidget {
   const _CardPreview({required this.card});
 
   final ThemeCard card;
 
   @override
-  Widget build(BuildContext context) => StorePreview(
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Real screenshots first; the drawn distro only when the pack has none or
+    // they cannot be resolved yet.
+    final shots = ref
+            .watch(
+              storeShotsProvider(
+                (packId: card.packIdOrSpec, version: card.remoteVersion),
+              ),
+            )
+            .value ??
+        const <ImageProvider>[];
+    if (shots.isNotEmpty) return StoreShotRow(shots: shots);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: StorePreview(
         card: card,
         fallback: ThemePreview(card.preview),
-      );
+      ),
+    );
+  }
 }
 
 /// The right-hand meta element: the active check, a price, or the DE tag.
@@ -833,10 +641,10 @@ class _Trailing extends ConsumerWidget {
     // on a theme this build cannot run invites a purchase that installs
     // nothing, which is the worst outcome on this screen.
     if (!active && card.status == CardStatus.requiresAppUpdate) {
-      return _MiniLabel('Update app', c.textMuted);
+      return _MiniLabel(context.t('themes.updateApp'));
     }
     if (!active && card.status == CardStatus.updateAvailable) {
-      return _MiniLabel('Update', c.accent);
+      return _MiniLabel(context.t('themes.update'));
     }
     if (!active && card.status == CardStatus.locked) {
       // The price when Play has answered, the word Buy when it has not.
@@ -847,10 +655,12 @@ class _Trailing extends ConsumerWidget {
       // fallback word is what stops the trailing slot going blank and reading as
       // a card that failed to load.
       return _MiniLabel(
-          ref.watch(productPriceProvider(card.sku)) ?? 'Buy', c.accent);
+        ref.watch(productPriceProvider(card.sku)) ?? context.t('themes.buy'),
+        filled: true,
+      );
     }
     if (!active && card.status == CardStatus.available) {
-      return _MiniLabel('Get', c.accent);
+      return _MiniLabel(context.t('themes.get'));
     }
 
     // THE ACTIVE CARD SHOWS ITS UPDATE. Every branch above is `!active`
@@ -860,7 +670,7 @@ class _Trailing extends ConsumerWidget {
     if (active &&
         (card.status == CardStatus.updateAvailable ||
             card.status == CardStatus.available)) {
-      return _MiniLabel('Update', c.accent);
+      return _MiniLabel(context.t('themes.update'));
     }
 
     if (active) {
@@ -897,7 +707,7 @@ class _Trailing extends ConsumerWidget {
     // Word, not an icon, for the reason [_MiniLabel] gives: Apply, Get and
     // Update are three different promises and a single glyph would collapse
     // them into the ambiguity this whole state machine exists to remove.
-    return _MiniLabel('Apply', c.accent);
+    return _MiniLabel(context.t('themes.apply'));
   }
 }
 
@@ -907,21 +717,33 @@ class _Trailing extends ConsumerWidget {
 /// and a download glyph would collapse them into one, which is the ambiguity
 /// this whole state machine exists to remove.
 class _MiniLabel extends StatelessWidget {
-  const _MiniLabel(this.text, this.color);
+  const _MiniLabel(this.text, {this.filled = false});
 
   final String text;
-  final Color color;
+
+  /// Accent fill for the one state that costs money, so a price stands out
+  /// from Get, Apply and Update.
+  final bool filled;
 
   @override
-  Widget build(BuildContext context) => Text(
+  Widget build(BuildContext context) {
+    final c = ChromeScope.of(context).colors;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
+      decoration: BoxDecoration(
+        color: filled ? c.accent : c.surface,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
         text,
         style: TextStyle(
-          fontSize: 10,
-          height: 1,
+          fontSize: 13,
           fontWeight: FontWeight.w600,
-          color: color,
+          color: filled ? c.onAccent : c.text,
         ),
-      );
+      ),
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1334,103 +1156,6 @@ class ThemePreview extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// More-list row
-// ─────────────────────────────────────────────────────────────────────────────
-
-class _MoreRow extends StatelessWidget {
-  const _MoreRow({required this.entry, required this.onGet});
-
-  final ThemeMoreEntry entry;
-  final VoidCallback onGet;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-    return Material(
-      color: c.surface,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(13),
-        side: BorderSide(color: c.line),
-      ),
-      child: InkWell(
-        onTap: onGet,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-          child: Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topRight,
-                    end: Alignment.bottomLeft,
-                    colors: entry.swatch,
-                  ),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      entry.name,
-                      style: TextStyle(
-                        color: c.text,
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 1),
-                    Text(
-                      entry.subtitle,
-                      style: TextStyle(
-                        color: c.textMuted,
-                        fontSize: 11.5,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 10),
-              // ONE BUTTON, whether or not the entry is paid. The Pro badge that
-              // used to sit here is gone with the rest of them: nothing on this
-              // screen advertises a tier any more, and this row is unreachable
-              // regardless while `themeMoreProvider` returns nothing.
-              //
-              // getbtn: outlined, transparent. "Get" — active voice, names
-              // exactly what tapping does.
-              OutlinedButton(
-                onPressed: onGet,
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: c.text,
-                  side: BorderSide(color: c.line),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                ),
-                child: const Text(
-                  'Get',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Headers — widgets (not inline in build) so they render UNDER the ThemedScaffold
 // scope and read the live chrome instead of a house constant.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1447,28 +1172,108 @@ class _Header extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(context.t('themes.distros'), style: d.text.display),
-          const SizedBox(height: 3),
-          Text(
-            context.t('themes.headerSub'),
-            style: d.text.caption.copyWith(fontSize: 13),
-          ),
         ],
       ),
     );
   }
 }
 
-class _MoreHeader extends StatelessWidget {
-  const _MoreHeader();
+/// The all-distros bundle: one row above the list.
+///
+/// The cards below are the pictures of what it unlocks, so the offer itself is
+/// a title, one line of what is in it, and the price. Once owned it shrinks to
+/// a single line saying so.
+class _BundleBanner extends ConsumerWidget {
+  const _BundleBanner({required this.cards});
+
+  final List<ThemeCard> cards;
 
   @override
-  Widget build(BuildContext context) {
-    final d = ChromeScope.of(context);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final offer = ref.watch(allDistrosOfferProvider);
+    if (offer == null) return const SizedBox.shrink();
+
+    final c = ChromeScope.of(context).colors;
+
+    if (offer.owned) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        child: Row(
+          children: [
+            Icon(Icons.check, size: 16, color: c.accent),
+            const SizedBox(width: 6),
+            Text(
+              context.t('themes.bundle.owned'),
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w600,
+                color: c.accent,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final distros = offer.distroCount;
+    final icons = offer.iconPackCount;
+    final line = distros == 0
+        ? context.t('themes.bundle.everything')
+        : icons == 0
+            ? context.t('themes.bundle.distros', {'n': '$distros'})
+            : context.t(
+                'themes.bundle.distrosIcons',
+                {'n': '$distros', 'icons': '$icons'},
+              );
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Text(
-        context.t('themes.moreDistrosPushedVia'),
-        style: d.text.label.copyWith(fontSize: 11.5, letterSpacing: 0.5),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
+      child: Semantics(
+        button: true,
+        label: offer.price == null
+            ? offer.title
+            : '${offer.title}, ${offer.price}',
+        excludeSemantics: true,
+        child: Material(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(14),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => unawaited(runBundlePurchase(context, ref, offer)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          offer.title,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: c.text,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          line,
+                          style: TextStyle(fontSize: 12, color: c.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _MiniLabel(
+                    offer.price ?? context.t('themes.buy'),
+                    filled: true,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -5,7 +5,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
+import android.os.Process
+import android.os.UserHandle
 import android.os.UserManager
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
@@ -58,11 +61,14 @@ class NotificationBadgeService : NotificationListenerService() {
      */
     override fun onListenerConnected() {
         super.onListenerConnected()
+        connected = true
         BadgeBridge.attachService(this)
-        publish()
+        scheduleRecount(delayMs = 0L)
     }
 
     override fun onListenerDisconnected() {
+        connected = false
+        worker.removeCallbacks(recount)
         BadgeBridge.detachService(this)
         // Clear rather than leave the last counts on screen. Access was revoked
         // or the service was unbound, so every number we hold is now a claim we
@@ -96,16 +102,34 @@ class NotificationBadgeService : NotificationListenerService() {
         scheduleRecount()
     }
 
-    private val main = Handler(Looper.getMainLooper())
+    // ─── WHY THE RECOUNT RUNS OFF THE MAIN THREAD ──────────────────────────
+    //
+    // Listener callbacks arrive on the main looper, and so did the recount.
+    // `getActiveNotifications` parcels every live notification across the
+    // binder, bitmaps included, and `getSerialNumberForUser` is another binder
+    // call. On a busy phone that sat on the launcher's main thread during
+    // startup, which Play reported as an input-dispatch ANR in this file.
+    // Neither call needs the main thread; only the channel push does, and
+    // BadgeBridge already posts that back.
+    private val workerThread by lazy {
+        HandlerThread("g_launcher-badges", Process.THREAD_PRIORITY_BACKGROUND).apply { start() }
+    }
+    private val worker by lazy { Handler(workerThread.looper) }
     private val recount = Runnable { publish() }
 
-    private fun scheduleRecount() {
-        main.removeCallbacks(recount)
-        main.postDelayed(recount, RECOUNT_DELAY_MS)
+    /** True between connect and disconnect; read on the worker thread. */
+    @Volatile
+    private var connected = false
+
+    private fun scheduleRecount(delayMs: Long = RECOUNT_DELAY_MS) {
+        worker.removeCallbacks(recount)
+        worker.postDelayed(recount, delayMs)
     }
 
     override fun onDestroy() {
-        main.removeCallbacks(recount)
+        connected = false
+        worker.removeCallbacks(recount)
+        workerThread.quitSafely()
         super.onDestroy()
     }
 
@@ -126,6 +150,7 @@ class NotificationBadgeService : NotificationListenerService() {
      * almost always short, and it is the only source that cannot be wrong.
      */
     private fun publish() {
+        if (!connected) return
         val active = try {
             activeNotifications
         } catch (_: SecurityException) {
@@ -135,6 +160,8 @@ class NotificationBadgeService : NotificationListenerService() {
 
         val users = getSystemService(Context.USER_SERVICE) as? UserManager
         val counts = HashMap<String, Int>()
+        // One binder call per profile, not one per notification.
+        val serials = HashMap<UserHandle, Long>()
 
         for (sbn in active) {
             if (!countable(sbn)) continue
@@ -143,11 +170,16 @@ class NotificationBadgeService : NotificationListenerService() {
             // DIFFERENT entry in the drawer with the same package name, and
             // badging both from one count would put the work chat's unread
             // number on the personal one.
-            val serial = users?.getSerialNumberForUser(sbn.user) ?: 0L
+            val serial = serials.getOrPut(sbn.user) {
+                users?.getSerialNumberForUser(sbn.user) ?: 0L
+            }
             val key = "${sbn.packageName}#$serial"
             counts[key] = (counts[key] ?: 0) + 1
         }
 
+        // A disconnect that landed mid-recount already cleared the badges;
+        // publishing now would put back numbers we can no longer support.
+        if (!connected) return
         BadgeBridge.publish(counts)
     }
 
@@ -198,8 +230,14 @@ object BadgeBridge {
     private var channel: MethodChannel? = null
     private var service: NotificationBadgeService? = null
 
-    /** The last published counts, keyed "packageName#userSerial". */
+    /**
+     * The last published counts, keyed "packageName#userSerial". Written from
+     * the service's worker thread and read on the main thread.
+     */
+    @Volatile
     private var counts: Map<String, Int> = emptyMap()
+
+    private val main = Handler(Looper.getMainLooper())
 
     fun setUp(context: Context, messenger: BinaryMessenger) {
         val app = context.applicationContext
@@ -222,9 +260,7 @@ object BadgeBridge {
                 // Dart asking for the current state, on start or after coming
                 // back from the settings screen. Answers from the cache when
                 // the service is not bound, which is the honest empty map.
-                "refresh" -> {
-                    service?.let { result.success(counts) } ?: result.success(counts)
-                }
+                "refresh" -> result.success(counts)
 
                 else -> result.notImplemented()
             }
@@ -245,6 +281,7 @@ object BadgeBridge {
         if (service === s) service = null
     }
 
+    @Synchronized
     fun publish(next: Map<String, Int>) {
         if (next == counts) return
         counts = next
@@ -255,9 +292,7 @@ object BadgeBridge {
         val ch = channel ?: return
         // The channel is not thread safe and this arrives on the service's own
         // thread. Posting to the main looper is not optional here.
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            ch.invokeMethod("badges", next)
-        }
+        main.post { ch.invokeMethod("badges", next) }
     }
 
     /**

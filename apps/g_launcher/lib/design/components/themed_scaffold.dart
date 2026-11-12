@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../engine/effective_theme.dart';
+import '../settings_look.dart';
 import 'chrome_theme.dart';
 
 /// The root of every chrome screen — the ONE widget that bridges
@@ -27,6 +28,8 @@ class ThemedScaffold extends ConsumerWidget {
     this.floatingActionButton,
     this.automaticallyImplyLeading = true,
     this.resizeToAvoidBottomInset,
+    this.centerTitle = true,
+    this.settingsLook = false,
   });
 
   final Widget body;
@@ -39,6 +42,14 @@ class ThemedScaffold extends ConsumerWidget {
   final Widget? floatingActionButton;
   final bool automaticallyImplyLeading;
   final bool? resizeToAvoidBottomInset;
+
+  /// GNOME and iOS centre the page title; KDE, Xfce and a terminal do not.
+  final bool centerTitle;
+
+  /// A screen opened from Settings: install the distro's [SettingsLook] so
+  /// its list rows, cards and headers read like the page that opened it,
+  /// and place the title where that distro's settings app does.
+  final bool settingsLook;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -72,7 +83,10 @@ class ThemedScaffold extends ConsumerWidget {
           orElse: () => ChromeData.bootstrap,
         );
     final c = data.colors;
-
+    final async = ref.watch(effectiveThemeProvider);
+    final look = settingsLook && async.hasValue
+        ? SettingsLook.forTheme(async.requireValue)
+        : null;
     return ChromeScope(
       data: data,
       child: Scaffold(
@@ -85,9 +99,10 @@ class ThemedScaffold extends ConsumerWidget {
                 title: title!,
                 actions: actions,
                 leading: leading,
-                implyLeading: automaticallyImplyLeading),
+                implyLeading: automaticallyImplyLeading,
+                centerTitle: look?.centeredTitle ?? centerTitle),
         floatingActionButton: floatingActionButton,
-        body: body,
+        body: look == null ? body : SettingsLookScope(look: look, child: body),
       ),
     );
   }
@@ -136,6 +151,7 @@ class _AppBar extends StatelessWidget implements PreferredSizeWidget {
     required this.actions,
     required this.leading,
     required this.implyLeading,
+    required this.centerTitle,
   });
 
   final ChromeData data;
@@ -143,6 +159,7 @@ class _AppBar extends StatelessWidget implements PreferredSizeWidget {
   final List<Widget>? actions;
   final Widget? leading;
   final bool implyLeading;
+  final bool centerTitle;
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -159,7 +176,7 @@ class _AppBar extends StatelessWidget implements PreferredSizeWidget {
       // a left-aligned title on a raised surface, and left-aligned was the
       // third thing making these screens read as Android rather than as a
       // desktop settings app.
-      centerTitle: true,
+      centerTitle: centerTitle,
       // `Border` is a ShapeBorder, so the hairline rides the bar's own shape
       // and needs no `bottom:` PreferredSize wrapper eating toolbar height.
       shape: Border(bottom: BorderSide(color: c.line, width: 0.5)),

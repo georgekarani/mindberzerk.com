@@ -433,7 +433,15 @@ class ChromeMenu {
     required this.shape,
     required this.rowIcons,
     required this.separators,
+    this.rowDividers = false,
   });
+
+  /// A hairline between EVERY row, not just one under the action block.
+  ///
+  /// An iPhone context menu is a stack of cells each ruled off from the next.
+  /// [separators] only ever drew the single rule between the actions and the
+  /// caller's rows, so Pocket's menu read as a Mac's with icons added.
+  final bool rowDividers;
 
   final MenuShape shape;
 
@@ -497,6 +505,7 @@ class ChromeMenu {
             shape: MenuShape.list,
             rowIcons: true,
             separators: true,
+            rowDividers: true,
           ),
         // macOS and Pantheon: a plain menu, text only, grouped by a rule.
         ChromeFamily.aqua => const ChromeMenu(

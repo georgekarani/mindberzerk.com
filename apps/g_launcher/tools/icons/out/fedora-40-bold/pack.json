@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "id": "fedora-40-bold",
+  "name": "Fedora Bold",
+  "extends": "g-bold",
+  "tint": "#3c6eb4",
+  "license": "Apache-2.0",
+  "attribution": "Based on Lawnicons by the Lawnchair team, Apache License 2.0. Modified: recoloured and converted to path data."
+}
