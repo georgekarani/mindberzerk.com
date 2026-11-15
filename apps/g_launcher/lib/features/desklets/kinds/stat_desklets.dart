@@ -364,19 +364,32 @@ class FastfetchDesklet extends ConsumerWidget {
             ),
           )
         : GradientRing(size: _ring, colors: gradient);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          // Below the prompt line, level with the first row, as fastfetch
-          // prints the logo beside the output rather than the command.
-          padding: const EdgeInsets.only(top: 24),
-          child: logo,
-        ),
-        const SizedBox(width: 14),
-        frame,
-      ],
+
+    // ─── SCALED, NOT SQUEEZED, WHEN THE WIDTH IS BOUNDED ────────────────
+    //
+    // On the open desktop this row is measured unbounded and the cell's
+    // FittedBox shrinks it. Inside a window (`window: true` in the skin) the
+    // cell hands down a max width instead, and logo plus readout ran 40dp
+    // past it. A scale-down box of its own fits the pair to whatever width it
+    // is given, and with no bound it simply takes the row's natural size, so
+    // the unbounded path is unchanged. No Expanded, for the reason above.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.topLeft,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            // Below the prompt line, level with the first row, as fastfetch
+            // prints the logo beside the output rather than the command.
+            padding: const EdgeInsets.only(top: 24),
+            child: logo,
+          ),
+          const SizedBox(width: 14),
+          frame,
+        ],
+      ),
     );
   }
 

@@ -54,9 +54,14 @@ class FolderSnapshot {
     required this.name,
     required this.members,
     this.glyph,
-  });
+    String? label,
+  }) : label = label ?? name;
 
   final String name;
+
+  /// The name as shown, translated for generated category folders. [name]
+  /// stays the identifier that renames and lookups key on.
+  final String label;
   final List<AppEntry> members;
 
   /// The folder's icon, as a `folder_glyphs.dart` catalogue id, or null for
@@ -180,6 +185,7 @@ class DrawerFolderStore extends FolderStore {
       if (i is FolderDrawerItem && i.folder.id == id) {
         return FolderSnapshot(
           name: i.folder.name,
+          label: i.folder.label,
           members: i.members,
           glyph: i.folder.glyph,
         );

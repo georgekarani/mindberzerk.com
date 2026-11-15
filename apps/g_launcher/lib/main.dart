@@ -177,10 +177,10 @@ void _registerIconLicences() {
     yield const LicenseEntryWithLineBreaks(
       ['Line icons (Arcticons)'],
       'Line icons are Arcticons by Donnnno and the Arcticons contributors, '
-          'recoloured for each distro.\n\n'
-          'Licensed under Creative Commons Attribution-ShareAlike 4.0: '
-          'https://creativecommons.org/licenses/by-sa/4.0/\n\n'
-          'Source: https://github.com/Arcticons-Team/Arcticons',
+      'recoloured for each distro.\n\n'
+      'Licensed under Creative Commons Attribution-ShareAlike 4.0: '
+      'https://creativecommons.org/licenses/by-sa/4.0/\n\n'
+      'Source: https://github.com/Arcticons-Team/Arcticons',
     );
 
     try {

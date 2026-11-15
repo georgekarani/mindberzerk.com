@@ -210,6 +210,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           // route boundaries, so a pushed settings screen never reaches this.
           final shell = NotificationListener<ScrollNotification>(
             onNotification: (n) {
+              // ─── ONLY A PAGER MOVES THE DESKTOP ───────────────────────
+              //
+              // This took every scrollable under the shell: Kickoff's list,
+              // quick settings, the panel's task strip. None of them moves a
+              // tile, and one closed in the middle of a fling is disposed
+              // without ever sending its ScrollEndNotification, which left
+              // `moving` true and every hosted widget hidden until the next
+              // workspace swipe.
+              //
+              // A workspace pager is a PageView in all four shells, and a
+              // PageView is the only scrollable whose metrics are PageMetrics.
+              if (n.metrics is! PageMetrics) return false;
+
               final moving = ref.read(stageMovingProvider.notifier);
               if (n is ScrollEndNotification) {
                 moving.set(false);
@@ -545,7 +558,7 @@ class _PackUpdateMessenger extends ConsumerWidget {
       // message mounts an overlay entry.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!context.mounted) return;
-        context.showMessage('$name updated');
+        context.showMessage(tr('home.nameUpdated', {'name': name}));
         ref.read(activeDistroUpdatedProvider.notifier).consume();
       });
     });

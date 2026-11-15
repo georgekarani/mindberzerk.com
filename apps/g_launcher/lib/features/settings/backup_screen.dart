@@ -66,6 +66,20 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
         if (picked == null || !mounted) return;
         final added = await ref.read(backupsProvider.notifier).absorbFolder();
         if (!mounted) return;
+
+        // ─── STRAIGHT TO THE ONE THEY CAME FOR ────────────────────────────
+        //
+        // This reported a count and left a list to read. Someone who has just
+        // pointed at their backup folder wants the newest backup in it, so
+        // that one opens. The rest stay in the list behind it.
+        final found = _newestBroughtIn(
+          ref.read(backupsProvider).value ?? const [],
+        );
+        if (added > 0 && found != null) {
+          _openRestore(found);
+          return;
+        }
+
         context.showMessage(switch (added) {
           0 => context.t('settings.backup.noneInFolder'),
           1 => context.t('settings.backup.foundOne'),
@@ -119,6 +133,21 @@ class _BackupScreenState extends ConsumerState<BackupScreen> {
         }
         _openRestore(record);
       });
+
+  /// The newest backup that came from the folder and holds a layout.
+  ///
+  /// Not simply the newest record. After a reinstall the newest file is the
+  /// one this fresh install wrote a moment ago, a few hundred bytes with
+  /// nothing arranged in it, and restoring that would be restoring nothing.
+  /// `imported` is what separates a backup brought in from one made here.
+  static BackupRecord? _newestBroughtIn(List<BackupRecord> records) {
+    BackupRecord? best;
+    for (final r in records) {
+      if (!r.imported || r.themeCount < 1) continue;
+      if (best == null || r.takenAt.isAfter(best.takenAt)) best = r;
+    }
+    return best;
+  }
 
   void _openRestore(BackupRecord record) {
     Navigator.of(context).push(

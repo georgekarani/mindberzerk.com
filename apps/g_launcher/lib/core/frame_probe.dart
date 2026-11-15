@@ -41,11 +41,25 @@ abstract final class FrameProbe {
   static int _rasterMicros = 0;
   static bool _running = false;
 
+  /// Which widgets rebuilt in this window, by type. Debug only: Flutter calls
+  /// [debugOnRebuildDirtyWidget] in debug builds and nowhere else. This is the
+  /// part that NAMES the offender, so a non-zero idle rate is a list of
+  /// suspects rather than a number to bisect by hand.
+  static final Map<String, int> _rebuilds = {};
+
   static void start() {
     if (_running || kReleaseMode) return;
     _running = true;
 
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
+    if (kDebugMode) {
+      debugOnRebuildDirtyWidget = (element, builtOnce) {
+        // First builds are a page opening, not idle churn.
+        if (!builtOnce) return;
+        final name = element.widget.runtimeType.toString();
+        _rebuilds[name] = (_rebuilds[name] ?? 0) + 1;
+      };
+    }
     // Flush on the way out so a window that ends with the screen off does not
     // report the frames before it as the idle rate. Then stop the timer: a
     // backgrounded probe printing "0 frames" every ten seconds is a wakeup that
@@ -74,6 +88,7 @@ abstract final class FrameProbe {
   static void stop() {
     if (!_running) return;
     SchedulerBinding.instance.removeTimingsCallback(_onTimings);
+    if (kDebugMode) debugOnRebuildDirtyWidget = null;
     _lifecycle?.dispose();
     _lifecycle = null;
     _report?.cancel();
@@ -100,6 +115,13 @@ abstract final class FrameProbe {
     final rasterMicros = _rasterMicros;
     _rasterMicros = 0;
 
+    final top = (_rebuilds.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .take(6)
+        .map((e) => '${e.key} x${e.value}')
+        .join(', ');
+    _rebuilds.clear();
+
     if (frames == 0) {
       debugPrint(
         'frame probe: 0 frames in ${_window.inSeconds}s (idle, as it should be)',
@@ -111,7 +133,8 @@ abstract final class FrameProbe {
     final raster = (rasterMicros / frames / 1000).toStringAsFixed(1);
     debugPrint(
       'frame probe: $frames frames in ${_window.inSeconds}s ($fps fps), '
-      'build ${build}ms, raster ${raster}ms',
+      'build ${build}ms, raster ${raster}ms'
+      '${top.isEmpty ? ' (no rebuilds: a repaint-only animation or a platform texture)' : ', rebuilt: $top'}',
     );
   }
 }

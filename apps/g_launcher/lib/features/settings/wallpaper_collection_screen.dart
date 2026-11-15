@@ -94,10 +94,10 @@ class WallpaperCollectionScreen extends ConsumerWidget {
       if (!context.mounted) return;
       context.showMessage(
         added == 0
-            ? 'Could not add those photos'
+            ? tr('settings.couldNotAddThose')
             : added == 1
-                ? 'Added 1 photo'
-                : 'Added $added photos',
+                ? tr('settings.addedPhoto')
+                : tr('settings.addedPhotos', {'n': '$added'}),
       );
     }
 

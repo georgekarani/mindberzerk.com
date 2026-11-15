@@ -56,7 +56,7 @@ Future<void> applyRice(
     ref.read(prefsStoreProvider),
     id,
     prefs.toJson(),
-    message: 'before rice from ${rice.distroName}',
+    message: tr('rice.beforeRiceFrom', {'name': rice.distroName}),
     auto: true,
   );
   await ref.read(prefsProvider(id).notifier).edit(

@@ -662,7 +662,7 @@ Future<void> drawerFolderSettings(
     // The folder's own name as the header. A three-row menu with Open, Rename
     // and Ungroup on it says nothing about WHICH folder when two are adjacent,
     // which is exactly the case a long-press menu appears in.
-    title: item.folder.name,
+    title: item.folder.label,
     width: 236,
     rows: (sheet) => [
       ThemedListRow(

@@ -136,7 +136,7 @@ class FoldersScreen extends ConsumerWidget {
             // default: a folder should look like the icons it sits among
             // without anyone configuring it.
             subtitle: theme.prefs.folderShape == null
-                ? 'Matches your icon shape'
+                ? tr('settings.matchesYourIconShape')
                 : _shapeLabel(theme.prefs.folderShape!),
             trailing: const Icon(Icons.chevron_right, size: 18),
             onTap: () => _showShapeSheet(context, notifier, theme),
@@ -274,10 +274,10 @@ class FoldersScreen extends ConsumerWidget {
       };
 
   static String _shapeLabel(String id) => switch (id) {
-        'circle' => 'Circle',
-        'squircle' => 'Squircle',
-        'square' => 'Square',
-        _ => 'Rounded square',
+        'circle' => tr('settings.circle'),
+        'squircle' => tr('settings.squircle'),
+        'square' => tr('settings.square'),
+        _ => tr('settings.roundedSquare'),
       };
 
   void _showShapeSheet(
@@ -306,7 +306,9 @@ class FoldersScreen extends ConsumerWidget {
           children: [
             for (final o in options)
               ThemedListRow(
-                title: o == null ? 'Match my icon shape' : _shapeLabel(o),
+                title: o == null
+                    ? tr('settings.matchMyIconShape')
+                    : _shapeLabel(o),
                 trailing: o == current
                     ? Icon(Icons.check, size: 20, color: c.accent)
                     : null,

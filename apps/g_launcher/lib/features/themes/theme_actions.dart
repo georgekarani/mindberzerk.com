@@ -114,7 +114,9 @@ Future<void> _apply(
 ) async {
   await ref.read(selectedThemeIdProvider.notifier).select(card.specId!);
   _ensurePacks(ref, card.specId!);
-  if (context.mounted) context.showMessage('${card.name} applied');
+  if (context.mounted) {
+    context.showMessage(tr('themes.msg.applied', {'name': card.name}));
+  }
 }
 
 /// Fire the pack sweep for [themeId] without waiting on it.
@@ -146,7 +148,7 @@ Future<void> _download(
       if (thenApply && card.specId != null) {
         await _apply(context, ref, card);
       } else {
-        context.showMessage('${card.name} updated');
+        context.showMessage(tr('themes.msg.updated', {'name': card.name}));
       }
     case 'upToDate':
       // The common case on a re-tap. Deliberately silent: telling someone
@@ -156,7 +158,7 @@ Future<void> _download(
       context.showMessage(
           context.t('themes.needsPurchaseFirst', {'name': card.name}));
     case 'appTooOld':
-      context.showMessage('${card.name} needs a newer version of G Launcher');
+      context.showMessage(tr('themes.msg.needsAppUpdate', {'name': card.name}));
     case 'noSpace':
       context.showMessage(
           context.t('themes.notEnoughFreeSpace', {'name': card.name}));
@@ -252,7 +254,7 @@ Future<void> runThemeCardAction(
       }
 
     case CardStatus.requiresAppUpdate:
-      context.showMessage('${card.name} needs a newer version of G Launcher');
+      context.showMessage(tr('themes.msg.needsAppUpdate', {'name': card.name}));
   }
 }
 

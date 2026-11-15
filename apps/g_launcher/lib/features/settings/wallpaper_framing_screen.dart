@@ -238,9 +238,8 @@ class _WallpaperFramingScreenState
                         ),
                         child: Text(
                           _framable
-                              ? 'Drag the picture to frame it'
-                              : 'This fit uses the whole image. Pick Scroll '
-                                  'or Center to reposition it.',
+                              ? tr('settings.dragThePictureTo')
+                              : tr('settings.thisFitUsesThe'),
                           textAlign: TextAlign.center,
                           style: d.text.caption.copyWith(color: c.text),
                         ),
@@ -260,7 +259,8 @@ class _WallpaperFramingScreenState
                   children: [
                     _Pill(
                       icon: Icons.swap_horiz,
-                      label: _lockFace ? 'Lock' : 'Home',
+                      label:
+                          _lockFace ? tr('settings.lock') : tr('settings.home'),
                       onTap: () => setState(() => _lockFace = !_lockFace),
                     ),
                     if (_framing != _authored) ...[
@@ -450,11 +450,11 @@ class _FitBar extends StatelessWidget {
   /// because the type is a leaf with no i18n and no business knowing what a
   /// user-facing string is; the wire values themselves live there, so a fifth
   /// fit cannot appear in this bar without appearing in the model first.
-  static const _labels = <String, String>{
-    'cover': 'Scroll',
-    'fill': 'Fill',
-    'contain': 'Fit',
-    'center': 'Center',
+  static final _labels = <String, String>{
+    'cover': tr('settings.scroll'),
+    'fill': tr('settings.fill'),
+    'contain': tr('settings.fit'),
+    'center': tr('settings.center'),
   };
 
   @override

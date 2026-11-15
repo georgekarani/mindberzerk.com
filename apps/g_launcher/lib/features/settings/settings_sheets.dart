@@ -106,14 +106,14 @@ void showShapeSheet(
   PrefsNotifier notifier,
   EffectiveTheme theme,
 ) {
-  const shapes = <String, String>{
-    '_theme': 'Distro default',
-    'roundedSquare': 'Rounded square',
-    'circle': 'Circle',
-    'squircle': 'Squircle',
-    'square': 'Square',
-    'teardrop': 'Teardrop',
-    'original': 'Original (unthemed)',
+  final shapes = <String, String>{
+    '_theme': tr('icons.distroDefault'),
+    'roundedSquare': tr('settings.roundedSquare'),
+    'circle': tr('settings.circle'),
+    'squircle': tr('settings.squircle'),
+    'square': tr('settings.square'),
+    'teardrop': tr('settings.teardrop'),
+    'original': tr('settings.originalUnthemed'),
   };
   final current = theme.prefs.iconTreatment ?? '_theme';
 
@@ -123,7 +123,7 @@ void showShapeSheet(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        settingsSheetHead(context, 'Icon shape'),
+        settingsSheetHead(context, tr('settings.iconShape')),
         for (final e in shapes.entries)
           SheetOption(
             label: e.value,
@@ -157,7 +157,7 @@ void showGridSheet(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            settingsSheetHead(context, 'Desktop grid'),
+            settingsSheetHead(context, tr('settings.desktopGrid')),
             StepRow(
               label: context.t('settings.rows'),
               value: theme.rows,
@@ -363,7 +363,9 @@ void showFontSheet(
             },
           ),
           SheetOption(
-            label: mono ? 'System monospace' : 'System font',
+            label: mono
+                ? tr('settings.systemMonospace')
+                : tr('settings.systemFont'),
             selected: selected == systemKey,
             onTap: () {
               notifier.edit(
@@ -606,10 +608,7 @@ Future<void> confirmReset(
     context,
     title: context.t('settings.resetSettings'),
     message:
-        'Every setting for ${theme.spec.name}, and the settings shared by all '
-        'distros, go back to their defaults. Other distros keep their own '
-        'layouts. Nothing you made is removed: your folders, pinned apps, '
-        'hidden apps, widgets and photos are untouched.',
+        context.t('settings.resetDistroMessage', {'name': theme.spec.name}),
     confirmLabel: context.t('settings.reset'),
     cancelLabel: context.t('common.cancel'),
   );
@@ -661,14 +660,76 @@ Future<void> confirmUpdateRestart(
   BuildContext context,
   AppUpdateNotifier notifier,
 ) async {
-  final ok = await ThemedDialog.confirm(
+  // ─── TWO WAYS TO FINISH, NO PARAGRAPH ─────────────────────────────────────
+  //
+  // The restart was a dialog with four sentences about what a restart does.
+  // Now it is the title and two choices: now, or the next time the screen goes
+  // off, when nobody is looking at the home screen it takes away. Dismissing
+  // the sheet is the third answer, "not yet", and needs no button.
+  final choice = await ThemedSheet.show<bool>(
     context,
-    title: context.t('settings.update.restartTitle'),
-    message: context.t('settings.update.restartBody'),
-    confirmLabel: context.t('settings.update.restart'),
-    cancelLabel: context.t('common.cancel'),
+    builder: (ctx) {
+      final c = ChromeScope.of(ctx).colors;
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: c.accent,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    Icons.restart_alt,
+                    size: 28,
+                    color: ThemeData.estimateBrightnessForColor(c.accent) ==
+                            Brightness.dark
+                        ? Colors.white // theme-exempt: ink on the accent
+                        : const Color(0xFF111111), // theme-exempt: ink
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    ctx.t('settings.update.restartTitle'),
+                    style: TextStyle(
+                      color: c.text,
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            ThemedButton(
+              label: ctx.t('settings.update.restartNow'),
+              expand: true,
+              onPressed: () => Navigator.of(ctx).pop(true),
+            ),
+            const SizedBox(height: 10),
+            ThemedButton(
+              label: ctx.t('settings.update.whenScreenOff'),
+              kind: ThemedButtonKind.secondary,
+              expand: true,
+              onPressed: () => Navigator.of(ctx).pop(false),
+            ),
+          ],
+        ),
+      );
+    },
   );
-  if (ok == true) await notifier.completeUpdate();
+  if (choice == true) {
+    await notifier.completeUpdate();
+  } else if (choice == false) {
+    notifier.completeWhenScreenOff();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

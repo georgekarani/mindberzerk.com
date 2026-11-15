@@ -142,8 +142,8 @@ class _Settings extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final actions = IconPackActions(context, ref, theme);
     final catalogue = ref.watch(catalogueProvider).value ?? const <PackInfo>[];
-    final installed =
-        ref.watch(installedIconThemesProvider).value ?? const <String, String>{};
+    final installed = ref.watch(installedIconThemesProvider).value ??
+        const <String, String>{};
 
     String? titleOf(String? id) {
       if (id == null) return null;
@@ -161,9 +161,8 @@ class _Settings extends ConsumerWidget {
         context.t(line == null ? 'icons.original' : 'icons.distroDefault');
 
     final system = theme.prefs.systemIconPack;
-    final systemLabel = system == null
-        ? context.t('icons.none')
-        : installed[system] ?? system;
+    final systemLabel =
+        system == null ? context.t('icons.none') : installed[system] ?? system;
 
     return ThemedScaffold(
       title: context.t('settings.icons'),

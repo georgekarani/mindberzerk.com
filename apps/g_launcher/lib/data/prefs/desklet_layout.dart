@@ -124,9 +124,11 @@ class DeskletLayout {
     required int spanY,
     required int cols,
     required int rows,
+    Set<int> blocked = const {},
   }) {
     for (var r = 0; r + spanY <= rows; r++) {
       for (var c = 0; c + spanX <= cols; c++) {
+        if (!_clearOf(blocked, c, r, spanX, spanY, cols)) continue;
         if (fits(
           p,
           page: page,
@@ -142,6 +144,26 @@ class DeskletLayout {
       }
     }
     return null;
+  }
+
+  /// Does the rectangle miss every cell in [blocked]? Ids are
+  /// `row * cols + col`. Cells held by something that is not a desklet: the
+  /// app icons on a desktop that has them.
+  static bool _clearOf(
+    Set<int> blocked,
+    int col,
+    int row,
+    int spanX,
+    int spanY,
+    int cols,
+  ) {
+    if (blocked.isEmpty) return true;
+    for (var r = row; r < row + spanY; r++) {
+      for (var c = col; c < col + spanX; c++) {
+        if (blocked.contains(r * cols + c)) return false;
+      }
+    }
+    return true;
   }
 
   // ─── MUTATIONS ─────────────────────────────────────────────────────────────
@@ -162,6 +184,7 @@ class DeskletLayout {
     Map<String, Object?> config = const {},
     int? spanX,
     int? spanY,
+    Set<int> blocked = const {},
   }) {
     final kind = DeskletKinds.byId(kindId);
     if (kind == null) return p;
@@ -179,6 +202,7 @@ class DeskletLayout {
       spanY: sy,
       cols: cols,
       rows: rows,
+      blocked: blocked,
     );
     if (cell == null) return p;
 

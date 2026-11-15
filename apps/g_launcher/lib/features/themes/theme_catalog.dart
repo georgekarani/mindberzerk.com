@@ -40,6 +40,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cdn/pack_repository.dart';
 import '../../platform/pack_api.g.dart';
+import 'package:g_launcher/i18n/i18n.dart';
 
 enum PreviewLayout {
   /// Ubuntu: left dock of dots + two offset tiles.
@@ -429,7 +430,9 @@ class ThemeCard {
     // still not a chip. "0 wallpapers" is the placeholder string this codebase
     // does not print.
     if (walls != null && walls > 0) {
-      out.add(walls == 1 ? '1 wallpaper' : '$walls wallpapers');
+      out.add(walls == 1
+          ? tr('themes.oneWallpaper')
+          : tr('themes.nWallpapers', {'n': '$walls'}));
     }
 
     final font = fontName;
@@ -811,4 +814,3 @@ const _floorCards = <ThemeCard>[
   // `pro/available` grid cards with no pack, no SKU and no render path, so
   // every tap produced "needs to be purchased first" with nowhere to buy.
 ];
-

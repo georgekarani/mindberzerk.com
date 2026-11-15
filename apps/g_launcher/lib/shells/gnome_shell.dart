@@ -20,6 +20,7 @@ import '../engine/effective_theme.dart';
 // sees dock_metrics is an ambiguous-import error on DockSide, which is declared
 // in both; desklet_editor documents the same trap.
 import '../engine/theme_spec.dart' show TopBarSide, WorkspaceAxis;
+import '../features/dock/dock_entrance.dart';
 import '../features/dock/dock_metrics.dart';
 import '../features/drawer/app_icon.dart';
 import '../features/desklets/desklet_edit.dart';
@@ -830,45 +831,51 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
                                       ),
                                     )
                                   : Center(
-                                      child: GnomeDock(
-                                        style: GnomeDockStyle.parse(
-                                            theme.dockStyle),
-                                        entries: entries,
-                                        // Passed through rather than pinned to
-                                        // left: the dock draws its running bars
-                                        // against whichever edge it is on, and
-                                        // hardcoding the side here is what used
-                                        // to make that decision unreachable.
-                                        side: side == DockSide.right
-                                            ? DockSide.right
-                                            : DockSide.left,
-                                        gridButton: gridButton,
-                                        slotSize: slot,
-                                        palette: theme.palette,
-                                        opacity: theme.dockOpacity,
-                                        onActivities: _openActivities,
-                                        // ARMED ALWAYS. An auto-filled dock adopts what it shows as
-                                        // pins on the first reorder; see [_dockReorder].
-                                        onReorder: (m, t, a) => _dockReorder(
-                                          m,
-                                          t,
-                                          a,
-                                          visible: dockKeys,
+                                      child: DockEntrance(
+                                        mode: theme.dockEntrance,
+                                        from: side == DockSide.right
+                                            ? AxisDirection.left
+                                            : AxisDirection.right,
+                                        child: GnomeDock(
+                                          style: GnomeDockStyle.parse(
+                                              theme.dockStyle),
+                                          entries: entries,
+                                          // Passed through rather than pinned to
+                                          // left: the dock draws its running bars
+                                          // against whichever edge it is on, and
+                                          // hardcoding the side here is what used
+                                          // to make that decision unreachable.
+                                          side: side == DockSide.right
+                                              ? DockSide.right
+                                              : DockSide.left,
+                                          gridButton: gridButton,
+                                          slotSize: slot,
+                                          palette: theme.palette,
+                                          opacity: theme.dockOpacity,
+                                          onActivities: _openActivities,
+                                          // ARMED ALWAYS. An auto-filled dock adopts what it shows as
+                                          // pins on the first reorder; see [_dockReorder].
+                                          onReorder: (m, t, a) => _dockReorder(
+                                            m,
+                                            t,
+                                            a,
+                                            visible: dockKeys,
+                                          ),
+                                          // ─── ALWAYS ARMED, UNLIKE onReorder ──
+                                          //
+                                          // Reordering needs an arrangement to
+                                          // change, which a frequent-apps dock has
+                                          // not got. Pinning CREATES one: dropping
+                                          // an app here on a dock with no pins is
+                                          // exactly how a user stops it being
+                                          // automatic, so refusing the drop there
+                                          // would refuse the only gesture that
+                                          // makes the other one available.
+                                          onDropApp: (key) =>
+                                              _dockPin(key, capacity),
+                                          hover: theme.dockHover,
+                                          press: theme.dockPress,
                                         ),
-                                        // ─── ALWAYS ARMED, UNLIKE onReorder ──
-                                        //
-                                        // Reordering needs an arrangement to
-                                        // change, which a frequent-apps dock has
-                                        // not got. Pinning CREATES one: dropping
-                                        // an app here on a dock with no pins is
-                                        // exactly how a user stops it being
-                                        // automatic, so refusing the drop there
-                                        // would refuse the only gesture that
-                                        // makes the other one available.
-                                        onDropApp: (key) =>
-                                            _dockPin(key, capacity),
-                                        hover: theme.dockHover,
-                                        press: theme.dockPress,
                                       ),
                                     ),
                             )
@@ -888,36 +895,41 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
                                   ? insets.bottom
                                   : insets.bottom + 9,
                               child: Center(
-                                child: GnomeDock(
-                                  style: GnomeDockStyle.parse(theme.dockStyle),
-                                  entries: entries,
-                                  side: DockSide.bottom,
-                                  gridButton: gridButton,
-                                  slotSize: slot,
-                                  palette: theme.palette,
-                                  opacity: theme.dockOpacity,
-                                  onActivities: _openActivities,
-                                  // ARMED ALWAYS. An auto-filled dock adopts what it shows as
-                                  // pins on the first reorder; see [_dockReorder].
-                                  onReorder: (m, t, a) => _dockReorder(
-                                    m,
-                                    t,
-                                    a,
-                                    visible: dockKeys,
+                                child: DockEntrance(
+                                  mode: theme.dockEntrance,
+                                  from: AxisDirection.up,
+                                  child: GnomeDock(
+                                    style:
+                                        GnomeDockStyle.parse(theme.dockStyle),
+                                    entries: entries,
+                                    side: DockSide.bottom,
+                                    gridButton: gridButton,
+                                    slotSize: slot,
+                                    palette: theme.palette,
+                                    opacity: theme.dockOpacity,
+                                    onActivities: _openActivities,
+                                    // ARMED ALWAYS. An auto-filled dock adopts what it shows as
+                                    // pins on the first reorder; see [_dockReorder].
+                                    onReorder: (m, t, a) => _dockReorder(
+                                      m,
+                                      t,
+                                      a,
+                                      visible: dockKeys,
+                                    ),
+                                    // ─── ALWAYS ARMED, UNLIKE onReorder ──
+                                    //
+                                    // Reordering needs an arrangement to
+                                    // change, which a frequent-apps dock has
+                                    // not got. Pinning CREATES one: dropping
+                                    // an app here on a dock with no pins is
+                                    // exactly how a user stops it being
+                                    // automatic, so refusing the drop there
+                                    // would refuse the only gesture that
+                                    // makes the other one available.
+                                    onDropApp: (key) => _dockPin(key, capacity),
+                                    hover: theme.dockHover,
+                                    press: theme.dockPress,
                                   ),
-                                  // ─── ALWAYS ARMED, UNLIKE onReorder ──
-                                  //
-                                  // Reordering needs an arrangement to
-                                  // change, which a frequent-apps dock has
-                                  // not got. Pinning CREATES one: dropping
-                                  // an app here on a dock with no pins is
-                                  // exactly how a user stops it being
-                                  // automatic, so refusing the drop there
-                                  // would refuse the only gesture that
-                                  // makes the other one available.
-                                  onDropApp: (key) => _dockPin(key, capacity),
-                                  hover: theme.dockHover,
-                                  press: theme.dockPress,
                                 ),
                               ),
                             ),

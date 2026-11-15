@@ -153,13 +153,9 @@ class _Media extends ConsumerWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(s.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: _body(style)),
                 if (s.artist.isNotEmpty)
                   Text(s.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: _sub(style)),
               ],
             ),
@@ -292,37 +288,8 @@ class _Counts extends ConsumerWidget {
       );
     }
 
-    final counts = ref.watch(badgeCountsProvider);
-    final apps = ref.watch(appListProvider).asData?.value ?? const <AppEntry>[];
-    final themeAsync = ref.watch(effectiveThemeProvider);
-    final hidden = themeAsync.hasValue
-        ? themeAsync.requireValue.prefs.hiddenApps
-        : const <String>{};
-
-    // One row per app, hidden apps never: a count beside a hidden app's name
-    // would reveal exactly what hiding it was meant to keep off the screen.
-    final rows = <(AppEntry, int)>[
-      for (final a in apps)
-        if (!hidden.contains(a.componentKey))
-          if (badgeFor(counts, a.packageName, a.userSerial) case final n
-              when n > 0)
-            (a, n),
-    ];
-    // An app with several launcher activities appears once.
-    final seen = <String>{};
-    rows.retainWhere((r) => seen.add('${r.$1.packageName}#${r.$1.userSerial}'));
-    rows.sort((x, y) => y.$2.compareTo(x.$2));
-
-    Future<void> openShade() async {
-      final ok = await ref
-          .read(launcherHostApiProvider)
-          .performGlobalAction('notifications');
-      if (ok) {
-        onLeave();
-      } else if (context.mounted) {
-        context.showMessage(context.t('panel.swipeForShade'));
-      }
-    }
+    final rows = notificationCounts(ref);
+    Future<void> openShade() => openNotificationShade(context, ref, onLeave);
 
     return _Card(
       style: style,
@@ -358,8 +325,6 @@ class _Counts extends ConsumerWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(app.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: _body(style)),
                     ),
                     Text('$n', style: _sub(style)),
@@ -380,5 +345,47 @@ class _Counts extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// Apps with something unread, most first, each app once, hidden apps never.
+///
+/// Shared by this popover and Quick Settings so both count the same way. A
+/// count beside a hidden app's name would reveal exactly what hiding it was
+/// meant to keep off the screen, so those are dropped before anything else.
+List<(AppEntry, int)> notificationCounts(WidgetRef ref) {
+  final counts = ref.watch(badgeCountsProvider);
+  final apps = ref.watch(appListProvider).asData?.value ?? const <AppEntry>[];
+  final themeAsync = ref.watch(effectiveThemeProvider);
+  final hidden = themeAsync.hasValue
+      ? themeAsync.requireValue.prefs.hiddenApps
+      : const <String>{};
+
+  final rows = <(AppEntry, int)>[
+    for (final a in apps)
+      if (!hidden.contains(a.componentKey))
+        if (badgeFor(counts, a.packageName, a.userSerial) case final n when n > 0)
+          (a, n),
+  ];
+  // An app with several launcher activities appears once.
+  final seen = <String>{};
+  rows.retainWhere((r) => seen.add('${r.$1.packageName}#${r.$1.userSerial}'));
+  rows.sort((x, y) => y.$2.compareTo(x.$2));
+  return rows;
+}
+
+/// Opens Android's own shade, or says how to when the accessibility action
+/// is not available. [onLeave] closes whatever host asked.
+Future<void> openNotificationShade(
+  BuildContext context,
+  WidgetRef ref,
+  VoidCallback onLeave,
+) async {
+  final ok =
+      await ref.read(launcherHostApiProvider).performGlobalAction('notifications');
+  if (ok) {
+    onLeave();
+  } else if (context.mounted) {
+    context.showMessage(context.t('panel.swipeForShade'));
   }
 }

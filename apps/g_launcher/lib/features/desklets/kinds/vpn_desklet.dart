@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:g_family/g_family.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../../../core/visibility_gate.dart';
 import '../../../data/prefs/launcher_prefs.dart';
 import '../../../engine/desklet_skin.dart';
 import '../../../engine/effective_theme.dart';
@@ -43,7 +44,7 @@ class _VpnDeskletState extends State<VpnDesklet> {
   // preview included).
   GVpnStatus _status = const GVpnStatus(GVpnState.unavailable);
   StreamSubscription<GVpnStatus>? _sub;
-  Timer? _tick;
+  GatedTicker? _tick;
 
   @override
   void initState() {
@@ -60,15 +61,17 @@ class _VpnDeskletState extends State<VpnDesklet> {
       onError: (Object _) {},
     );
     // A pause counts down; nothing else here changes without an event.
-    _tick = Timer.periodic(const Duration(seconds: 30), (_) {
+    // Gated, so the countdown does not wake the phone behind other apps.
+    _tick = GatedTicker(const Duration(seconds: 30), () {
       if (mounted && _status.state == GVpnState.paused) setState(() {});
-    });
+    })
+      ..start();
   }
 
   @override
   void dispose() {
     _sub?.cancel();
-    _tick?.cancel();
+    _tick?.dispose();
     super.dispose();
   }
 

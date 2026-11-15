@@ -326,6 +326,19 @@ extension ThemeCapabilities on EffectiveTheme {
             const Capability(false, 'why.noDockOnThisDesktop'),
         };
 
+  /// The dock positions this distro can draw, in the order Settings shows
+  /// them. Plasma's dock runs along the bottom or is off; `LayoutResolver`
+  /// folds any other saved side into bottom for the same reason.
+  List<DockSide> get dockPositions => switch (shell) {
+        ShellKind.plasma => const [DockSide.bottom, DockSide.off],
+        _ => const [
+            DockSide.left,
+            DockSide.bottom,
+            DockSide.right,
+            DockSide.off,
+          ],
+      };
+
   /// Can this distro file its apps into the Library?
   ///
   /// ─── ONLY WHERE THE DISTRO AUTHORS IT, AND THIS IS A REMOVAL ────────────
@@ -442,9 +455,16 @@ extension ThemeCapabilities on EffectiveTheme {
   /// where the button lives is a control for a button that is not there.
   Capability get hasActivitiesButton => switch (appsSurface) {
         AppsSurface.workspace => const Capability(false, 'why.appsAreAPage'),
+        // ─── ONLY GNOME'S DOCK CARRIES ONE ─────────────────────────────
+        //
+        // `dockGridButton` is read by the GNOME dock and nothing else. Plasma
+        // opens apps from Kickoff on the panel, Aqua's dock always ends in its
+        // Launchpad, and the tiling desktops launch from the bar, so on those
+        // the control moved a button that does not exist.
         AppsSurface.overlay => switch (shell) {
+            ShellKind.gnome => const Capability(true),
             ShellKind.tui => const Capability(false, 'why.noBarOnThisDesktop'),
-            _ => const Capability(true),
+            _ => const Capability(false, 'why.thisDistroDrawsItsOwnMenu'),
           },
       };
 

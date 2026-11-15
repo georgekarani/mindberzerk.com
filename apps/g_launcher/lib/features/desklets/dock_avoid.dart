@@ -38,6 +38,27 @@ Set<int> dockCells(
 }
 
 /// The cells a footprint covers, or null when it does not fit the grid.
+/// Every widget cell any of [icons] overlaps. The rects are in the widget
+/// surface's own coordinates, like the dock's in [dockCells].
+Set<int> iconCells(
+  Iterable<Rect> icons, {
+  required double cellW,
+  required double cellH,
+  required int cols,
+  required int rows,
+}) =>
+    {
+      for (final icon in icons)
+        ...dockCells(
+          icon,
+          cellW: cellW,
+          cellH: cellH,
+          cols: cols,
+          rows: rows,
+          gap: 0,
+        ),
+    };
+
 Set<int>? footprint(
     int col, int row, int spanX, int spanY, int cols, int rows) {
   if (col < 0 || row < 0 || col + spanX > cols || row + spanY > rows) {

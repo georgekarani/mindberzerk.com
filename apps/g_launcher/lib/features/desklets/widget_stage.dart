@@ -32,6 +32,8 @@
 /// contrast worth having.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -135,11 +137,31 @@ final stageRectsProvider =
     NotifierProvider<StageRects, Map<String, StageRect>>(StageRects.new);
 
 /// Is the desktop still enough to show live widgets?
+///
+/// ─── MOVING EXPIRES ON ITS OWN ──────────────────────────────────────────────
+///
+/// `true` is only ever cleared by a ScrollEndNotification, and a pager that is
+/// unmounted mid-swipe (a shell rebuilt by a theme switch, a page removed)
+/// never sends one. Left alone that hides every hosted widget until the next
+/// swipe. So each report of motion re-arms a short timer, and motion that
+/// stops being reported is treated as over. A drag or a fling reports on every
+/// frame, so the timer cannot fire while the desktop is really moving.
 class StageMotion extends Notifier<bool> {
+  /// Longer than any gap between two frames of a live scroll, shorter than a
+  /// person would notice a widget staying hidden.
+  static const _expiry = Duration(milliseconds: 300);
+
+  Timer? _timer;
+
   @override
-  bool build() => false;
+  bool build() {
+    ref.onDispose(() => _timer?.cancel());
+    return false;
+  }
 
   void set(bool moving) {
+    _timer?.cancel();
+    _timer = moving ? Timer(_expiry, () => state = false) : null;
     if (state == moving) return;
     state = moving;
   }

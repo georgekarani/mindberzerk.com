@@ -205,12 +205,12 @@ class AnchoredMenu {
     VoidCallback? onInfo,
     double width = 240,
     bool below = preferBelow,
-    String barrierLabel = 'Dismiss',
+    String? barrierLabel,
   }) {
     return showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: barrierLabel,
+      barrierLabel: barrierLabel ?? tr('drawer.dismiss'),
       // BARELY THERE, and lighter than a sheet's on purpose. A context menu is
       // not a modal: the entire reason it opens at the anchor is so the thing
       // it is about stays visible, and a heavy scrim throws that away.

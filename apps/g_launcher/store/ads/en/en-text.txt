@@ -1,0 +1,13 @@
+HEADLINES (max 30)
+Turn your phone into Linux
+Kali Linux on your phone
+Ubuntu launcher, free
+15 Linux desktops, one app
+No ads. Pay once per distro
+
+DESCRIPTIONS (max 90)
+Kali, Ubuntu, KDE Plasma and more. A real Linux desktop on your Android phone.
+Top bar, dock, panels and a boot log. Ubuntu, Plasma and Terminal are free.
+Kali's Xfce panel, numbered tool menu and terminal prompt on your home screen.
+Icon themes in every distro's color. Papirus is free, Line and Bold to buy.
+No ads, no account, no Pro tier. Buy only the distros you want, once.

@@ -25,6 +25,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../core/visibility_gate.dart';
 import '../../engine/terminal_spec.dart';
 import 'ansi.dart';
 import 'ansi_palette.dart';
@@ -265,21 +266,32 @@ class _Cursor extends StatefulWidget {
   State<_Cursor> createState() => _CursorState();
 }
 
-class _CursorState extends State<_Cursor> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1060),
-  );
+class _CursorState extends State<_Cursor> {
+  // ─── A TIMER, NOT AN ANIMATIONCONTROLLER ──────────────────────────────────
+  //
+  // The blink is a hard step, so it changes twice a second. A repeating
+  // controller under an AnimatedBuilder rebuilt it on every vsync anyway:
+  // sixty frames a second, each paying the full transparent-window composite,
+  // to draw the same block thirty times in a row. A timer that flips a bool
+  // draws exactly the two frames that differ. Gated, so it stops with the app.
+  static const _half = Duration(milliseconds: 530);
+
+  late final GatedTicker _blink = GatedTicker(_half, _flip, fireOnResume: false);
+  bool _on = true;
 
   @override
   void initState() {
     super.initState();
-    _c.repeat();
+    _blink.start();
+  }
+
+  void _flip() {
+    if (mounted) setState(() => _on = !_on);
   }
 
   @override
   void dispose() {
-    _c.dispose();
+    _blink.dispose();
     super.dispose();
   }
 
@@ -297,16 +309,8 @@ class _CursorState extends State<_Cursor> with SingleTickerProviderStateMixin {
     // still a cursor.
     if (MediaQuery.of(context).disableAnimations) return block;
 
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, child) => Opacity(
-        // A hard step, not a fade. A terminal cursor has never faded, and the
-        // difference is noticeable to exactly the audience this ships for.
-        opacity: _c.value < 0.5 ? 1 : 0,
-        child: child,
-      ),
-      child: block,
-    );
+    // A hard step, not a fade: a terminal cursor has never faded.
+    return Opacity(opacity: _on ? 1 : 0, child: block);
   }
 }
 

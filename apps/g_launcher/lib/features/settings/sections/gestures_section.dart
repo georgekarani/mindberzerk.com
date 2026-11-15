@@ -33,7 +33,8 @@ class _GestureRow extends ConsumerWidget {
     final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
     final serviceOn = ref.watch(gestureServiceEnabledProvider).value;
 
-    final label = binding.isApp ? 'Custom app' : binding.action.label;
+    final label =
+        binding.isApp ? tr('settings.customApp') : binding.action.label;
 
     // A gated action with the service known to be off is a binding that does
     // nothing. Saying so here is the difference between "my gesture is
@@ -57,7 +58,7 @@ class _GestureRow extends ConsumerWidget {
       subtitle = context.t('gestures.turnOnToUse');
       tint = s.acc;
     } else if (warn) {
-      subtitle = 'Overrides workspace scrolling';
+      subtitle = tr('settings.overridesWorkspaceScrolling');
       tint = s.warn;
     } else {
       subtitle = null;
@@ -154,8 +155,7 @@ class _GestureServiceCard extends ConsumerWidget {
   /// permanently above the gesture list taxes everyone forever to reassure the
   /// few who ask. So the card states the offer in one line and the reasoning
   /// goes one tap away.
-  static const _explainer =
-      'Android only lets a launcher pull down the shade, open quick settings, show recents or lock the screen through an accessibility service.\n\nThe next screen warns that G Launcher can "observe your actions". That is the standard wording for every app that uses this API.\n\nG Launcher does not read your screen and does not watch other apps. It asks only for the ability to perform the gestures you set here.\n\nGestures that do not need it, such as Activities, launching an app or showing the dock, work either way.';
+  static String get _explainer => tr('settings.androidOnlyLetsA');
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

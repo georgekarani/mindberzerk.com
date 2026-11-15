@@ -56,7 +56,7 @@ List<Widget> iconAppearanceRows(
     ),
     SettingsGroup(
       label: context.t('icons.shapeAndSize'),
-      scope: 'All distros',
+      scope: tr('icons.allDistros'),
       rows: [
         FilterRow(
           const ['icon shape', 'circle', 'squircle', 'rounded'],
@@ -113,30 +113,30 @@ List<Widget> iconAppearanceRows(
 }
 
 String _shapeLong(String? raw) => switch (raw) {
-      null => 'Following the distro',
-      'roundedSquare' => 'Rounded square',
-      'circle' => 'Circle',
-      'squircle' => 'Squircle',
-      'square' => 'Square',
-      'teardrop' => 'Teardrop',
-      'original' => 'Original, unthemed',
+      null => tr('icons.followingTheDistro'),
+      'roundedSquare' => tr('settings.roundedSquare'),
+      'circle' => tr('settings.circle'),
+      'squircle' => tr('settings.squircle'),
+      'square' => tr('settings.square'),
+      'teardrop' => tr('settings.teardrop'),
+      'original' => tr('settings.originalUnthemed_2'),
       _ => raw,
     };
 
 String _shapeShort(String? raw) => switch (raw) {
-      null => 'Distro',
-      'roundedSquare' => 'Rounded',
-      'circle' => 'Circle',
-      'squircle' => 'Squircle',
-      'square' => 'Square',
-      'teardrop' => 'Teardrop',
-      'original' => 'Original',
+      null => tr('settings.distro'),
+      'roundedSquare' => tr('settings.rounded'),
+      'circle' => tr('settings.circle'),
+      'squircle' => tr('settings.squircle'),
+      'square' => tr('settings.square'),
+      'teardrop' => tr('settings.teardrop'),
+      'original' => tr('icons.original'),
       _ => raw,
     };
 
 String _iconSizeLabel(double dp) => switch (dp) {
-      < 44 => 'Small',
-      < 54 => 'Medium',
-      < 64 => 'Large',
-      _ => 'Huge',
+      < 44 => tr('settings.small'),
+      < 54 => tr('settings.medium'),
+      < 64 => tr('settings.large'),
+      _ => tr('settings.huge'),
     };

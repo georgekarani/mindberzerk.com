@@ -110,7 +110,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   /// leave the field exactly as the user left it.
   Future<void> _dictate() async {
     final heard = await ref.read(launcherHostApiProvider).recognizeSpeech(
-          'Search apps',
+          tr('drawer.searchApps'),
         );
 
     // The recogniser was a full-screen Activity, so this page has been off
@@ -407,7 +407,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                   // Downloads is action-only, so no uri and no type.
                   onTap: () => _openIntent(
                     'android.intent.action.VIEW_DOWNLOADS',
-                    missing: 'No downloads app on this phone',
+                    missing: tr('search.noDownloadsAppOn'),
                   ),
                 ),
               ),
@@ -427,7 +427,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                     'android.intent.action.VIEW',
                     uri: 'content://media/external/images/media',
                     type: 'image/*',
-                    missing: 'No gallery app on this phone',
+                    missing: tr('search.noGalleryAppOn'),
                   ),
                 ),
               ),
@@ -872,16 +872,18 @@ class _Topic {
   final String action;
 }
 
-const _settingsTopics = <_Topic>[
-  _Topic(Icons.brightness_6_outlined, 'Display',
+final _settingsTopics = <_Topic>[
+  _Topic(Icons.brightness_6_outlined, tr('search.display'),
       'android.settings.DISPLAY_SETTINGS'),
-  _Topic(
-      Icons.shield_outlined, 'Security', 'android.settings.SECURITY_SETTINGS'),
-  _Topic(Icons.battery_charging_full_outlined, 'Battery',
+  _Topic(Icons.shield_outlined, tr('search.security'),
+      'android.settings.SECURITY_SETTINGS'),
+  _Topic(Icons.battery_charging_full_outlined, tr('search.battery'),
       'android.intent.action.POWER_USAGE_SUMMARY'),
-  _Topic(Icons.wifi, 'Connections', 'android.settings.WIRELESS_SETTINGS'),
-  _Topic(Icons.apps_outlined, 'Apps', 'android.settings.APPLICATION_SETTINGS'),
-  _Topic(Icons.sd_storage_outlined, 'Storage',
+  _Topic(Icons.wifi, tr('search.connections'),
+      'android.settings.WIRELESS_SETTINGS'),
+  _Topic(Icons.apps_outlined, tr('search.apps'),
+      'android.settings.APPLICATION_SETTINGS'),
+  _Topic(Icons.sd_storage_outlined, tr('desklet_spec.storage'),
       'android.settings.INTERNAL_STORAGE_SETTINGS'),
 ];
 
@@ -1224,15 +1226,15 @@ class _LauncherHit extends StatelessWidget {
           // The theme's own brand mark, matching the drawer tile so the same
           // entry looks like itself wherever it turns up.
           LauncherBrandIcon(theme: theme, size: 30),
-          'Themes, layout, gestures, icons',
+          tr('search.themesLayoutGesturesIcons'),
         ),
       DeviceSettingsItem() => (
           Icon(Icons.settings, size: 26, color: c.textMuted),
-          'Opens Android settings',
+          tr('settings.opensAndroidSettings'),
         ),
       TerminalDrawerItem() => (
           Icon(Icons.terminal, size: 26, color: c.textMuted),
-          'Commands, system info, shell',
+          tr('search.commandsSystemInfoShell'),
         ),
       // Never reach this widget: apps and folders have their own rows, and
       // the Hidden folder is kept out of search.

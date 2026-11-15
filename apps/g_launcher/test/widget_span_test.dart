@@ -87,22 +87,32 @@ void main() {
 
   group('dp, when the provider gave nothing else', () {
     test('a 4-cell widget declaring 250dp lands on 4 icon columns', () {
-      // 70n - 30 gives 250dp for n = 4. With the gutter accounted for this is
-      // ceil(256 / 51.4) = 5 fine columns, which is 2.5 icon columns: LESS
-      // than the grid-unit path would give, and correctly so. A legacy
-      // provider declared a MINIMUM, not a target.
+      // 70n - 30 gives 250dp for n = 4 and 110dp for n = 2, and every launcher
+      // reads it back the same way. Four icon columns and two icon rows, the
+      // same span the grid-unit path gives a provider that says 4 by 2.
       final s = _resolve(_fp(minW: 250, minH: 110));
-      expect(s.spanX, 5);
-      expect(s.spanY, greaterThanOrEqualTo(2));
+      expect(s.spanX, 8);
+      expect(s.spanY, 6);
     });
 
-    test('dp is grid-agnostic: the same dp is the same share of the screen',
-        () {
-      final narrow = _resolve(_fp(minW: 250, minH: 110), cell: _s22);
+    test('dp and grid units agree on the same widget', () {
+      final dp = _resolve(_fp(minW: 250, minH: 110));
+      final cells = _resolve(_fp(targetW: 4, targetH: 2));
+      expect(dp.spanX, cells.spanX);
+      expect(dp.spanY, cells.spanY);
+    });
+
+    test('a dp widget keeps its icon columns when the grid gets wider', () {
       final wide = _resolve(_fp(minW: 250, minH: 110), cell: _s22Wide);
-      final narrowShare = narrow.spanX / narrow.maxSpanX;
-      final wideShare = wide.spanX / wide.maxSpanX;
-      expect((narrowShare - wideShare).abs(), lessThan(0.12));
+      expect(wide.spanX, 8); // 4 icon columns of 5
+      expect(wide.spanX / wide.maxSpanX, 0.8);
+    });
+
+    test('dp between two cell sizes rounds up to the larger', () {
+      expect(WidgetSpanResolver.launcherCells(40), 1);
+      expect(WidgetSpanResolver.launcherCells(110), 2);
+      expect(WidgetSpanResolver.launcherCells(111), 3);
+      expect(WidgetSpanResolver.launcherCells(250), 4);
     });
 
     test('a provider that reports nothing gets one cell, not zero', () {

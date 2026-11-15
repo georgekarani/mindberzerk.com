@@ -17,6 +17,7 @@ import '../design/liquid_glass.dart';
 import '../engine/effective_theme.dart';
 // TopBarSide: the menu bar now asks whether this distro has a top panel at all.
 import '../engine/theme_spec.dart';
+import '../features/dock/dock_entrance.dart';
 import '../features/desklets/desklet_edit.dart';
 import '../features/dock/aqua_dock_metrics.dart';
 import '../features/dock/dock_extent.dart';
@@ -706,52 +707,56 @@ class _AquaShellState extends ConsumerState<AquaShell> {
               // The page the dock must be gone by. Null when this distro keeps
               // its dock everywhere, and then the slide never runs at all.
               hideAtPage: theme.dockReveal == 'desktop' ? appsPage : null,
-              child: AquaDock(
-                entries: entries,
-                palette: theme.palette,
-                style: AquaDockStyle.parse(theme.dockStyle),
-                hover: theme.dockHover,
-                press: theme.dockPress,
-                opacity: theme.dockOpacity,
-                onLaunchpad: _openLaunchpad,
-                // ─── ALWAYS ARMED ────────────────────────────────────────
-                //
-                // Unlike a reorder, a drop here has something to do on any dock:
-                // pinning is how an auto-filled dock stops being automatic, so
-                // refusing it on the docks with no pins would refuse the gesture
-                // that makes pinning possible.
-                onDropAt: (drag, order, gap) => _dockDropAt(
-                  drag,
-                  order,
-                  gap,
-                  visible: dockKeys,
+              child: DockEntrance(
+                mode: theme.dockEntrance,
+                from: AxisDirection.up,
+                child: AquaDock(
+                  entries: entries,
+                  palette: theme.palette,
+                  style: AquaDockStyle.parse(theme.dockStyle),
+                  hover: theme.dockHover,
+                  press: theme.dockPress,
+                  opacity: theme.dockOpacity,
+                  onLaunchpad: _openLaunchpad,
+                  // ─── ALWAYS ARMED ────────────────────────────────────────
+                  //
+                  // Unlike a reorder, a drop here has something to do on any dock:
+                  // pinning is how an auto-filled dock stops being automatic, so
+                  // refusing it on the docks with no pins would refuse the gesture
+                  // that makes pinning possible.
+                  onDropAt: (drag, order, gap) => _dockDropAt(
+                    drag,
+                    order,
+                    gap,
+                    visible: dockKeys,
+                    capacity: capacity,
+                  ),
+                  onDropOnto: (drag, onto) =>
+                      _dockDropOnto(drag, onto, visible: dockKeys),
+                  onFull: _dockFull,
+                  onRemove: (entry, anchor) => entry.onLongPress?.call(anchor),
+                  // Pocket: a hold shakes the apps, as an iPhone's does. The
+                  // held icon keeps moving, and letting it go where it started
+                  // still opens its menu.
+                  onHold: theme.phoneHome
+                      ? () => ref.read(deskletEditProvider.notifier).enterApps()
+                      : null,
                   capacity: capacity,
+                  folders: theme.dockFolders,
+                  editing: editing,
+                  // ─── THE DOCK'S TRAY, ON A DESKTOP WITH NO TOP BAR ──────
+                  //
+                  // Deepin's fashion dock ends with the status a top bar would
+                  // carry. Under the status rule: battery and time only when
+                  // the user has handed the status row to the desktop.
+                  tray: theme.dockTray ? _DockTray(theme: theme) : null,
+                  glass: theme.glass,
+                  glassDark: theme.glassDark,
+                  launcherSlot: theme.dockLauncher,
+                  restSlot: dockRest,
+                  restSpacing: dockSpacing,
+                  trayWidth: theme.dockTray ? _DockTray.widthFor(theme) : 0,
                 ),
-                onDropOnto: (drag, onto) =>
-                    _dockDropOnto(drag, onto, visible: dockKeys),
-                onFull: _dockFull,
-                onRemove: (entry, anchor) => entry.onLongPress?.call(anchor),
-                // Pocket: a hold shakes the apps, as an iPhone's does. The
-                // held icon keeps moving, and letting it go where it started
-                // still opens its menu.
-                onHold: theme.phoneHome
-                    ? () => ref.read(deskletEditProvider.notifier).enterApps()
-                    : null,
-                capacity: capacity,
-                folders: theme.dockFolders,
-                editing: editing,
-                // ─── THE DOCK'S TRAY, ON A DESKTOP WITH NO TOP BAR ──────
-                //
-                // Deepin's fashion dock ends with the status a top bar would
-                // carry. Under the status rule: battery and time only when
-                // the user has handed the status row to the desktop.
-                tray: theme.dockTray ? _DockTray(theme: theme) : null,
-                glass: theme.glass,
-                glassDark: theme.glassDark,
-                launcherSlot: theme.dockLauncher,
-                restSlot: dockRest,
-                restSpacing: dockSpacing,
-                trayWidth: theme.dockTray ? _DockTray.widthFor(theme) : 0,
               ),
             ),
           ),

@@ -95,15 +95,18 @@ final deviceCategoriesProvider = Provider<List<DeviceCategory>>((ref) {
 });
 
 enum DeviceCategory {
-  network('Network', Icons.wifi),
-  power('Power', Icons.battery_charging_full_outlined),
-  storage('Storage', Icons.storage_outlined),
-  memory('Memory', Icons.memory_outlined);
+  network('desklet_spec.network', Icons.wifi),
+  power('settings.power', Icons.battery_charging_full_outlined),
+  storage('desklet_spec.storage', Icons.storage_outlined),
+  memory('settings.memory', Icons.memory_outlined);
 
-  const DeviceCategory(this.label, this.icon);
+  const DeviceCategory(this._labelKey, this.icon);
 
-  final String label;
+  final String _labelKey;
   final IconData icon;
+
+  /// The category name, in the reader's language.
+  String get label => tr(_labelKey);
 
   /// Extra words that should find this category in the Settings search.
   ///
@@ -161,11 +164,11 @@ enum DeviceCategory {
     if (s == null) return null;
     return switch (this) {
       DeviceCategory.network => switch (s.transport) {
-          'wifi' => 'Wi-Fi',
-          'cellular' => 'Mobile',
-          'ethernet' => 'Ethernet',
+          'wifi' => tr('settings.wiFi'),
+          'cellular' => tr('settings.mobile'),
+          'ethernet' => tr('settings.ethernet'),
           'vpn' => 'VPN',
-          'none' => 'Offline',
+          'none' => tr('settings.offline'),
           _ => null,
         },
       DeviceCategory.power =>
@@ -216,7 +219,10 @@ class NetworkPage extends ConsumerWidget {
       // opened the page. Only once there are enough samples to have a shape.
       header: history.chartable && down.isNotEmpty
           ? _ChartHeader(
-              legend: const {'Down': ChartColors.down, 'Up': ChartColors.up},
+              legend: {
+                tr('settings.down'): ChartColors.down,
+                tr('settings.up'): ChartColors.up
+              },
               child: TrendChart(
                 series: down,
                 secondSeries: up,
@@ -233,29 +239,31 @@ class NetworkPage extends ConsumerWidget {
             )
           : null,
       action: _AndroidSettings.wifi,
-      actionLabel: 'Wi-Fi and mobile data',
+      actionLabel: tr('settings.wiFiAndMobile'),
       rows: [
         if (s?.transport != null)
-          _StatRow('Connection', _transportLabel(s!.transport!)),
+          _StatRow(tr('settings.connection'), _transportLabel(s!.transport!)),
         if (s?.netDownBytesPerSec != null)
-          _StatRow('Download', SystemStats.rate(s!.netDownBytesPerSec)),
+          _StatRow(
+              tr('settings.download'), SystemStats.rate(s!.netDownBytesPerSec)),
         if (s?.netUpBytesPerSec != null)
-          _StatRow('Upload', SystemStats.rate(s!.netUpBytesPerSec)),
+          _StatRow(
+              tr('settings.upload'), SystemStats.rate(s!.netUpBytesPerSec)),
       ],
       // THE NETWORK NAME IS NOT HERE AND IS NOT COMING. Reading the SSID needs
       // location permission on Android 10+, and an ecosystem whose pitch is
       // that it does not take what it does not need cannot hold location to
       // print a word. "Wi-Fi, 2.4 MB/s down" reads just as well.
-      note: 'The network name needs location permission, so it is not shown.',
+      note: tr('settings.theNetworkNameNeeds'),
     );
   }
 
   static String _transportLabel(String t) => switch (t) {
-        'wifi' => 'Wi-Fi',
-        'cellular' => 'Mobile data',
-        'ethernet' => 'Ethernet',
+        'wifi' => tr('settings.wiFi'),
+        'cellular' => tr('settings.mobileData'),
+        'ethernet' => tr('settings.ethernet'),
         'vpn' => 'VPN',
-        _ => 'Offline',
+        _ => tr('settings.offline'),
       };
 }
 
@@ -410,23 +418,30 @@ class _PowerPageState extends ConsumerState<PowerPage> {
       // The honesty line, in the place every device page puts its caveat.
       note: context.t('settings.batteryRecordedNote'),
       action: _AndroidSettings.battery,
-      actionLabel: 'Battery usage',
+      actionLabel: tr('settings.batteryUsage'),
       rows: [
         if (s?.batteryCharging != null)
-          _StatRow('State', s!.batteryCharging! ? 'Charging' : 'Discharging'),
+          _StatRow(
+              tr('settings.state'),
+              s!.batteryCharging!
+                  ? tr('settings.batteryCharging')
+                  : tr('settings.discharging')),
         // Direction from the CHARGING FLAG, never the platform's sign, which is
         // negative-while-discharging on most OEMs and positive on several
         // Samsung and Xiaomi builds. batteryCurrentMa is a magnitude.
         if (s?.batteryCurrentMa != null)
           _StatRow(
-            'Draw',
+            tr('settings.draw'),
             '${s!.batteryCharging == true ? '+' : '-'}${s.batteryCurrentMa} mA',
           ),
         if (s?.batteryTempC != null)
-          _StatRow('Temperature', '${s!.batteryTempC!.toStringAsFixed(1)} C'),
+          _StatRow(tr('settings.temperature'),
+              '${s!.batteryTempC!.toStringAsFixed(1)} C'),
         if (thermalLabel(s?.thermalStatus) != null)
-          _StatRow('Thermal state', thermalLabel(s!.thermalStatus)!),
-        if (s?.uptime != null) _StatRow('Uptime', formatUptime(s!.uptime)),
+          _StatRow(
+              tr('settings.thermalState'), thermalLabel(s!.thermalStatus)!),
+        if (s?.uptime != null)
+          _StatRow(tr('desklet_spec.uptime'), formatUptime(s!.uptime)),
       ],
     );
   }
@@ -436,7 +451,9 @@ class _PowerPageState extends ConsumerState<PowerPage> {
   String _headline(BuildContext context, SystemStats? s) {
     final parts = <String>[
       if (s?.batteryCharging != null)
-        s!.batteryCharging! ? 'Charging' : 'Discharging',
+        s!.batteryCharging!
+            ? tr('settings.batteryCharging')
+            : tr('settings.discharging'),
       if (s?.batteryCurrentMa != null)
         '${s!.batteryCharging == true ? '+' : '-'}${s.batteryCurrentMa} mA',
       if (s?.batteryTempC != null) '${s!.batteryTempC!.toStringAsFixed(1)} C',
@@ -507,13 +524,13 @@ class _DayStrip extends StatelessWidget {
 /// page importing a desklet would make the desklet layer a dependency of the
 /// chrome layer. If a third caller appears, lift it into system_stats.
 String? thermalLabel(int? v) => switch (v) {
-      0 => 'Nominal',
-      1 => 'Light',
-      2 => 'Moderate',
-      3 => 'Severe',
-      4 => 'Critical',
-      5 => 'Emergency',
-      6 => 'Shutdown',
+      0 => tr('settings.nominal'),
+      1 => tr('settings.light'),
+      2 => tr('settings.moderate'),
+      3 => tr('settings.severe'),
+      4 => tr('settings.critical'),
+      5 => tr('settings.emergency'),
+      6 => tr('settings.shutdown'),
       _ => null,
     };
 
@@ -544,7 +561,7 @@ class StoragePage extends ConsumerWidget {
     return _DevicePage(
       title: context.t('settings.storage'),
       action: _AndroidSettings.storage,
-      actionLabel: 'Manage storage',
+      actionLabel: tr('settings.manageStorage'),
       // The headline is FREE space, not used.
       //
       // "42G free" answers the question people actually open this page with.
@@ -553,16 +570,16 @@ class StoragePage extends ConsumerWidget {
       header: has ? _StorageChart(used: used, total: total) : null,
       rows: [
         if (has) ...[
-          _StatRow('Free', SystemStats.bytes(free)),
-          _StatRow('Used', SystemStats.bytes(used)),
-          _StatRow('Total', SystemStats.bytes(total)),
+          _StatRow(tr('settings.free'), SystemStats.bytes(free)),
+          _StatRow(tr('settings.used'), SystemStats.bytes(used)),
+          _StatRow(tr('settings.total'), SystemStats.bytes(total)),
         ],
       ],
       // The DATA partition, which is the number Settings shows and the number G
       // Recovery reports. Those three agreeing matters more than technical
       // completeness: a storage figure that disagrees with the OS is one nobody
       // trusts, and G Recovery's entire pitch is telling the truth about space.
-      note: 'Internal storage, matching what Android reports.',
+      note: tr('settings.internalStorageMatchingWhat'),
       extra: [
         ThemedSectionHeader(context.t('settings.freeUpSpace')),
         ThemedListRow(
@@ -613,7 +630,9 @@ class MemoryPage extends ConsumerWidget {
       header: !has
           ? null
           : _ChartHeader(
-              legend: series.length >= 2 ? {'Used': ChartColors.cool} : null,
+              legend: series.length >= 2
+                  ? {tr('settings.used'): ChartColors.cool}
+                  : null,
               centre: RingGauge(
                 fraction: total == 0 ? 0 : used / total,
                 label: s!.memLabel,
@@ -644,18 +663,18 @@ class MemoryPage extends ConsumerWidget {
                   : null,
             ),
       action: _AndroidSettings.apps,
-      actionLabel: 'Apps',
+      actionLabel: tr('search.apps'),
       rows: [
         if (has) ...[
-          _StatRow('In use', '${used.toStringAsFixed(1)}G'),
-          _StatRow('Free', '${(total - used).toStringAsFixed(1)}G'),
-          _StatRow('Total', '${total.round()}G'),
+          _StatRow(tr('icons.inUse'), '${used.toStringAsFixed(1)}G'),
+          _StatRow(
+              tr('settings.free'), '${(total - used).toStringAsFixed(1)}G'),
+          _StatRow(tr('settings.total'), '${total.round()}G'),
         ],
       ],
       // Said plainly, because the alternative is somebody reading a high number
       // as a fault and going looking for a cleaner.
-      note: 'Android reclaims memory as apps need it, so a high figure on its '
-          'own is not a problem.',
+      note: tr('settings.androidReclaimsMemoryAs'),
     );
   }
 }

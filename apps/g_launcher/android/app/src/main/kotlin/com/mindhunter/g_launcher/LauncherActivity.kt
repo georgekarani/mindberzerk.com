@@ -1,8 +1,12 @@
 package com.mindhunter.g_launcher
 
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.mindhunter.g_launcher.system.WallpaperOffsets
 import com.mindhunter.g_launcher.widgets.StageBridge
@@ -21,6 +25,19 @@ import io.flutter.plugin.common.StringCodec
 class LauncherActivity : FlutterActivity() {
 
     private var homeChannel: BasicMessageChannel<String>? = null
+
+    /**
+     * Tells Dart when the screen goes off, so a downloaded update the user
+     * asked to finish "when the screen turns off" can install while nobody is
+     * looking at the home screen it restarts. Says nothing else.
+     */
+    private var screenChannel: BasicMessageChannel<String>? = null
+    private val screenOff = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) screenChannel?.send("off")
+        }
+    }
+    private var screenOffRegistered = false
 
     /// Does the widget stage own the gesture currently in flight? Decided once,
     /// on ACTION_DOWN, and held until it ends. See dispatchTouchEvent.
@@ -174,6 +191,10 @@ class LauncherActivity : FlutterActivity() {
         // vanished for the life of the process. WidgetStage checks the owner.
         WidgetStage.detach(this)
         widgetHost.detachActivity(this)
+        if (screenOffRegistered) {
+            unregisterReceiver(screenOff)
+            screenOffRegistered = false
+        }
 
         // Both detaches are identity-checked on the callee side, which matters
         // on a configuration change: the replacement Activity's onCreate runs
@@ -261,6 +282,23 @@ class LauncherActivity : FlutterActivity() {
         // the object that has one. Re-registering on a recreate is harmless:
         // setMethodCallHandler replaces rather than stacks.
         StageBridge.setUp(flutterEngine.dartExecutor.binaryMessenger)
+
+        // SCREEN_OFF is only delivered to receivers registered at runtime, and
+        // it is a protected system broadcast, so NOT_EXPORTED still hears it.
+        screenChannel = BasicMessageChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "g_launcher/screen",
+            StringCodec.INSTANCE,
+        )
+        if (!screenOffRegistered) {
+            ContextCompat.registerReceiver(
+                this,
+                screenOff,
+                IntentFilter(Intent.ACTION_SCREEN_OFF),
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+            screenOffRegistered = true
+        }
 
         // ── WALLPAPER PANNING, FOR THE SAME REASON ──────────────────────────
         //

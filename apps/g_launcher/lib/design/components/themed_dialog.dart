@@ -4,6 +4,7 @@ import '../tokens/spacing.dart';
 import 'chrome_theme.dart';
 import 'glass_panel.dart';
 import 'themed_button.dart';
+import 'package:g_launcher/i18n/i18n.dart';
 
 /// A themed dialog. Same route-boundary rule as [ThemedSheet]: the chrome is
 /// captured before `showDialog` and re-provided inside, so the dialog matches
@@ -29,53 +30,86 @@ class ThemedDialog {
   }) {
     final data = ChromeScope.of(context);
 
-    return showDialog<T>(
+    // ─── A SHEET, NOT A DIALOG, ON EVERY DISTRO ───────────────────────────
+    //
+    // Every confirm in the app comes through here, and a centred box with two
+    // small buttons in its corner was the least considered surface in it: the
+    // answer sat far from the thumb and the decision read as an error. A sheet
+    // rises from where the hand already is, and its actions run the full
+    // width, the one that goes ahead on top.
+    //
+    // Deliberately the same on every distro. `ThemedSheet` draws a window on
+    // the desktops whose own dialogs are windows, which is right for a
+    // settings page and wrong for a question that wants one tap.
+    final c = data.colors;
+    final top = BorderRadius.vertical(top: Radius.circular(data.panelRadius));
+
+    return showModalBottomSheet<T>(
       context: context,
-      // Matched to the sheet's. A dialog and a sheet appearing over the same
-      // desktop with different scrims is the kind of inconsistency nobody can
-      // name and everybody feels.
+      // So a sheet holding a text field can rise with the keyboard.
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       barrierColor: Colors.black.withValues(alpha: 0.38),
+      shape: RoundedRectangleBorder(borderRadius: top),
       builder: (ctx) {
         final resolvedActions = actionsBuilder?.call(ctx) ?? actions;
-        // The shared panel radius, so a dialog and the sheet it was opened
-        // beside are cut to the same corner.
-        final radius = BorderRadius.circular(data.panelRadius);
         return ChromeScope(
           data: data,
-          child: Dialog(
-            // Transparent, with the glass below doing the painting. Same
-            // reasoning as ThemedSheet: an opaque colour here would sit behind
-            // the translucent layer and leave the blur nothing to work on.
-            backgroundColor: Colors.transparent,
-            surfaceTintColor: Colors.transparent,
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: radius),
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(ctx).bottom,
+            ),
             child: GlassPanel(
-              borderRadius: radius,
-              child: Padding(
-                padding: const EdgeInsets.all(GSpace.xl),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(title, style: data.text.title),
-                    if (content != null) ...[
-                      const SizedBox(height: GSpace.md),
-                      DefaultTextStyle(style: data.text.body, child: content),
-                    ],
-                    if (resolvedActions.isNotEmpty) ...[
-                      const SizedBox(height: GSpace.xl),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          for (var i = 0; i < resolvedActions.length; i++) ...[
-                            if (i > 0) const SizedBox(width: GSpace.sm),
-                            resolvedActions[i],
-                          ],
-                        ],
+              borderRadius: top,
+              border: Border(top: BorderSide(color: c.lineStrong)),
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    GSpace.xl,
+                    GSpace.md,
+                    GSpace.xl,
+                    GSpace.lg,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: c.lineStrong,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
                       ),
+                      const SizedBox(height: GSpace.lg),
+                      Text(title, style: data.text.title),
+                      if (content != null) ...[
+                        const SizedBox(height: GSpace.md),
+                        Flexible(
+                          child: SingleChildScrollView(
+                            child: DefaultTextStyle(
+                              style: data.text.body,
+                              child: content,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (resolvedActions.isNotEmpty) ...[
+                        const SizedBox(height: GSpace.xl),
+                        // Callers list actions cancel first, the way a dialog
+                        // row reads. Stacked, the one that goes ahead leads.
+                        for (final (i, action)
+                            in resolvedActions.reversed.indexed) ...[
+                          if (i > 0) const SizedBox(height: GSpace.sm),
+                          action,
+                        ],
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -91,8 +125,8 @@ class ThemedDialog {
     BuildContext context, {
     required String title,
     required String message,
-    String confirmLabel = 'Confirm',
-    String cancelLabel = 'Cancel',
+    String? confirmLabel,
+    String? cancelLabel,
     bool danger = false,
   }) {
     return show<bool>(
@@ -102,13 +136,15 @@ class ThemedDialog {
       // Built against the DIALOG context so pops hit this route.
       actionsBuilder: (dialogCtx) => [
         ThemedButton(
-          label: cancelLabel,
+          label: cancelLabel ?? tr('common.cancel'),
           kind: ThemedButtonKind.text,
+          expand: true,
           onPressed: () => Navigator.of(dialogCtx).pop(false),
         ),
         ThemedButton(
-          label: confirmLabel,
+          label: confirmLabel ?? tr('design.confirm'),
           kind: danger ? ThemedButtonKind.danger : ThemedButtonKind.primary,
+          expand: true,
           onPressed: () => Navigator.of(dialogCtx).pop(true),
         ),
       ],

@@ -81,7 +81,7 @@ Future<void> showDesktopMenu(
     // inconsistency nobody can name and everybody feels.
     barrierColor: Colors.black.withValues(alpha: 0.38),
     barrierDismissible: true,
-    barrierLabel: 'Close',
+    barrierLabel: tr('common.close'),
     transitionDuration: const Duration(milliseconds: 180),
     pageBuilder: (routeContext, _, __) {
       return ChromeScope(

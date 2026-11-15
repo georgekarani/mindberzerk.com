@@ -24,6 +24,7 @@ import '../../design/device_preview.dart';
 import '../../design/device_stage.dart';
 import '../../design/drawer_transition.dart';
 import '../../design/setting_previews.dart';
+import '../../engine/capabilities.dart';
 import '../../engine/desklet_spec.dart';
 import '../../engine/effective_theme.dart';
 import '../../engine/theme_registry.dart';
@@ -1721,21 +1722,24 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
 /// Every step this wizard can show. Which of them it DOES show is
 /// [_stepsFor].
 enum _SetupStep {
-  welcome('Welcome'),
-  distro('Desktop'),
-  icons('Icons'),
-  appearance('Appearance'),
-  dock('Dock'),
-  drawer('App drawer'),
-  folders('Folders'),
-  widgets('Widgets'),
-  notifications('Badges'),
-  install('Install');
+  welcome('desklet_spec.welcome'),
+  distro('setup.page.desktop'),
+  icons('home.iconLook'),
+  appearance('settings.appearance'),
+  dock('setup.ready.dock'),
+  drawer('keys.drawer'),
+  folders('setup.ready.folders'),
+  widgets('home.widgets'),
+  notifications('setup.step.notifications'),
+  install('setup.hello.install');
 
-  const _SetupStep(this.label);
+  const _SetupStep(this._labelKey);
 
   /// The rail label. On the enum so the rail and the switch cannot drift.
-  final String label;
+  final String _labelKey;
+
+  /// The rail label, in the reader's language.
+  String get label => tr(_labelKey);
 }
 
 /// The steps that make sense for a shell.
@@ -2882,7 +2886,8 @@ class _StepDock extends ConsumerWidget {
           softWrap: true,
           style: d.text.caption.copyWith(color: d.colors.textMuted),
         ),
-        if (theme.dock != DockSide.off) ...[
+        // Only where a dock draws the button (GNOME); see `hasActivitiesButton`.
+        if (theme.dock != DockSide.off && theme.hasActivitiesButton.available) ...[
           const SizedBox(height: 16),
           _MiniLabel(text: ref.t('setup.appGridButton')),
           const SizedBox(height: 8),
@@ -3280,21 +3285,21 @@ class _StepInstallState extends State<_StepInstall> {
             'enabling g-tty autologin',
             'done',
           ],
-        ShellKind.aqua => const [
-            'Preparing your desktop',
-            'Applying appearance',
-            'Reading your apps',
-            'Setting up the Dock',
-            'Almost there',
-            'Done',
+        ShellKind.aqua => [
+            tr('setup.preparingYourDesktop'),
+            tr('setup.applyingAppearance'),
+            tr('setup.readingYourApps'),
+            tr('setup.settingUpTheDock'),
+            tr('setup.almostThere'),
+            tr('common.done'),
           ],
-        _ => const [
-            'Copying desktop files',
-            'Applying theme and icons',
-            'Reading installed applications',
-            'Building the dock',
-            'Configuring folders',
-            'Done',
+        _ => [
+            tr('setup.copyingDesktopFiles'),
+            tr('setup.applyingThemeAndIcons'),
+            tr('setup.readingInstalledApplications'),
+            tr('setup.buildingTheDock'),
+            tr('setup.configuringFolders'),
+            tr('common.done'),
           ],
       };
 

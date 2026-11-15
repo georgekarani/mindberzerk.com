@@ -87,6 +87,24 @@ Widget? buildDesklet(
   };
 }
 
+/// Must this desklet be given a width before it can be measured?
+///
+/// A card or panel lays its rows out with `Expanded`, and so do the conky, the
+/// welcome tile and anything framed as a window. Measured under a FittedBox's
+/// unbounded width those rows throw during layout and nothing paints.
+///
+/// One answer for the desktop tile and for [DeskletPreview]. The preview had no
+/// copy of this rule, which is why the picker drew blank swatches on every
+/// card-skinned distro (KDE Plasma first) while the desktop drew them fine.
+bool deskletNeedsWidth(String kind, DeskletSkin skin) =>
+    kind == 'conky' ||
+    kind == 'welcome' ||
+    skin.flag('window', false) ||
+    switch (skin.surface) {
+      DeskletSurface.card || DeskletSurface.panel => true,
+      DeskletSurface.bare || DeskletSurface.terminal => false,
+    };
+
 /// The desktop grid for ONE workspace.
 ///
 /// Dropped into the `itemBuilder` of the vertical PageView that every graphical
@@ -470,13 +488,7 @@ class _Tile extends StatelessWidget {
     // card, and still scales down when its height outgrows the cell.
     // A desklet framed as a WINDOW is bounded for the same reason: the
     // window has a width, and a row inside it (Welcome's links) expands to it.
-    final bounded = desklet.kind == 'conky' ||
-        desklet.kind == 'welcome' ||
-        skin.flag('window', false) ||
-        switch (skin.surface) {
-          DeskletSurface.card || DeskletSurface.panel => true,
-          DeskletSurface.bare || DeskletSurface.terminal => false,
-        };
+    final bounded = deskletNeedsWidth(desklet.kind, skin);
 
     final window = skin.flag('window', false);
     final fitted = LayoutBuilder(

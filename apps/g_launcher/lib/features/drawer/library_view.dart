@@ -543,7 +543,7 @@ class _Cell extends ConsumerWidget {
             onUninstall: onUninstall,
             onLaunch: (e) => ref.read(appListProvider.notifier).launch(e),
           ),
-          (item as FolderDrawerItem).folder.name,
+          (item as FolderDrawerItem).folder.label,
           () => showFolderOverlay(
                 context,
                 ref,
@@ -579,7 +579,7 @@ class _Cell extends ConsumerWidget {
       // happened. Both are one line once `_ActionTile.onTap` is read.
       LauncherSettingsItem() => (
           _GlyphTile(theme: theme, icon: Icons.settings_outlined, size: size),
-          'G Launcher Settings',
+          tr('drawer.gLauncherSettings'),
           () => Navigator.of(context).maybePop(),
         ),
       TerminalDrawerItem() => (
@@ -589,7 +589,7 @@ class _Cell extends ConsumerWidget {
         ),
       DeviceSettingsItem() => (
           _GlyphTile(theme: theme, icon: Icons.tune, size: size),
-          'Device Settings',
+          tr('drawer.deviceSettings'),
           () => ref.read(launcherHostApiProvider).openAndroidSettings(
                 'android.settings.SETTINGS',
               ),

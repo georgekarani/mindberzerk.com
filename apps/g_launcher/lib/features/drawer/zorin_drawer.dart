@@ -161,7 +161,7 @@ class _ZorinDrawerState extends ConsumerState<ZorinDrawer> {
       for (final f in folders)
         _Bucket(
           id: f.folder.id,
-          name: f.folder.name,
+          name: f.folder.label,
           apps: f.members,
           // The folder's own glyph, else the fallback. The distro's authored
           // category icon is already baked into `folder.glyph` upstream in

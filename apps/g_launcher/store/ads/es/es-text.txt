@@ -1,0 +1,13 @@
+HEADLINES (max 30)
+Tu teléfono, ahora con Linux
+Kali Linux en tu teléfono
+Launcher de Ubuntu, gratis
+15 escritorios Linux en 1 app
+Sin anuncios. Pago único
+
+DESCRIPTIONS (max 90)
+Kali, Ubuntu, KDE Plasma y más. Un escritorio Linux real en tu teléfono Android.
+Barra superior, dock, paneles y arranque. Ubuntu, Plasma y Terminal son gratis.
+El panel Xfce de Kali, su menú de herramientas y su terminal en tu pantalla.
+Iconos en el color de cada distro. Papirus gratis; Line y Bold de pago.
+Sin anuncios, sin cuentas, sin versión Pro. Compra solo las distros que quieras.

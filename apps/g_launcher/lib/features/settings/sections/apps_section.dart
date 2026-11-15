@@ -118,8 +118,8 @@ List<Widget> applicationsSection(
             subtitle: !theme.canChooseDrawerColumns.available
                 ? context.t(theme.canChooseDrawerColumns.why!)
                 : theme.drawerGrouping == 'library'
-                    ? 'The library is two columns'
-                    : 'This distro',
+                    ? tr('settings.theLibraryIsTwo')
+                    : tr('settings.thisDistro'),
             subtitleTint: (!theme.canChooseDrawerColumns.available ||
                     theme.drawerGrouping == 'library')
                 ? SettingsSkin.of(context).warn
@@ -202,7 +202,7 @@ List<Widget> applicationsSection(
               subtitle: !theme.canChooseDrawerMotion.available
                   ? context.t(theme.canChooseDrawerMotion.why!)
                   : theme.drawerGrouping == 'library'
-                      ? 'The library is always one list'
+                      ? tr('settings.theLibraryIsAlways')
                       : context.t('settings.oneLongListOr'),
               enabled: theme.drawerGrouping != 'library' &&
                   theme.canChooseDrawerMotion.available,
@@ -363,14 +363,14 @@ List<Widget> applicationsSection(
                     theme.drawerGrouping != 'library'
                 ? context.t(theme.canChooseDrawerGrouping.why!)
                 : switch (theme.drawerGrouping) {
-                    'library' => 'Apps filed into category folders',
+                    'library' => tr('settings.appsFiledIntoCategory'),
                     // No longer "headings need the list layout". Picking A to Z
                     // now GIVES them the list layout, by the same rule the two
                     // rows below follow. A subtitle explaining a prerequisite is
                     // the launcher knowing the answer and asking the user to go
                     // and type it in.
-                    'az' => 'Letter headings down the list',
-                    _ => 'One flat run of apps',
+                    'az' => tr('settings.letterHeadingsDownThe'),
+                    _ => tr('settings.oneFlatRunOf'),
                   },
             trailing: Seg(
               enabled: theme.canChooseDrawerGrouping.available ||
@@ -388,8 +388,8 @@ List<Widget> applicationsSection(
               // page stays const; this one cannot, which is the small price of
               // the option existing on some distros and not others.
               options: {
-                'none': 'Off',
-                'az': 'A to Z',
+                'none': tr('settings.backup.off'),
+                'az': tr('settings.aToZ'),
                 // ─── LIBRARY ONLY WHERE THE DISTRO CLAIMS IT ────────────
                 //
                 // Dropped from the OPTIONS rather than greying the row,
@@ -405,7 +405,7 @@ List<Widget> applicationsSection(
                 // under them would render a Seg with no selection.
                 if (theme.canUseLibrary.available ||
                     theme.drawerGrouping == 'library')
-                  'library': 'Library',
+                  'library': tr('settings.library'),
               },
               onChanged: (v) => notifier.edit((p) {
                 // Only 'az' implies anything. 'off' is a flat run, which every
@@ -461,7 +461,7 @@ List<Widget> applicationsSection(
             // Never hide. A control that vanishes teaches nothing and reads as
             // a bug the next time somebody remembers it existing.
             subtitle: theme.canChooseListStyle.available
-                ? 'Cells in a grid, or names in rows'
+                ? tr('settings.cellsInAGrid')
                 : context.t(theme.canChooseListStyle.why!),
             subtitleTint: theme.canChooseListStyle.available
                 ? null
@@ -472,7 +472,10 @@ List<Widget> applicationsSection(
               // rather than a reason to refuse.
               enabled: theme.canChooseListStyle.available,
               value: theme.drawerListStyle,
-              options: const {'grid': 'Grid', 'rows': 'Rows'},
+              options: {
+                'grid': tr('drawer.viewGrid'),
+                'rows': tr('settings.rows')
+              },
               onChanged: (v) => notifier.edit((p) {
                 if (v != 'rows') return p.copyWith(drawerListStyle: v);
                 // Rows imply the list. Both preconditions in one write, so
@@ -508,7 +511,7 @@ List<Widget> applicationsSection(
             icon: Icons.unfold_more,
             title: context.t('settings.expandingRows'),
             subtitle: theme.canExpandRows.available
-                ? 'Hold a name for its shortcuts'
+                ? tr('settings.holdANameFor')
                 : context.t(theme.canExpandRows.why!),
             subtitleTint: theme.canExpandRows.available
                 ? null
@@ -516,7 +519,10 @@ List<Widget> applicationsSection(
             trailing: Seg(
               enabled: theme.canExpandRows.available,
               value: theme.drawerRowExpand,
-              options: const {'off': 'Off', 'on': 'On'},
+              options: {
+                'off': tr('settings.backup.off'),
+                'on': tr('settings.on')
+              },
               onChanged: (v) => notifier.edit((p) {
                 if (v != 'on') return p.copyWith(drawerRowExpand: v);
                 // On implies the whole surface: the list, in rows, not
@@ -575,7 +581,7 @@ List<Widget> applicationsSection(
             // that says "and also turn on headings" is a worse instruction than
             // just turning them on.
             subtitle: theme.canChooseIndexRail.available
-                ? 'Jump to a letter from the edge'
+                ? tr('settings.jumpToALetter')
                 : context.t(theme.canChooseIndexRail.why!),
             subtitleTint: theme.canChooseIndexRail.available
                 ? null
@@ -651,10 +657,10 @@ List<Widget> applicationsSection(
               onFollow: () => notifier.edit(
                 (p) => p.clearing(drawerSearchPosition: true),
               ),
-              options: const {
-                'top': 'Top',
-                'bottom': 'Bottom',
-                'off': 'Off',
+              options: {
+                'top': tr('settings.top'),
+                'bottom': tr('settings.bottom'),
+                'off': tr('settings.backup.off'),
               },
               onChanged: (v) => notifier.edit(
                 (p) => p.copyWith(drawerSearchPosition: v),
@@ -770,8 +776,9 @@ List<Widget> applicationsSection(
               title: context.t('settings.removedFromTheDock'),
               subtitle: theme.prefs.dockExcluded.length == 1
                   ? '1 app will not be filled in'
-                  : '${theme.prefs.dockExcluded.length} apps will not be '
-                      'filled in',
+                  : tr('settings.appsWillNotBeFilled', {
+                      'n': '${theme.prefs.dockExcluded.length}',
+                    }),
               trailing: const Chevron(),
               onTap: () => _showRemovedFromDock(context, ref, theme),
             ),

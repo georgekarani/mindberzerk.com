@@ -139,7 +139,6 @@ enum SettingsLook {
         },
     };
   }
-
 }
 
 /// Installs a [SettingsLook] for everything below it.

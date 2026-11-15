@@ -78,7 +78,7 @@ class RestoreScreen extends ConsumerWidget {
           onTap: () => run(
             title: '$title?',
             message: context.t('settings.theseSettingsReturnTo'),
-            done: 'Restored',
+            done: tr('settings.restored'),
             action: () async {
               await notifier.edit((p) => PrefsReset.section(p, which));
               if (also != null) await also();
@@ -160,7 +160,7 @@ class RestoreScreen extends ConsumerWidget {
               danger: true,
               title: context.t('settings.resetEverythingConfirm'),
               message: context.t('settings.everySettingOnThis'),
-              done: 'Everything reset',
+              done: tr('settings.everythingReset'),
               action: () async {
                 // `resetEverything`, not `resetAll`: the theme file AND the
                 // global bucket, in that order, for the reason spelled out on

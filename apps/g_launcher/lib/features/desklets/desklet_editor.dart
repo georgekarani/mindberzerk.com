@@ -165,7 +165,13 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
 
     // A drop onto the dock lands at the nearest free spot beside it instead.
     // Whatever spot it lands on is saved: that is the user's chosen place.
-    final dock = ref.read(deskletDockCellsProvider);
+    // App icons block the same way, on a distro that has them: see
+    // `deskletIconCellsProvider`.
+    final dock = <int>{
+      ...ref.read(deskletDockCellsProvider),
+      if (widget.theme.desktopIcons)
+        ...?ref.read(deskletIconCellsProvider)[_d.page],
+    };
     final target = footprint(toCol, toRow, _d.spanX, _d.spanY, cols, rows);
     if (target != null && target.any(dock.contains)) {
       final taken = <int>{

@@ -68,7 +68,7 @@ class FolderDrawerItem extends DrawerItem {
 class LauncherSettingsItem extends DrawerItem {
   const LauncherSettingsItem();
 
-  static const String title = 'G Launcher Settings';
+  static final String title = tr('drawer.gLauncherSettings');
 
   @override
   String get label => title;
@@ -83,7 +83,7 @@ class LauncherSettingsItem extends DrawerItem {
 class DeviceSettingsItem extends DrawerItem {
   const DeviceSettingsItem();
 
-  static const String title = 'Device Settings';
+  static final String title = tr('drawer.deviceSettings');
 
   @override
   String get label => title;

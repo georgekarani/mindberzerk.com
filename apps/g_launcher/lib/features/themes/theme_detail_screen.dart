@@ -292,9 +292,9 @@ class _Hero extends ConsumerStatefulWidget {
 class _HeroState extends ConsumerState<_Hero> {
   DevicePreviewMode _mode = DevicePreviewMode.desktop;
 
-  static const _modes = <(DevicePreviewMode, String)>[
-    (DevicePreviewMode.desktop, 'Desktop'),
-    (DevicePreviewMode.drawer, 'App drawer'),
+  static final _modes = <(DevicePreviewMode, String)>[
+    (DevicePreviewMode.desktop, tr('setup.page.desktop')),
+    (DevicePreviewMode.drawer, tr('keys.drawer')),
     (DevicePreviewMode.folder, 'Folder'),
   ];
 
@@ -568,19 +568,25 @@ class _Contents extends StatelessWidget {
   Widget build(BuildContext context) {
     final rows = <(String, String)>[];
 
-    if (card.subtitle.isNotEmpty) rows.add(('Desktop', card.subtitle));
+    if (card.subtitle.isNotEmpty) {
+      rows.add((tr('setup.page.desktop'), card.subtitle));
+    }
 
     final icons = card.iconPackTitle;
-    if (icons != null && icons.isNotEmpty) rows.add(('Icon pack', icons));
+    if (icons != null && icons.isNotEmpty) {
+      rows.add((tr('settings.iconPack'), icons));
+    }
 
     final walls = card.wallpaperCount;
     // Zero IS printed here, unlike on the card. A chip reading "0 wallpapers"
     // is noise in a strip of three; a table row saying it is an answer to a
     // question the reader is deliberately looking down a list for.
-    if (walls != null) rows.add(('Wallpapers', '$walls'));
+    if (walls != null) rows.add((tr('settings.wallpapers'), '$walls'));
 
     final font = card.fontName;
-    if (font != null && font.isNotEmpty) rows.add(('Typeface', font));
+    if (font != null && font.isNotEmpty) {
+      rows.add((tr('themes.typeface'), font));
+    }
 
     if (rows.isEmpty) return const SizedBox.shrink();
 
@@ -590,7 +596,7 @@ class _Contents extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionHeading('What you get'),
+        _SectionHeading(tr('themes.whatYouGet')),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Column(
@@ -646,7 +652,7 @@ class _Terms extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionHeading('Good to know'),
+        _SectionHeading(tr('themes.goodToKnow')),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 18),
           child: Text(
@@ -733,16 +739,16 @@ class _BuyAreaState extends ConsumerState<_BuyArea> {
         _ChoiceTile(
           selected: !bundleOn,
           onTap: () => setState(() => _bundle = false),
-          title: '${card.name} only',
-          subtitle: 'This distro and its icons',
+          title: tr('themes.nameOnly', {'name': card.name}),
+          subtitle: tr('themes.thisDistroAndIts'),
           price: price,
         ),
         const SizedBox(height: 12),
         if (bundleOn)
           _BundleBuyButton(
             label: offer.price == null
-                ? 'Buy everything'
-                : 'Buy everything · ${offer.price}',
+                ? tr('themes.buyEverything')
+                : tr('themes.buyEverythingPrice', {'price': '${offer.price}'}),
             onTap: () => unawaited(
               runBundlePurchase(context, ref, offer, forCard: card),
             ),
@@ -757,14 +763,15 @@ class _BuyAreaState extends ConsumerState<_BuyArea> {
 /// "12 distros, 15 icon packs", from the signed grants. Falls back to the
 /// bundle's own wording while the catalogue has not loaded.
 String _bundleSubtitle(BundleOffer offer) {
-  if (offer.distroCount == 0) return 'Every paid distro and icon pack';
-  final distros =
-      offer.distroCount == 1 ? '1 distro' : '${offer.distroCount} distros';
+  if (offer.distroCount == 0) return tr('themes.bundle.everything');
+  final distros = offer.distroCount == 1
+      ? tr('themes.oneDistro')
+      : tr('themes.nDistros', {'n': '${offer.distroCount}'});
   if (offer.iconPackCount == 0) return distros;
   final icons = offer.iconPackCount == 1
-      ? '1 icon pack'
-      : '${offer.iconPackCount} icon packs';
-  return '$distros, $icons';
+      ? tr('themes.oneIconPack')
+      : tr('themes.nIconPacks', {'n': '${offer.iconPackCount}'});
+  return tr('themes.listPair', {'a': distros, 'b': icons});
 }
 
 /// One selectable row of the bundle choice. A real button with a selected
@@ -960,10 +967,12 @@ class _ActionButton extends ConsumerWidget {
     final busy = ref.watch(packProgressProvider).containsKey(card.packIdOrSpec);
 
     final label = switch (card.status) {
-      CardStatus.locked => price == null ? 'Buy' : 'Buy $price',
-      CardStatus.available => 'Get',
-      CardStatus.updateAvailable => 'Update',
-      _ => 'Apply',
+      CardStatus.locked => price == null
+          ? tr('themes.buy')
+          : tr('themes.buyPrice', {'price': price}),
+      CardStatus.available => tr('themes.get'),
+      CardStatus.updateAvailable => tr('themes.update'),
+      _ => tr('themes.apply'),
     };
 
     return AnimatedOpacity(

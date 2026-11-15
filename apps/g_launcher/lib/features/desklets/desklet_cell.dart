@@ -66,3 +66,32 @@ final deskletDockCellsProvider =
     NotifierProvider<DeskletDockCellsNotifier, Set<int>>(
   DeskletDockCellsNotifier.new,
 );
+
+/// The widget grid cells under an app icon or folder, by workspace page.
+///
+/// ─── TWO GRIDS, ONE DESKTOP ─────────────────────────────────────────────────
+///
+/// A distro with desktop icons lays them out on the icon grid, and widgets
+/// live on the finer widget grid in the same box. Neither knew about the
+/// other, so a new widget took the first cell free of WIDGETS and landed on
+/// top of whatever icons were there: ours covered them, and a hosted
+/// AppWidget, which sits behind Flutter, had them painted across its face.
+///
+/// `HomeGrid` reports here, because it is the only place that knows where an
+/// icon really is; the picker and the editor read it. Cell ids are
+/// `row * cols + col`, the same scheme `dockCells` uses.
+class DeskletIconCellsNotifier extends Notifier<Map<int, Set<int>>> {
+  @override
+  Map<int, Set<int>> build() => const {};
+
+  void set(int page, Set<int> next) {
+    final had = state[page] ?? const <int>{};
+    if (had.length == next.length && had.containsAll(next)) return;
+    state = {...state, page: next};
+  }
+}
+
+final deskletIconCellsProvider =
+    NotifierProvider<DeskletIconCellsNotifier, Map<int, Set<int>>>(
+  DeskletIconCellsNotifier.new,
+);

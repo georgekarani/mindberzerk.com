@@ -73,8 +73,8 @@ String? packActionLabel(
   CardStatus status,
 ) =>
     switch (status) {
-      CardStatus.locked => ref.watch(productPriceProvider(p.sku)) ??
-          context.t('themes.buy'),
+      CardStatus.locked =>
+        ref.watch(productPriceProvider(p.sku)) ?? context.t('themes.buy'),
       CardStatus.available => context.t('themes.get'),
       CardStatus.updateAvailable => context.t('themes.update'),
       CardStatus.bundled || CardStatus.installed => context.t('themes.apply'),
@@ -237,8 +237,7 @@ class _PreviewImage extends ConsumerWidget {
           : Image(
               image: image,
               fit: BoxFit.contain,
-              errorBuilder: (_, __, ___) =>
-                  fallback ?? const SizedBox.shrink(),
+              errorBuilder: (_, __, ___) => fallback ?? const SizedBox.shrink(),
             ),
     );
   }

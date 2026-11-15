@@ -110,28 +110,31 @@ List<Widget> desktopSection(
               // about 75dp each, which is a legible phone at the 10:15 the
               // chooser draws them; a second row would put "Off" on a line of
               // its own and read as a different question.
-              for (final o in const [
-                ('left', 'Left'),
-                ('bottom', 'Bottom'),
-                ('right', 'Right'),
-                ('off', 'Off'),
+              for (final o in [
+                ('left', tr('settings.left')),
+                ('bottom', tr('settings.bottom')),
+                ('right', tr('shell.edgeRight')),
+                ('off', tr('settings.backup.off')),
               ])
-                PreviewOption(
-                  value: o.$1,
-                  label: o.$2,
-                  child: DevicePreview(
-                    palette: theme.palette,
-                    mode: DevicePreviewMode.desktop,
-                    dock: switch (o.$1) {
-                      'bottom' => DockSide.bottom,
-                      'off' => DockSide.off,
-                      'right' => DockSide.right,
-                      _ => DockSide.left,
-                    },
-                    gridButton: theme.prefs.dockGridButton ?? 'end',
-                    framed: false,
+                // Only the sides this distro can draw: see
+                // `ThemeCapabilities.dockPositions`.
+                if (theme.dockPositions.any((side) => side.name == o.$1))
+                  PreviewOption(
+                    value: o.$1,
+                    label: o.$2,
+                    child: DevicePreview(
+                      palette: theme.palette,
+                      mode: DevicePreviewMode.desktop,
+                      dock: switch (o.$1) {
+                        'bottom' => DockSide.bottom,
+                        'off' => DockSide.off,
+                        'right' => DockSide.right,
+                        _ => DockSide.left,
+                      },
+                      gridButton: theme.prefs.dockGridButton ?? 'end',
+                      framed: false,
+                    ),
                   ),
-                ),
             ],
           ),
         ),
@@ -154,7 +157,7 @@ List<Widget> desktopSection(
             icon: Icons.view_list_outlined,
             title: context.t('settings.dockLayout'),
             subtitle: theme.canListDock.available
-                ? 'Icons on a bar, or names in a list'
+                ? tr('settings.iconsOnABar')
                 : context.t(theme.canListDock.why!),
             subtitleTint: theme.canListDock.available
                 ? null
@@ -164,7 +167,7 @@ List<Widget> desktopSection(
               value: theme.dockLayout,
               // No `following` pair. No distro authors this: see
               // `LauncherPrefs.dockLayout` for why it stops at the user.
-              options: const {'bar': 'Bar', 'list': 'List'},
+              options: {'bar': tr('settings.bar'), 'list': tr('settings.list')},
               onChanged: (v) => notifier.edit((p) => p.copyWith(dockLayout: v)),
             ),
           ),
@@ -226,25 +229,23 @@ List<Widget> desktopSection(
           )
         else
           ..._motionRows(context, ref, theme),
+        // Shown only where a dock actually draws the button. Anywhere else it
+        // was a control that changed nothing, which reviewers noticed.
+        if (theme.hasActivitiesButton.available)
         FilterRow(
           const ['activities', 'grid button', 'app button', 'dock'],
           SettingsRow(
             icon: Icons.apps_outlined,
             accent: true,
             title: context.t('settings.activitiesButton'),
-            // Nothing OPENS the apps on a workspace-surface distro, so a
-            // control for where the button lives is a control for a button
-            // that is not there.
-            subtitle: theme.hasActivitiesButton.available
-                ? context.t('settings.whereTheAppGrid')
-                : context.t(theme.hasActivitiesButton.why!),
+            subtitle: context.t('settings.whereTheAppGrid'),
             trailing: Seg(
-              enabled: theme.hasActivitiesButton.available,
+              enabled: true,
               value: theme.prefs.dockGridButton ?? 'end', // Ubuntu default
-              options: const {
-                'start': 'Start',
-                'end': 'End',
-                'off': 'Off',
+              options: {
+                'start': tr('settings.start'),
+                'end': tr('settings.end'),
+                'off': tr('settings.backup.off'),
               },
               onChanged: (v) =>
                   notifier.edit((p) => p.copyWith(dockGridButton: v)),

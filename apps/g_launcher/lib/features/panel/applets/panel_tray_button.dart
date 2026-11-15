@@ -103,7 +103,8 @@ class PanelTrayButton extends ConsumerWidget {
       label: context.t('gestures.quickSettings'),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(quickSettingsProvider.notifier).toggle(),
+        onTap: () =>
+            ref.read(quickSettingsProvider.notifier).toggle(from: context),
         child: Container(
           // 44dp on the cross axis, so the cluster is a real target rather than
           // three 16dp glyphs with dead space between them.

@@ -480,7 +480,7 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
 
                   _Title(
                     theme: theme,
-                    name: live.name,
+                    name: live.label,
                     unnamed: unnamed,
                     controller: _renaming,
                     focus: _renameFocus,
@@ -596,7 +596,9 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
 
     ThemedDialog.show<void>(
       context,
-      title: loose.isEmpty ? 'Nothing to add' : 'Add to ${folder.name}',
+      title: loose.isEmpty
+          ? tr('drawer.nothingToAdd')
+          : tr('drawer.addToFolder', {'name': folder.label}),
       content: loose.isEmpty
           ? Text(context.t('drawer.everyAppIsAlready'))
           : SizedBox(
@@ -664,7 +666,7 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
         ),
         if (loose.isNotEmpty)
           ThemedButton(
-            label: 'Add',
+            label: tr('common.add'),
             onPressed: () {
               Navigator.of(dialogCtx).pop();
               if (chosen.isEmpty) return;
@@ -765,7 +767,7 @@ class _Title extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 32),
         // The whole name, shrunk to fit, never "Productivity & Fin…".
         child: FitLabel(
-          unnamed ? 'Folder name' : name,
+          unnamed ? tr('drawer.folderName') : name,
           maxLines: 2,
           minFontSize: 13,
           style: unnamed
@@ -956,7 +958,7 @@ Future<void> _moveTo(
                     for (final f in targets)
                       ThemedListRow(
                         icon: Icons.folder_outlined,
-                        title: f.name,
+                        title: f.label,
                         onTap: () {
                           Navigator.pop(ctx);
                           _commitMove(ref, theme, fromId, entry, f.name);
@@ -989,10 +991,10 @@ void _commitMove(
     final taken = {
       for (final f in DrawerLayout.orderedFolders(prefs)) f.name,
     };
-    name = 'New folder';
+    name = tr('drawer.newFolder');
     var n = 2;
     while (taken.contains(name)) {
-      name = 'New folder $n';
+      name = tr('drawer.newFolderN', {'n': '$n'});
       n++;
     }
   }

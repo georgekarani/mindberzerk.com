@@ -597,13 +597,16 @@ abstract final class LayoutResolver {
     final base = spec.layoutFor(prefs.layoutPreset);
 
     return ResolvedLayout(
-      dock: switch (prefs.dockSide) {
-        'left' => DockSide.left,
-        'bottom' => DockSide.bottom,
-        'off' => DockSide.off,
-        'right' => DockSide.right,
-        _ => base.dock,
-      },
+      dock: _drawableDock(
+        spec.shell,
+        switch (prefs.dockSide) {
+          'left' => DockSide.left,
+          'bottom' => DockSide.bottom,
+          'off' => DockSide.off,
+          'right' => DockSide.right,
+          _ => base.dock,
+        },
+      ),
       topBar: prefs.topBar ?? base.topBar,
       statusBar: prefs.statusBar ?? base.statusBar,
       topBarSide: switch (prefs.topBarSide) {
@@ -951,3 +954,18 @@ abstract final class LayoutResolver {
     );
   }
 }
+
+
+/// The side this shell can actually draw a dock on.
+///
+/// Plasma's dock is the magnifying one and it only runs along the bottom, so
+/// a saved or authored `left` or `right` drew a bottom dock anyway while the
+/// desktop reserved a side band for one that was not there. Resolved here so
+/// the shell, the insets, the previews and Settings all read the same answer.
+/// Settings offers only what this returns unchanged: see
+/// `ThemeCapabilities.dockPositions`.
+DockSide _drawableDock(ShellKind shell, DockSide side) => switch (shell) {
+      ShellKind.plasma when side == DockSide.left || side == DockSide.right =>
+        DockSide.bottom,
+      _ => side,
+    };

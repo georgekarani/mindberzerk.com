@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
@@ -14,9 +16,9 @@ import '../../data/repositories/app_repository.dart';
 import '../../design/branded_message.dart';
 import '../../design/components/components.dart';
 import '../../design/device_preview.dart';
-import '../../design/setting_previews.dart';
 import '../../engine/effective_theme.dart';
 import '../../engine/theme_engine.dart';
+import '../../engine/theme_spec.dart' show ShellKind;
 import '../../engine/theme_source.dart';
 import '../../engine/wallpaper_framing.dart';
 import '../../platform/launcher_api.g.dart';
@@ -24,17 +26,19 @@ import '../../system/wallpaper_source.dart';
 import 'wallpaper_collection_screen.dart';
 import 'wallpaper_framing_screen.dart';
 
+part 'wallpaper_immersive.dart';
+
 /// Rotation intervals we are willing to offer.
 ///
 /// The 15-minute floor is WorkManager's, and it is enforced by the OS. Offering
 /// "every 5 minutes" and silently delivering 15 is lying to the user about a
 /// setting they can watch not happening.
-const rotationOptions = <String, int?>{
-  'Off': null,
-  'Every 15 minutes': 15,
-  'Hourly': 60,
-  'Every 6 hours': 360,
-  'Daily': 1440,
+final rotationOptions = <String, int?>{
+  tr('settings.backup.off'): null,
+  tr('settings.every15Minutes'): 15,
+  tr('settings.hourly'): 60,
+  tr('settings.every6Hours'): 360,
+  tr('settings.backup.daily'): 1440,
 };
 
 /// A stored source, as native should receive it: THE one encoder, shared by
@@ -251,6 +255,10 @@ Future<bool> applyWallpaper(
   /// [LauncherPrefs.wallpaperLockCurrent] and the home screen keeps what it
   /// has.
   WallpaperSurface? surface,
+
+  /// Where the full-screen preview said to put it. Answered there, so it is
+  /// never asked again here.
+  ({bool home, bool lock})? targets,
 }) async {
   // ─── EVERY PROVIDER READ HAPPENS HERE, BEFORE THE FIRST await ────────────
   //
@@ -293,7 +301,13 @@ Future<bool> applyWallpaper(
   var toHome = surface != WallpaperSurface.lock;
   var toLock = surface == WallpaperSurface.lock;
 
-  if (surface == null) {
+  if (targets != null) {
+    toHome = targets.home;
+    toLock = targets.lock;
+    if (toLock && theme.prefs.wallpaperLock != true) {
+      await notifier.edit((p) => p.copyWith(wallpaperLock: true));
+    }
+  } else if (surface == null) {
     final chosen = await chooseApplyTarget(context, theme, source);
     // Dismissing a question is not answering it. Defaulting here is how the
     // old toggle ended up never being set: something decided for them.
@@ -419,7 +433,8 @@ Future<bool> applyWallpaper(
     );
   }
   if (context.mounted) {
-    context.showMessage(ok ? 'Wallpaper set' : 'Could not set that image');
+    context.showMessage(
+        ok ? tr('settings.wallpaperSet') : tr('settings.couldNotSetThat'));
   }
   return ok;
 }
@@ -492,7 +507,9 @@ Future<void> setPresetHidden(
   );
 
   if (context.mounted) {
-    context.showMessage(hide ? 'Hidden from this distro' : 'Back in the set');
+    context.showMessage(hide
+        ? tr('settings.hiddenFromThisDistro')
+        : tr('settings.backInTheSet'));
   }
 }
 
@@ -553,16 +570,16 @@ String framingSummary(EffectiveTheme theme, String source) {
     legacyFit: theme.prefs.wallpaperFit,
   );
   final fit = switch (framing.resolvedFit) {
-    'contain' => 'Whole image, bars if needed',
-    'cover' => 'Fills the screen, edges crop',
-    'center' => 'Actual size',
+    'contain' => tr('settings.wholeImageBarsIf'),
+    'cover' => tr('settings.fillsTheScreenEdges'),
+    'center' => tr('settings.actualSize'),
     // 'fill' is the default, so it is the arm an unnamed fit lands on and the
     // wording has to be the one that is true by default rather than a
     // leftover describing whichever fit used to hold that position.
-    _ => 'Whole image, matched to the screen',
+    _ => tr('settings.wholeImageMatchedTo'),
   };
   return theme.prefs.wallpaperFraming.containsKey(source)
-      ? '$fit, framed by you'
+      ? tr('settings.framedByYou', {'fit': fit})
       : fit;
 }
 
@@ -668,14 +685,14 @@ String rotationSourceLabel(
   String? source,
   List<WallpaperCollection> collections,
 ) {
-  if (source == 'all') return 'Everything';
+  if (source == 'all') return tr('settings.everything');
   if (source != null && source.startsWith('collection:')) {
     final id = source.substring('collection:'.length);
     for (final c in collections) {
       if (c.id == id) return c.name;
     }
   }
-  return 'This distro';
+  return tr('settings.thisDistro');
 }
 
 /// Re-point an ACTIVE rotation at the pool [source] now names. A no-op when
@@ -910,143 +927,8 @@ final motionActiveProvider = FutureProvider<bool>((ref) async {
   return ref.read(launcherHostApiProvider).motionWallpaperActive();
 });
 
-/// The Motion heading, with the info icon that explains the numbers.
-class _MotionHeader extends ConsumerWidget {
-  const _MotionHeader({required this.theme, required this.onPick});
 
-  final EffectiveTheme theme;
-  final VoidCallback onPick;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final c = ChromeScope.of(context).colors;
-    final active = ref.watch(motionActiveProvider).value ?? false;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              context.t('settings.motion'),
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: c.text,
-              ),
-            ),
-          ),
-          if (active)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Text(
-                context.t('settings.oneVideo'),
-                style: TextStyle(fontSize: 12, color: c.textFaint),
-              ),
-            ),
-          // A SHEET, not a tooltip. Everything else that explains itself on
-          // this page is a sheet, and the numbers below need four lines and a
-          // table, which a tooltip cannot carry on a 360dp screen.
-          GestureDetector(
-            onTap: () => showMotionInfo(context, onPick),
-            child: Icon(Icons.info_outline, size: 18, color: c.textFaint),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The Motion strip: the video when one is set, and always a way to change it.
-class _MotionStrip extends ConsumerWidget {
-  const _MotionStrip({required this.onPick});
-
-  final VoidCallback onPick;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final active = ref.watch(motionActiveProvider).value ?? false;
-
-    if (!active) {
-      return _AddCard(
-        icon: Icons.movie_outlined,
-        title: context.t('settings.addAVideo'),
-        subtitle: context.t('settings.yourOwnVideoBoth'),
-        onTap: onPick,
-      );
-    }
-
-    return SizedBox(
-      height: 118,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          // ─── NO THUMBNAIL, DELIBERATELY ───────────────────────────────
-          //
-          // A frame out of the video would need a decoder pass on the way into
-          // a settings page, and the file is already playing behind everything
-          // the moment it is set. The badge answers the only question a
-          // thumbnail would: yes, one is running.
-          const _MotionTile(),
-          const SizedBox(width: 8),
-          _AddTile(label: context.t('settings.replace'), onTap: onPick),
-        ],
-      ),
-    );
-  }
-}
-
-class _MotionTile extends StatelessWidget {
-  const _MotionTile();
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = ChromeScope.of(context).colors;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(9),
-      child: SizedBox(
-        width: 62,
-        child: ColoredBox(
-          color: colors.surfaceAlt,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              Center(
-                child: Icon(
-                  Icons.play_circle_outline,
-                  size: 22,
-                  color: colors.text,
-                ),
-              ),
-              Positioned(
-                left: 4,
-                bottom: 4,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 1.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: colors.accent,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    context.t('settings.live'),
-                    // 8 was unreadable rather than merely small. A badge is
-                    // decoration, so it stays quiet at 11 rather than growing
-                    // to body size.
-                    style: const TextStyle(fontSize: 11, color: Colors.white),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Whether this app can read the user's photos, and which of them.
 ///
@@ -1212,137 +1094,8 @@ class _AddCard extends StatelessWidget {
   }
 }
 
-/// The dashed tile that ends every source strip.
-class _AddTile extends StatelessWidget {
-  const _AddTile({required this.label, required this.onTap});
 
-  final String label;
-  final VoidCallback onTap;
 
-  @override
-  Widget build(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-    return GestureDetector(
-      onTap: onTap,
-      child: SizedBox(
-        width: 62,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: c.surfaceAlt,
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: c.line),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.add, size: 17, color: c.textFaint),
-              const SizedBox(height: 3),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  style: TextStyle(fontSize: 12, color: c.textFaint),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Collections as tiles: the first photo, with how many are in the set.
-class _CollectionStrip extends StatelessWidget {
-  const _CollectionStrip({
-    required this.theme,
-    required this.collections,
-    required this.onOpen,
-    required this.onNew,
-  });
-
-  final EffectiveTheme theme;
-  final List<WallpaperCollection> collections;
-  final void Function(String id) onOpen;
-  final VoidCallback onNew;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-
-    if (collections.isEmpty) {
-      return _AddCard(
-        icon: Icons.create_new_folder_outlined,
-        title: context.t('settings.newCollection'),
-        subtitle: context.t('settings.groupPhotosAndRotate'),
-        onTap: onNew,
-      );
-    }
-
-    return SizedBox(
-      height: 118,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        children: [
-          for (final col in collections) ...[
-            GestureDetector(
-              onTap: () => onOpen(col.id),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(9),
-                child: SizedBox(
-                  width: 62,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // The first photo stands for the set. An empty set has
-                      // none, so it gets the surface rather than a broken
-                      // image: a collection with nothing in it is a real state
-                      // and one you have to be able to open to fix.
-                      if (col.paths.isNotEmpty)
-                        Image.file(File(col.paths.first), fit: BoxFit.cover)
-                      else
-                        ColoredBox(color: c.surfaceAlt),
-                      ColoredBox(color: Colors.black.withValues(alpha: 0.42)),
-                      Center(
-                        child: Text(
-                          '${col.paths.length}',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: c.text,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          _AddTile(label: context.t('settings.newSet'), onTap: onNew),
-        ],
-      ),
-    );
-  }
-}
-
-/// The line that separates picking from configuring.
-class _SettingsDivider extends StatelessWidget {
-  const _SettingsDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(0, 20, 0, 0),
-      child: Divider(height: 1, thickness: 1, color: c.line),
-    );
-  }
-}
 
 /// What a motion wallpaper costs, and what size to give it.
 ///
@@ -1515,20 +1268,28 @@ Future<void> migrateOwnWallpapers(WidgetRef ref, EffectiveTheme theme) async {
       );
 }
 
-class WallpaperScreen extends ConsumerWidget {
+class WallpaperScreen extends ConsumerStatefulWidget {
   const WallpaperScreen({super.key, required this.theme});
 
   final EffectiveTheme theme;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<WallpaperScreen> createState() => _WallpaperScreenState();
+}
+
+class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
+  _Source _tab = _Source.distro;
+  bool _editing = false;
+
+  @override
+  Widget build(BuildContext context) {
     // Live, not the push-time snapshot — so a photo you add shows up in "Yours"
     // and the rotation count updates the instant you pick it, instead of only
     // after you back out and reopen this screen.
     // hasValue, not asData. See home_screen.dart: asData is null through a
     // reload, and every prefs write is a reload.
     final async = ref.watch(effectiveThemeProvider);
-    final theme = async.hasValue ? async.requireValue : this.theme;
+    final theme = async.hasValue ? async.requireValue : widget.theme;
     final api = ref.read(launcherHostApiProvider);
     final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
 
@@ -1712,8 +1473,8 @@ class WallpaperScreen extends ConsumerWidget {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              option('This distro', null),
-              option('Everything', 'all'),
+              option(tr('settings.thisDistro'), null),
+              option(tr('settings.everything'), 'all'),
               for (final col in collections)
                 option(col.name, 'collection:${col.id}'),
               const SizedBox(height: 8),
@@ -1723,402 +1484,439 @@ class WallpaperScreen extends ConsumerWidget {
       );
     }
 
-    return ThemedScaffold(
-      settingsLook: true,
-      title: context.t('settings.wallpaper'),
-      body: ListView(
-        // Clears the navigation bar. Trailing padding rather than a SafeArea,
-        // so the list still scrolls behind a transparent bar.
-        padding: EdgeInsets.only(bottom: context.bottomInset),
-        children: [
-          // ── THE PAIR AT THE TOP ────────────────────────────────────────
-          //
-          // Lock and home, side by side, both showing the wallpaper that is
-          // actually on. It is the shape Android's own Wallpaper and style
-          // screen uses, and the reason is the same: this page has a LOCK
-          // SCREEN toggle, and without a picture of one that setting is a
-          // promise you have to lock the phone to check.
-          //
-          // Both panes are drawn by the SAME widget the rest of Settings uses,
-          // so a distro switch repaints them with no wiring, and the home pane
-          // shows this distro's real dock side rather than a generic phone.
-          if (previewWallpaperFor(theme) case final src?)
-            SettingPreview(
-              // ─── WHAT IS ACTUALLY ON EACH SCREEN ────────────────────
-              //
-              // It used to describe the ARRANGEMENT: "lock and home" or "home
-              // only". There is no single arrangement now, so it describes the
-              // state instead, which is what somebody looking at two previews
-              // wants to know anyway.
-              caption: theme.prefs.wallpaperLockCurrent == null
-                  ? (applyToLock
-                      ? context.t('settings.oneOnBothScreens')
-                      : context.t('settings.homeScreenOnly'))
-                  : context.t('settings.aDifferentOneEach'),
-              child: _WallpaperPreviewPair(theme: theme, source: src),
-            ),
+    // ─── THE IMMERSIVE PAGE ──────────────────────────────────────────────
+    //
+    // See wallpaper_immersive.dart for the shape and its reasons. Everything
+    // above this line (apply, the photo copy path, rotation, the source
+    // picker) is unchanged; only how it is laid out is.
+    final kit = _Kit.of(theme);
+    final previewSrc = previewWallpaperFor(theme);
+    final hero = wallpaperImageFor(theme, previewSrc);
+    final current = theme.prefs.wallpaperCurrent ?? previewSrc;
 
-          if (presets.isNotEmpty) ...[
-            _StripHeader(
-              title: context.t('wallpaper.fromThisDistro'),
-              presets: true,
-            ),
-            _Strip(
-              sources: presets,
-              source: theme.spec.source,
-              onTap: apply,
-              // Intersected with what this distro actually ships, so a name
-              // hidden under an older version of the pack cannot inflate the
-              // count below after a republish drops that file.
-              hidden: {
-                for (final w in presets)
-                  if (theme.prefs.wallpapersHidden.contains(w)) w,
-              },
-              onHide: (src, hide) => setPresetHidden(
-                context,
-                ref,
-                theme,
-                collections,
-                src,
-                hide,
+    // Intersected with what this distro actually ships, so a name hidden
+    // under an older version of the pack cannot linger after a republish.
+    final hiddenPresets = {
+      for (final w in presets)
+        if (theme.prefs.wallpapersHidden.contains(w)) w,
+    };
+    final visiblePresets = [
+      for (final w in presets)
+        if (!hiddenPresets.contains(w)) w,
+    ];
+
+    final tabs = <_Source>[
+      if (presets.isNotEmpty) _Source.distro,
+      if (otherFiles.isNotEmpty) _Source.others,
+      _Source.photos,
+      _Source.collections,
+      _Source.live,
+    ];
+    final tab = tabs.contains(_tab) ? _tab : tabs.first;
+    final canEdit =
+        tab == _Source.distro || (tab == _Source.photos && mine.isNotEmpty);
+    final editing = _editing && canEdit;
+
+    String tabLabel(_Source s) => context.t(switch (s) {
+          _Source.distro => 'wallpaper.tabDistro',
+          _Source.others => 'wallpaper.tabMyDistros',
+          _Source.photos => 'wallpaper.tabPhotos',
+          _Source.collections => 'settings.collections',
+          _Source.live => 'wallpaper.tabLive',
+        });
+
+    ThemeSource ownSource(String _) => theme.spec.source;
+    ThemeSource otherSource(String path) =>
+        otherSources[path] ?? theme.spec.source;
+
+    void preview(
+      List<String> list,
+      int index,
+      ThemeSource Function(String) sourceFor,
+    ) {
+      HapticFeedback.selectionClick();
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => _WallpaperPreviewPage(
+            theme: theme,
+            sources: list,
+            initial: index,
+            sourceFor: sourceFor,
+          ),
+        ),
+      );
+    }
+
+    // ─── STORED AS A WHOLE LIST, NOT AS A MOVE ─────────────────────────
+    //
+    // Before the first reorder `wallpaperOrder` is empty and means "the
+    // pack's order", so there is no list for a move to apply against.
+    // Writing the result makes the empty case a starting value. Rotation
+    // walks these lists in order, so both reschedule.
+    Future<void> reorderPresets(int from, int to) async {
+      final next = [...presets];
+      next.insert(to, next.removeAt(from));
+      await notifier.edit((p) => p.copyWith(wallpaperOrder: next));
+      await rescheduleRotation(api, theme, collections, source: rotationSource);
+    }
+
+    Future<void> reorderMine(int from, int to) async {
+      final next = [...mine];
+      next.insert(to, next.removeAt(from));
+      await notifier.edit((p) => p.copyWith(wallpapers: next));
+      await rescheduleRotation(api, theme, collections, source: rotationSource);
+    }
+
+    Future<void> resetAll() async {
+      final ok = await ThemedDialog.confirm(
+        context,
+        title: context.t('settings.resetWallpaperSettingsConfirm'),
+        message: context.t('settings.rotationFitAndThe'),
+        confirmLabel: context.t('settings.reset'),
+      );
+      if (ok != true) return;
+      await notifier.edit((p) => PrefsReset.section(p, PrefsSection.wallpaper));
+      // Clearing the interval is what turns rotation off, so the worker has
+      // to be told, or the page says off and the wallpaper keeps changing.
+      await api.cancelWallpaperRotation();
+      if (context.mounted) {
+        context.showMessage(context.t('settings.wallpaperSettingsReset'));
+      }
+    }
+
+    // Rarely used, so behind the menu: which pool rotation draws from, the
+    // wallpaper the phone had before, and the reset.
+    void openMore() {
+      ThemedSheet.show<void>(
+        context,
+        title: context.t('settings.wallpaper'),
+        builder: (ctx) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (collections.isNotEmpty)
+              ThemedListRow(
+                icon: Icons.collections_outlined,
+                title: ctx.t('settings.rotateFrom'),
+                subtitle: rotationSourceLabel(rotationSource, collections),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  openSourcePicker();
+                },
               ),
-              // ─── STORED AS A WHOLE LIST, NOT AS A MOVE ─────────────────
-              //
-              // Writing the entire resulting order rather than the pair that
-              // changed is what makes the first reorder work at all: before
-              // one happens `wallpaperOrder` is empty and means "the pack's
-              // order", so there is no existing list for a move to be applied
-              // against. Persisting the result makes the empty case a
-              // starting value rather than a special case anybody has to
-              // remember.
-              onReorder: (oldIndex, newIndex) async {
-                final next = [...presets];
-                next.insert(newIndex, next.removeAt(oldIndex));
-                await notifier.edit((p) => p.copyWith(wallpaperOrder: next));
-                await rescheduleRotation(
-                  api,
-                  theme,
-                  collections,
-                  source: rotationSource,
-                );
-              },
+            // Shown only when a stash exists: native cannot always read the
+            // phone's own wallpaper, so a restore is not always possible.
+            FutureBuilder<bool>(
+              future: api.hasStashedWallpaper(),
+              builder: (_, snap) => snap.data != true
+                  ? const SizedBox.shrink()
+                  : ThemedListRow(
+                      icon: Icons.settings_backup_restore,
+                      title: ctx.t('settings.restoreMyWallpaper'),
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        final ok = await api.restoreWallpaper();
+                        if (!context.mounted) return;
+                        context.showMessage(
+                          ok
+                              ? tr('settings.wallpaperRestored')
+                              : tr('settings.couldNotRestoreThat'),
+                        );
+                      },
+                    ),
             ),
+            if (PrefsReset.canReset(theme.prefs, PrefsSection.wallpaper))
+              ThemedListRow(
+                icon: Icons.restart_alt,
+                title: ctx.t('settings.resetWallpaperSettings'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  resetAll();
+                },
+              ),
+            const SizedBox(height: 8),
           ],
-          // ─── EVERY OTHER DISTRO, ONE SECTION ───────────────────────────
-          //
-          // One strip, not one per pack. A heading per distro was the shape
-          // `_Strip` forced when it could only resolve against a single
-          // directory, and it turned "wallpapers from the distros you have"
-          // into three or four separate-looking shelves.
-          //
-          // The entries are RESOLVED PATHS rather than the bare filenames a
-          // pack ships. Two distros can both call a file `wallpaper.webp`, and
-          // the strip identifies a tile by its string, so bare names would
-          // collide and `sourceFor` would answer for the wrong pack. A path is
-          // unique by construction and is also exactly what the tap applies.
-          if (otherFiles.isNotEmpty) ...[
-            // `presets: false` even though these ARE distro wallpapers. The
-            // flag decides which long-press the help sheet explains, and this
-            // strip offers neither: the eye hides one of the ACTIVE distro's
-            // presets and the cross forgets one of your photos. A foreign
-            // wallpaper is neither, so the header explains the gesture that
-            // does exist, which is the tap.
-            _StripHeader(
-              title: context.t('wallpaper.fromYourDistros'),
-              presets: false,
+        ),
+      );
+    }
+
+    Widget padded(Widget child) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: child,
+        );
+
+    final Widget content = switch (tab) {
+      _Source.distro => padded(
+          _WallpaperGrid(
+            kit: kit,
+            sources: editing ? presets : visiblePresets,
+            sourceFor: ownSource,
+            current: current,
+            editing: editing,
+            hidden: editing ? hiddenPresets : const {},
+            onOpen: (i) => preview(visiblePresets, i, ownSource),
+            onHide: (src, hide) => setPresetHidden(
+              context,
+              ref,
+              theme,
+              collections,
+              src,
+              hide,
             ),
-            _Strip(
-              sources: otherFiles,
-              source: theme.spec.source,
-              sourceFor: (path) => otherSources[path] ?? theme.spec.source,
-              // ─── APPLIED AS AN ABSOLUTE PATH ─────────────────────────
-              //
-              // NOT as the bare filename the pack ships. That string is
-              // resolved against the ACTIVE theme's directory everywhere
-              // downstream, so storing Garuda's `wall_x.webp` while Ubuntu is
-              // in use would look in Ubuntu's folder and quietly find nothing.
-              //
-              // Resolving here turns it into `/…`, which is already one of the
-              // four shapes `encodeWallpaperSource` handles, so prefs, the
-              // preview, framing and the rotation worker all keep working with
-              // no new scheme to teach them.
-              //
-              // The path is stable: `PackPaths.installedDir` is the pack id
-              // with no version in it, so a republish replaces the files
-              // underneath rather than moving them. Uninstalling the pack
-              // breaks the wallpaper, exactly as deleting a photo does.
-              onTap: apply,
+            onReorder: reorderPresets,
+          ),
+        ),
+      _Source.others => padded(
+          _WallpaperGrid(
+            kit: kit,
+            sources: otherFiles,
+            sourceFor: otherSource,
+            current: current,
+            onOpen: (i) => preview(otherFiles, i, otherSource),
+          ),
+        ),
+      _Source.photos => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            padded(
+              _WallpaperGrid(
+                kit: kit,
+                sources: mine,
+                sourceFor: ownSource,
+                current: current,
+                editing: editing,
+                onOpen: (i) => preview(mine, i, ownSource),
+                onRemove: (src) => _forget(context, ref, theme, src, apply),
+                onReorder: reorderMine,
+                onAdd: addPhoto,
+                addLabel: context.t('settings.addAPhoto'),
+              ),
             ),
+            const SizedBox(height: 16),
+            _RecentStrip(onKeep: keepPhoto),
+            // Asked in place, only when there is something to gain.
+            if (galleryAccess == 'denied' && mine.isNotEmpty)
+              _AddCard(
+                icon: Icons.photo_library_outlined,
+                title: context.t('settings.showMyPhotos'),
+                subtitle: context.t('settings.soYouCanPickWithout'),
+                onTap: () async {
+                  await ref.read(launcherHostApiProvider).requestGalleryAccess();
+                  ref.invalidate(galleryAccessProvider);
+                },
+              ),
           ],
-          _StripHeader(title: context.t('wallpaper.gallery'), presets: false),
-          _Strip(
-            sources: mine,
-            source: theme.spec.source,
-            onTap: apply,
-            onAdd: addPhoto,
-            // When the strip is empty AND access is granted, the recents below
-            // are the content, so the big empty-state card would be a second
-            // invitation on top of a full row.
-            suppressEmptyCard: galleryAccess != 'denied',
-            // ─── ONLY YOUR OWN CAN BE REMOVED ──────────────────────────
-            //
-            // A photo could be added and never taken back, so a mistaken pick
-            // sat in the rotation forever. The distro's presets have no remove:
-            // they are not yours to delete and they come back with the theme.
-            onRemove: (src) => _forget(context, ref, theme, src, apply),
-            // ─── ORDER IS NOT DECORATION HERE ──────────────────────────
-            //
-            // Rotation walks this list in sequence rather than shuffling, so
-            // the order is the order wallpapers actually appear in over a
-            // day. It is also the list `rotationPoolFor` hands the worker, so
-            // a reorder has to reschedule or the running job keeps cycling
-            // the old sequence until something else happens to touch it.
-            onReorder: (oldIndex, newIndex) async {
-              // No off-by-one correction: the strip is on onReorderItem, which
-              // hands back an index already adjusted for the removal.
-              final next = [...mine];
-              next.insert(newIndex, next.removeAt(oldIndex));
-              await notifier.edit((p) => p.copyWith(wallpapers: next));
-              // The pool is this list, and the worker holds its own copy, so
-              // without this the running rotation keeps cycling the old
-              // sequence. `source` is required rather than defaulted because
-              // rescheduling off a stale theme is the bug its doc warns about.
-              await rescheduleRotation(
-                api,
-                theme,
-                collections,
-                source: rotationSource,
+        ),
+      _Source.collections => padded(_CollectionsGrid(
+          kit: kit,
+          collections: collections,
+          rotationSource: rotationSource,
+          onOpen: (id) => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => WallpaperCollectionScreen(
+                theme: theme,
+                collectionId: id,
+              ),
+            ),
+          ),
+          onNew: () => promptCollectionName(
+            context,
+            title: context.t('settings.nameThisCollection'),
+            onSubmit: (name) async {
+              final created = await ref
+                  .read(wallpaperCollectionsProvider.notifier)
+                  .create(name);
+              if (created == null || !context.mounted) return;
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => WallpaperCollectionScreen(
+                    theme: theme,
+                    collectionId: created.id,
+                  ),
+                ),
               );
             },
           ),
-          _RecentStrip(onKeep: keepPhoto),
-          // ─── ASKED IN PLACE, NOT ON ARRIVAL ─────────────────────────────
-          //
-          // The dialog fires from a tap here rather than when the page opens.
-          // A permission prompt nobody asked for is one people dismiss without
-          // reading, and dismissing it twice is how Android stops offering it
-          // at all.
-          //
-          // Only when there is something to gain: with photos already added and
-          // access denied, the picker route works fine and this would be a
-          // standing advert for a permission.
-          if (galleryAccess == 'denied' && mine.isNotEmpty)
-            _AddCard(
-              icon: Icons.photo_library_outlined,
-              title: context.t('settings.showMyPhotos'),
-              subtitle: context.t('settings.soYouCanPickWithout'),
-              onTap: () async {
-                await ref.read(launcherHostApiProvider).requestGalleryAccess();
-                // Re-read rather than await an answer. The dialog resumes this
-                // page when it closes, and the same invalidation covers a grant
-                // made later from Android's own settings.
-                ref.invalidate(galleryAccessProvider);
-              },
+        )),
+      _Source.live => padded(
+          _LiveGrid(kit: kit, onPick: () => pickMotion(context, ref)),
+        ),
+    };
+
+    final rotationLabel = rotationOptions.entries
+        .firstWhere(
+          (e) => e.value == currentMinutes,
+          orElse: () => rotationOptions.entries.first,
+        )
+        .key;
+    final pad = MediaQuery.paddingOf(context);
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: ThemedScaffold(
+        body: Stack(
+          children: [
+            // The wallpaper in use, as the page itself.
+            Positioned.fill(
+              child: hero == null
+                  ? DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [theme.palette.bgTop, theme.palette.bgBottom],
+                        ),
+                      ),
+                    )
+                  : ImageFiltered(
+                      imageFilter: ImageFilter.blur(
+                        sigmaX: 28,
+                        sigmaY: 28,
+                        tileMode: TileMode.clamp,
+                      ),
+                      child: Image(image: hero, fit: BoxFit.cover),
+                    ),
             ),
-          _StripHeader(
-              title: context.t('settings.collections'), presets: false),
-          _CollectionStrip(
-            theme: theme,
-            collections: collections,
-            onOpen: (id) => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => WallpaperCollectionScreen(
-                  theme: theme,
-                  collectionId: id,
-                ),
-              ),
+            const Positioned.fill(
+              child: ColoredBox(color: Color(0x4D000000)), // theme-exempt: scrim
             ),
-            onNew: () => promptCollectionName(
-              context,
-              title: context.t('settings.nameThisCollection'),
-              onSubmit: (name) async {
-                final created = await ref
-                    .read(wallpaperCollectionsProvider.notifier)
-                    .create(name);
-                if (created == null || !context.mounted) return;
-                // Straight into the new collection, so adding photos is the
-                // next tap rather than a hunt back through the list.
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => WallpaperCollectionScreen(
-                      theme: theme,
-                      collectionId: created.id,
+            CustomScrollView(
+              slivers: [
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(14, pad.top + 12, 14, 0),
+                    child: Row(
+                      children: [
+                        _KitIcon(
+                          kit: kit,
+                          icon: Icons.arrow_back,
+                          label: context.t('common.back'),
+                          onTap: () => Navigator.of(context).maybePop(),
+                        ),
+                        const Spacer(),
+                        if (canEdit) ...[
+                          editing
+                              ? _KitButton(
+                                  kit: kit,
+                                  primary: true,
+                                  label: context.t('common.done'),
+                                  onTap: () => setState(() => _editing = false),
+                                )
+                              : _KitIcon(
+                                  kit: kit,
+                                  icon: Icons.edit_outlined,
+                                  label: context.t('home.edit'),
+                                  onTap: () => setState(() => _editing = true),
+                                ),
+                          const SizedBox(width: 8),
+                        ],
+                        _KitIcon(
+                          kit: kit,
+                          icon: Icons.more_vert,
+                          label: context.t('wallpaper.more'),
+                          onTap: openMore,
+                        ),
+                      ],
                     ),
                   ),
-                );
-              },
-            ),
-          ),
-          // ─── MOTION IS A SOURCE, SO IT IS A STRIP ──────────────────────
-          //
-          // It was a row, which could not answer the first question anybody
-          // has: is one set? A strip shows the video with a LIVE badge when it
-          // is, and one add tile when it is not, exactly like the three
-          // sources above it.
-          //
-          // Below the stills on purpose. Motion replaces both screens at once
-          // and is the expensive option, so it is found after the cheap ones
-          // rather than offered first.
-          _MotionHeader(theme: theme, onPick: () => pickMotion(context, ref)),
-          _MotionStrip(onPick: () => pickMotion(context, ref)),
-          // ─── EVERYTHING BELOW CONFIGURES, NOTHING BELOW PICKS ──────────
-          //
-          // The line and the heading are the whole point of this block. Four
-          // sources end here, and framing, rotation and reset are not a fifth:
-          // they are what happens to whatever was picked. Running them on from
-          // the strips with nothing between made the page read as one long
-          // undifferentiated list.
-          const _SettingsDivider(),
-          ThemedSectionHeader(context.t('settings.settings')),
-          // ── FRAMING REPLACES THE FIT SHEET ─────────────────────────────
-          //
-          // The sheet it replaces wrote `prefs.wallpaperFit`, one value for the
-          // whole distro, and a distro ships a portrait logo render beside a
-          // 2:1 screenshot: one fit is wrong for at least one of them whatever
-          // it holds. The old pref is NOT deleted and not migrated. It survives
-          // as the lowest arm of `resolveWallpaperFraming`, so anyone who set
-          // it keeps it on every wallpaper they have not framed individually.
-          // It simply stops having a control of its own, because a control that
-          // sets the wrong scope is worse than no control.
-          if (previewWallpaperFor(theme) case final src?)
-            ThemedListRow(
-              icon: Icons.crop_free,
-              title: context.t('settings.framing'),
-              subtitle: framingSummary(theme, src),
-              trailing: const Icon(Icons.chevron_right, size: 18),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => WallpaperFramingScreen(
-                    theme: theme,
-                    source: src,
-                  ),
                 ),
-              ),
+                if (previewSrc != null && !editing)
+                  SliverToBoxAdapter(
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 340),
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                          child: _WallpaperPreviewPair(
+                            theme: theme,
+                            source: previewSrc,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (!editing)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 16, 14, 0),
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _KitButton(
+                            kit: kit,
+                            icon: Icons.shuffle,
+                            label: rotationLabel,
+                            onTap: canRotate ? openRotation : null,
+                          ),
+                          if (previewSrc != null)
+                            _KitButton(
+                              kit: kit,
+                              icon: Icons.crop_free,
+                              label: context.t('wallpaper.frame'),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => WallpaperFramingScreen(
+                                    theme: theme,
+                                    source: previewSrc,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                SliverToBoxAdapter(
+                  // Under ThemedScaffold's ChromeScope, so the sheet and the
+                  // strips it reuses read this distro's chrome.
+                  child: Builder(builder: (context) {
+                    final c = ChromeScope.of(context).colors;
+                    return Container(
+                      margin: const EdgeInsets.only(top: 22),
+                      constraints: BoxConstraints(
+                        minHeight: MediaQuery.sizeOf(context).height * 0.55,
+                      ),
+                      padding: EdgeInsets.only(
+                        top: 14,
+                        bottom: context.bottomInset + 24,
+                      ),
+                      decoration: BoxDecoration(
+                        color: c.bg.withValues(alpha: 0.92),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(kit.sheetRadius),
+                        ),
+                        border: Border(top: BorderSide(color: c.line)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _KitTabs(
+                            kit: kit,
+                            labels: [for (final t in tabs) tabLabel(t)],
+                            selected: tabs.indexOf(tab),
+                            onSelect: (i) => setState(() {
+                              _tab = tabs[i];
+                              _editing = false;
+                            }),
+                          ),
+                          const SizedBox(height: 14),
+                          content,
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+              ],
             ),
-          _RestoreRow(theme: theme),
-          ThemedSectionHeader(context.t('settings.rotation')),
-          ThemedListRow(
-            icon: Icons.schedule_outlined,
-            title: context.t('settings.changeWallpaper'),
-            subtitle: canRotate
-                ? '${pool.length} in rotation'
-                : 'Add at least two wallpapers to rotate',
-            enabled: canRotate,
-            trailing: canRotate ? _RotationValue(currentMinutes) : null,
-            onTap: canRotate ? openRotation : null,
-          ),
-          if (collections.isNotEmpty)
-            ThemedListRow(
-              icon: Icons.collections_outlined,
-              title: context.t('settings.rotateFrom'),
-              subtitle: rotationSourceLabel(rotationSource, collections),
-              trailing: const Icon(Icons.chevron_right, size: 18),
-              onTap: openSourcePicker,
-            ),
-
-          if (PrefsReset.canReset(theme.prefs, PrefsSection.wallpaper))
-            ThemedListRow(
-              icon: Icons.settings_backup_restore,
-              title: context.t('settings.resetWallpaperSettings'),
-              subtitle: context.t('settings.rotationFitAndLock'),
-              onTap: () async {
-                final ok = await ThemedDialog.confirm(
-                  context,
-                  title: context.t('settings.resetWallpaperSettingsConfirm'),
-                  message: context.t('settings.rotationFitAndThe'),
-                  confirmLabel: context.t('settings.reset'),
-                );
-                if (ok != true) return;
-
-                await notifier.edit(
-                  (p) => PrefsReset.section(p, PrefsSection.wallpaper),
-                );
-                // Rotation is the one setting here with a live schedule behind
-                // it. Clearing the interval is what turns it off, so the worker
-                // has to be told; otherwise the screen says off and the
-                // wallpaper keeps changing.
-                await ref
-                    .read(launcherHostApiProvider)
-                    .cancelWallpaperRotation();
-                if (context.mounted) {
-                  context.showMessage(
-                      context.t('settings.wallpaperSettingsReset'));
-                }
-              },
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-/// "Put my wallpaper back", shown ONLY when a stash actually exists.
-///
-/// Native stashes the user's own wallpaper the first time a theme replaces it,
-/// but that read is restricted on newer Android and impossible for a live
-/// wallpaper — so it can genuinely fail. Asking native whether a stash exists,
-/// rather than assuming one does, is the difference between a button that works
-/// and a button that apologises. When there is nothing to restore, this renders
-/// nothing at all.
-class _RestoreRow extends ConsumerWidget {
-  const _RestoreRow({required this.theme});
 
-  final EffectiveTheme theme;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final api = ref.read(launcherHostApiProvider);
-
-    return FutureBuilder<bool>(
-      future: api.hasStashedWallpaper(),
-      builder: (context, snap) {
-        // Absent, not a placeholder row: the same rule the conky and the tray
-        // follow for nullable stats.
-        if (snap.data != true) return const SizedBox.shrink();
-
-        return ThemedListRow(
-          icon: Icons.settings_backup_restore,
-          title: context.t('settings.restoreMyWallpaper'),
-          subtitle: context.t('wallpaper.original'),
-          onTap: () async {
-            final ok = await api.restoreWallpaper();
-            if (!context.mounted) return;
-            context.showMessage(
-              ok ? 'Wallpaper restored' : 'Could not restore that wallpaper',
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-/// The current rotation interval + chevron, in the chrome's muted ink. Reads the
-/// label back out of [rotationOptions] so the two never drift.
-class _RotationValue extends StatelessWidget {
-  const _RotationValue(this.minutes);
-
-  final int? minutes;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-    final label = rotationOptions.entries
-        .firstWhere(
-          (e) => e.value == minutes,
-          orElse: () => rotationOptions.entries.first, // 'Off'
-        )
-        .key;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: TextStyle(color: c.textMuted, fontSize: 12.5)),
-        const SizedBox(width: 6),
-        Icon(Icons.chevron_right, size: 18, color: c.textMuted),
-      ],
-    );
-  }
-}
 
 /// A horizontal strip of wallpaper thumbnails. Empty renders a themed
 /// placeholder line rather than a gap.
@@ -2178,427 +1976,7 @@ Future<void> _forget(
   if (context.mounted) context.showMessage(context.t('wallpaper.removed'));
 }
 
-class _Strip extends StatelessWidget {
-  const _Strip({
-    required this.sources,
-    required this.source,
-    required this.onTap,
-    this.sourceFor,
-    this.onAdd,
-    this.suppressEmptyCard = false,
-    this.onRemove,
-    this.hidden = const {},
-    this.onHide,
-    this.onReorder,
-  });
 
-  /// Null for the distro's own presets, which are not the user's to delete.
-  final void Function(String source)? onRemove;
-
-  /// Which of [sources] are hidden. Presets only; see [setPresetHidden].
-  final Set<String> hidden;
-
-  /// Null for the user's own photos, which are removed rather than hidden. The
-  /// two are deliberately never both set: one strip, one long-press meaning.
-  final void Function(String source, bool hide)? onHide;
-
-  final List<String> sources;
-
-  /// Where the ACTIVE theme's files live.
-  ///
-  /// Needed because the same `theme.json` string means two different things.
-  /// This strip used to guess with `startsWith('assets/')` and fall through to
-  /// `Image.file(File(src))`, so an installed pack's `wall_x.webp` became a
-  /// RELATIVE File, failed to open, and drew the broken-image placeholder for
-  /// every wallpaper a downloaded distro ships. `ThemeSource` is the one thing
-  /// that knows whether to build an AssetImage or a FileImage, and it already
-  /// existed for exactly this.
-  final ThemeSource source;
-
-  /// Where THIS entry's files live, when the strip mixes packs.
-  ///
-  /// ─── ONE STRIP, SEVERAL DISTROS ─────────────────────────────────────────
-  ///
-  /// [source] is one directory for everything drawn, which is right for a
-  /// strip holding one distro's wallpapers or the user's photos. It is wrong
-  /// for a strip holding wallpapers from SEVERAL distros: a bare
-  /// `wall_x.webp` resolves only against its own pack's folder, so Garuda's
-  /// file looked up in Ubuntu's directory finds nothing and draws a hole.
-  ///
-  /// The split-by-pack version of this section existed because of that
-  /// limitation, not because anybody wanted a heading per distro. This is the
-  /// limitation removed: null keeps [source] for every tile, and a callback
-  /// answers per tile.
-  final ThemeSource Function(String source)? sourceFor;
-
-  final Future<void> Function(String) onTap;
-
-  /// Null when this strip's order is not the user's to change.
-  ///
-  /// ─── WHY ONLY ONE STRIP GETS THIS ───────────────────────────────────────
-  ///
-  /// The presets strip is the PACK'S order, and the pack means it: the first
-  /// entry is the one seeded on first use of the theme, so the author picked it
-  /// as the distro's opening impression. A user reorder there would need a
-  /// fourth per-theme preference to store an override, and would then have to
-  /// answer what happens to it when the pack republishes with a different list.
-  /// The strip below it is already a stored list of the user's own files, where
-  /// order is theirs by construction and rotation walks it in sequence.
-  final void Function(int oldIndex, int newIndex)? onReorder;
-
-  /// Skip the empty-state card even when there is nothing to show.
-  ///
-  /// The Gallery draws recents BELOW itself once access is granted, so an
-  /// empty strip there is not an empty section: the invitation to add is
-  /// already on screen a dozen times over, and a card on top of it would be a
-  /// second one shouting over the first.
-  final bool suppressEmptyCard;
-
-  /// The dashed tile that ends this strip, when it has one.
-  ///
-  /// ─── AN EMPTY SOURCE IS STILL A SOURCE ────────────────────────────────
-  ///
-  /// Empty used to render one faint line of text, and a separate list row did
-  /// the adding. So the Gallery with nothing in it looked like a settings
-  /// entry while the same section with one photo looked like a strip, and the
-  /// only difference was whether the user had got round to it yet.
-  ///
-  /// The add tile is part of the strip in BOTH states. A section that has not
-  /// been used yet is a strip holding exactly one tile, which is the honest
-  /// picture: there is one thing you can do here.
-  final VoidCallback? onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final add = onAdd;
-
-    if (sources.isEmpty) {
-      if (suppressEmptyCard) return const SizedBox.shrink();
-      if (add == null) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text(
-            context.t('settings.nothingYet'),
-            style: TextStyle(color: ChromeScope.of(context).colors.textFaint),
-          ),
-        );
-      }
-      return _AddCard(
-        icon: Icons.add_photo_alternate_outlined,
-        title: context.t('settings.addAWallpaper'),
-        subtitle: context.t('settings.photosYouAddStay'),
-        onTap: add,
-      );
-    }
-
-    final reorder = onReorder;
-    if (reorder != null) {
-      return SizedBox(
-        height: 160,
-        child: ReorderableListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: sources.length,
-          // OFF, because the default handles are built for a vertical list of
-          // rows and draw nothing useful on a 90px thumbnail. The whole tile is
-          // the handle instead, wrapped below.
-          buildDefaultDragHandles: false,
-          // onReorderItem, NOT onReorder. The old callback reports the
-          // destination as an index in the list before the removal, so every
-          // caller has to subtract one when dragging rightwards; the
-          // replacement does that itself. Keeping the manual correction
-          // alongside it would double-count and make a rightward drag land one
-          // slot short, which reads as the drag being imprecise rather than
-          // wrong.
-          onReorderItem: reorder,
-          // The tile lifts and tilts on its own; the default is a Material
-          // elevation shadow that a themed strip has no other examples of.
-          proxyDecorator: (child, index, animation) => Transform.scale(
-            scale: 1.06,
-            child: child,
-          ),
-          itemBuilder: (context, i) => ReorderableDelayedDragStartListener(
-            key: ValueKey(sources[i]),
-            index: i,
-            child: Padding(
-              padding: EdgeInsets.only(
-                right: i == sources.length - 1 ? 0 : 12,
-              ),
-              child: _tile(context, i),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return SizedBox(
-      height: 160,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        // One past the end when this strip can be added to, so the tile
-        // travels with the list rather than sitting outside it.
-        itemCount: sources.length + (add == null ? 0 : 1),
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
-        itemBuilder: (context, i) => i == sources.length
-            ? _AddTile(label: context.t('settings.addAPhoto'), onTap: add!)
-            : _tile(context, i),
-      ),
-    );
-  }
-
-  Widget _tile(BuildContext context, int i) {
-    final c = ChromeScope.of(context).colors;
-    final src = sources[i];
-    final remove = onRemove;
-    // Remote first: it is the only case with its own loading state, and
-    // `isThemeAssetRef` would otherwise have to exclude it twice.
-    final isRemote = src.startsWith('http');
-    // A theme reference, bundled OR installed. `source.asset` decides which,
-    // and returns an AssetImage or a FileImage accordingly.
-    final themed = !isRemote && isThemeAssetRef(src)
-        ? (sourceFor?.call(src) ?? source).asset(src)
-        : null;
-
-    final hide = onHide;
-    final isHidden = hidden.contains(src);
-
-    return Stack(
-      children: [
-        GestureDetector(
-          // A dimmed tile is not a wallpaper you can pick, it is one you told
-          // us you did not want, so tapping it means "actually, keep it"
-          // rather than "apply the thing I just rejected".
-          onTap: () {
-            if (isHidden && hide != null) {
-              hide(src, false);
-            } else {
-              onTap(src);
-            }
-          },
-          // ─── WHAT A LONG PRESS MEANS, PER STRIP ────────────────────────
-          //
-          // It used to mean remove here and hide on the presets strip: one
-          // gesture, one meaning per strip, and no badge putting a
-          // destructive target under the thumb of someone browsing.
-          //
-          // Reordering takes the gesture back. Drag to reorder IS a long
-          // press everywhere it exists, including this app's own home grid,
-          // and a second gesture for it would be one nobody finds. So on a
-          // strip that reorders, the hold drags and removal moves to the
-          // badge that comment argued against. The argument was right while
-          // the hold was free; it is not a reason to ship a reorder nobody
-          // can perform.
-          //
-          // The presets strip keeps the old arrangement exactly, because it
-          // does not reorder and its hold is still spare.
-          onLongPress: onReorder != null
-              ? null
-              : (hide != null
-                  ? () => hide(src, !isHidden)
-                  : (remove == null ? null : () => remove(src))),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: SizedBox(
-              width: 90,
-              child: _dim(
-                isHidden,
-                c.text,
-                switch ((themed != null, isRemote)) {
-                  (true, _) => Image(
-                      image: themed!.image,
-                      fit: BoxFit.cover,
-                      // A theme whose wallpaper files are missing must still
-                      // show a usable list, not a red error box. Reachable
-                      // for an installed pack whose files were swept as well
-                      // as for a bundled path that no longer exists.
-                      errorBuilder: (_, __, ___) => const _Missing(
-                        Icons.image_not_supported_outlined,
-                      ),
-                    ),
-                  (_, true) => Image.network(
-                      src,
-                      fit: BoxFit.cover,
-                      // Themed spinner while the CDN thumbnail downloads.
-                      loadingBuilder: (_, child, progress) => progress == null
-                          ? child
-                          : const Center(
-                              child: ThemedProgress.circular(size: 20),
-                            ),
-                      // Offline, or the CDN is down. Show a placeholder; the
-                      // wallpaper still works once the network comes back.
-                      errorBuilder: (_, __, ___) =>
-                          const _Missing(Icons.cloud_off_outlined),
-                    ),
-                  // The user's own photo: an absolute path or a content URI.
-                  _ => Image.file(
-                      File(src),
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
-                          const _Missing(Icons.broken_image_outlined),
-                    ),
-                },
-              ),
-            ),
-          ),
-        ),
-        // ─── WHY A BADGE AND NOT A SECOND HOLD ─────────────────────────
-        //
-        // Hold-then-drag and hold-then-release cannot be told apart at the
-        // moment the hold fires: the drag has already started by then, and
-        // deciding retroactively means either a delay before the tile lifts or
-        // a hide that fires whenever somebody thinks better of a drag. Both
-        // are worse than a target you can see. So on a strip that reorders,
-        // the hold drags and the second action moves to this badge: × on your
-        // own photos, an eye on presets, which are hidden rather than deleted.
-        if (onReorder != null && (remove != null || hide != null))
-          Positioned(
-            top: 2,
-            right: 2,
-            child: GestureDetector(
-              onTap: () => remove != null ? remove(src) : hide!(src, !isHidden),
-              // ─── THE TARGET GREW, THE DOT DID NOT ────────────────────
-              //
-              // The reasoning here was already right: a circle big enough to be
-              // a target would cover a third of the thumbnail. What it got
-              // wrong was the arithmetic. A 14dp glyph in 3dp and then 6dp of
-              // padding is a 32dp target, two thirds of the floor.
-              //
-              // A SizedBox around a centred dot separates the two questions.
-              // The visible circle is unchanged; the box it sits in is 48.
-              behavior: HitTestBehavior.opaque,
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: Center(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: c.bg.withValues(alpha: 0.72),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: c.line),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(4),
-                      child: Icon(
-                        remove != null
-                            ? Icons.close
-                            : (isHidden
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined),
-                        size: 16,
-                        color: c.text,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  /// A hidden thumbnail, knocked back and marked.
-  ///
-  /// Opacity ALONE is not enough. A dark wallpaper at 30% and a dark wallpaper
-  /// at 100% are the same rectangle on a phone in daylight, and the strip would
-  /// read as a rendering fault rather than a state. The struck-through eye is
-  /// the part that says which one this is.
-  Widget _dim(bool isHidden, Color ink, Widget child) {
-    if (!isHidden) return child;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Opacity(opacity: 0.3, child: child),
-        Center(
-          child: Icon(Icons.visibility_off_outlined, size: 22, color: ink),
-        ),
-      ],
-    );
-  }
-}
-
-/// A strip's heading, with the gestures behind an info button.
-///
-/// ─── WHY THE INSTRUCTIONS ARE NOT ON THE PAGE ANY MORE ──────────────────────
-///
-/// They used to be a line under the strip, and the argument for it was sound:
-/// a long press is invisible until somebody finds it, and this screen is the
-/// only place that gesture does something you cannot reach another way.
-///
-/// It stopped being true twice over. The gesture now REORDERS rather than
-/// hides, so the sentence was describing behaviour the screen no longer had,
-/// and hiding moved to a badge that is visible on every tile, so the thing the
-/// line existed to reveal reveals itself. What was left was a paragraph of
-/// help text sitting permanently above the content on a page whose whole job
-/// is showing pictures.
-///
-/// A button reads once and then gets ignored, which is the correct lifetime
-/// for this content: nobody needs to be told twice that dragging reorders.
-class _StripHeader extends StatelessWidget {
-  const _StripHeader({required this.title, required this.presets});
-
-  final String title;
-
-  /// The distro's own wallpapers, which are hidden rather than deleted.
-  final bool presets;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = ChromeScope.of(context).colors;
-
-    return Row(
-      children: [
-        Expanded(child: ThemedSectionHeader(title)),
-        Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: GestureDetector(
-            onTap: () => ThemedSheet.show<void>(
-              context,
-              title: title,
-              builder: (ctx) => Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ThemedListRow(
-                    icon: Icons.touch_app_outlined,
-                    title: 'Tap',
-                    subtitle: context.t('settings.setsItAsYour'),
-                  ),
-                  ThemedListRow(
-                    icon: Icons.drag_indicator,
-                    title: context.t('settings.holdAndDrag'),
-                    subtitle: presets
-                        // Said plainly, because the consequence is not
-                        // obvious from the gesture: the first one is the one
-                        // a fresh install of this distro applies by itself.
-                        ? 'Reorders them. The first is what a new install gets'
-                        : 'Reorders them, which is the order rotation follows',
-                  ),
-                  ThemedListRow(
-                    icon: presets ? Icons.visibility_off_outlined : Icons.close,
-                    title: presets ? 'The eye' : 'The cross',
-                    subtitle: presets
-                        ? 'Hides it from this distro. Tap a dimmed one to '
-                            'bring it back'
-                        : 'Removes your photo',
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            ),
-            // The icon is small and the row it sits in is not, so the target
-            // is the padding rather than the glyph.
-            behavior: HitTestBehavior.opaque,
-            child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Icon(Icons.info_outline, size: 17, color: c.textFaint),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
 
 class _Missing extends StatelessWidget {
   const _Missing(this.icon);

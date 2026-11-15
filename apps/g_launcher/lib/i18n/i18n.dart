@@ -56,7 +56,10 @@ class I18nController extends Notifier<I18nState> {
   final I18nState _seed;
 
   @override
-  I18nState build() => _seed;
+  I18nState build() {
+    _active = _seed.translations;
+    return _seed;
+  }
 
   /// Switch language. Pass null to go back to following the device language.
   /// Loads the new strings first, then swaps state and persists, so a slow
@@ -67,6 +70,7 @@ class I18nController extends Notifier<I18nState> {
         code ?? systemMatchCode(PlatformDispatcher.instance.locale);
     final loaded = await Translations.load(effective);
     // Never .update() on a notifier; assign state directly.
+    _active = loaded;
     state = I18nState(selectedCode: code, translations: loaded);
     await _persist(code);
   }
@@ -89,6 +93,17 @@ class I18nController extends Notifier<I18nState> {
 /// override do not crash. Bootstrap overrides this with the loaded state:
 ///
 ///   overrides: [ i18nProvider.overrideWith(() => I18nController(initial)) ]
+/// The translations in use, for code with no BuildContext in reach: enum
+/// labels, top-level helpers, providers. Kept in step with [I18nController].
+Translations _active = Translations.empty();
+
+/// Translate [key] without a context.
+///
+/// The same lookup `context.t` makes (it also reads without listening), so a
+/// string resolved here matches one resolved there. Use `context.t` where a
+/// context exists; this is for the places that have none.
+String tr(String key, [Map<String, String>? vars]) => _active.t(key, vars);
+
 final i18nProvider = NotifierProvider<I18nController, I18nState>(
   () => I18nController(I18nState.fallback()),
 );

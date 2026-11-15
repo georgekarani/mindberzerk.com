@@ -302,9 +302,8 @@ class _Swatch extends StatelessWidget {
                 child: DecoratedBox(
                   decoration:
                       BoxDecoration(color: color, shape: BoxShape.circle),
-                  child: owned
-                      ? Icon(Icons.check, size: 16, color: c.bg)
-                      : null,
+                  child:
+                      owned ? Icon(Icons.check, size: 16, color: c.bg) : null,
                 ),
               ),
               const SizedBox(height: 6),

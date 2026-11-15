@@ -170,15 +170,15 @@ class SetupKicker extends StatelessWidget {
   Widget build(BuildContext context) => ink.isConfig
       ? _lookKicker(this)
       : Text(
-        text.toUpperCase(),
-        style: TextStyle(
-          fontSize: 11,
-          height: 1.2,
-          letterSpacing: 1,
-          fontWeight: FontWeight.w500,
-          color: ink.textMuted,
-        ),
-      );
+          text.toUpperCase(),
+          style: TextStyle(
+            fontSize: 11,
+            height: 1.2,
+            letterSpacing: 1,
+            fontWeight: FontWeight.w500,
+            color: ink.textMuted,
+          ),
+        );
 }
 
 /// The one filled button a setup screen has.
@@ -281,24 +281,24 @@ class SetupIconButton extends StatelessWidget {
   Widget build(BuildContext context) => ink.look != null
       ? _lookIconButton(this)
       : Tooltip(
-        message: tooltip,
-        child: Material(
-          color: Colors.transparent,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
-            side: BorderSide(color: ink.line),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onPressed,
-            child: SizedBox(
-              width: 54,
-              height: 54,
-              child: Icon(icon, size: 20, color: ink.text),
+          message: tooltip,
+          child: Material(
+            color: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: ink.line),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              child: SizedBox(
+                width: 54,
+                height: 54,
+                child: Icon(icon, size: 20, color: ink.text),
+              ),
             ),
           ),
-        ),
-      );
+        );
 }
 
 /// A pill over the wallpaper: the language chip, the Free and Preview tags.
@@ -428,30 +428,31 @@ class SetupHeading extends StatelessWidget {
   Widget build(BuildContext context) => ink.isConfig
       ? _lookHeading(this)
       : Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SetupKicker(kicker, ink: ink),
-          const SizedBox(height: 4),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 24,
-              height: 1.15,
-              letterSpacing: -0.3,
-              fontWeight: FontWeight.w700,
-              color: ink.text,
-            ),
-          ),
-          if (subtitle != null) ...[
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SetupKicker(kicker, ink: ink),
             const SizedBox(height: 4),
             Text(
-              subtitle!,
-              style: TextStyle(fontSize: 13, height: 1.4, color: ink.textMuted),
+              title,
+              style: TextStyle(
+                fontSize: 24,
+                height: 1.15,
+                letterSpacing: -0.3,
+                fontWeight: FontWeight.w700,
+                color: ink.text,
+              ),
             ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                subtitle!,
+                style:
+                    TextStyle(fontSize: 13, height: 1.4, color: ink.textMuted),
+              ),
+            ],
           ],
-        ],
-      );
+        );
 }
 
 /// One row of a single-choice list: title, optional subtitle, a tick when on.
@@ -478,46 +479,46 @@ class SetupChoiceRow extends StatelessWidget {
   Widget build(BuildContext context) => ink.look != null
       ? _lookChoice(this)
       : Semantics(
-        inMutuallyExclusiveGroup: true,
-        checked: selected,
-        button: true,
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 56),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            decoration: BoxDecoration(
-              border: Border(top: BorderSide(color: ink.line)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        title,
-                        style: TextStyle(fontSize: 15, color: ink.text),
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
+          inMutuallyExclusiveGroup: true,
+          checked: selected,
+          button: true,
+          child: InkWell(
+            onTap: onTap,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 56),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: ink.line)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
                         Text(
-                          subtitle!,
-                          style:
-                              TextStyle(fontSize: 12.5, color: ink.textMuted),
+                          title,
+                          style: TextStyle(fontSize: 15, color: ink.text),
                         ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle!,
+                            style:
+                                TextStyle(fontSize: 12.5, color: ink.textMuted),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                if (selected)
-                  Icon(Icons.check_rounded, size: 20, color: ink.accent),
-              ],
+                  if (selected)
+                    Icon(Icons.check_rounded, size: 20, color: ink.accent),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 }
 
 /// A settings row that opens a sheet: label on the left, current value and a
@@ -540,38 +541,38 @@ class SetupValueRow extends StatelessWidget {
   Widget build(BuildContext context) => ink.isConfig
       ? _lookValue(this)
       : Semantics(
-        button: true,
-        label: '$title, $value',
-        excludeSemantics: true,
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 56),
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            decoration: BoxDecoration(
-              border: Border(top: BorderSide(color: ink.line)),
-            ),
-            child: Row(
-              children: [
-                Text(title, style: TextStyle(fontSize: 15, color: ink.text)),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Text(
-                    value,
-                    textAlign: TextAlign.end,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 14, color: ink.textMuted),
+          button: true,
+          label: '$title, $value',
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: onTap,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 56),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: ink.line)),
+              ),
+              child: Row(
+                children: [
+                  Text(title, style: TextStyle(fontSize: 15, color: ink.text)),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Text(
+                      value,
+                      textAlign: TextAlign.end,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 14, color: ink.textMuted),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                Icon(Icons.chevron_right_rounded,
-                    size: 18, color: ink.textMuted),
-              ],
+                  const SizedBox(width: 6),
+                  Icon(Icons.chevron_right_rounded,
+                      size: 18, color: ink.textMuted),
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 }
 
 /// A row with a switch, for opt-out lists such as suggested folders.
@@ -597,58 +598,58 @@ class SetupSwitchRow extends StatelessWidget {
   Widget build(BuildContext context) => ink.look != null
       ? _lookSwitch(this)
       : MergeSemantics(
-        child: InkWell(
-          onTap: () => onChanged(!value),
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 60),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-            decoration: BoxDecoration(
-              border: Border(top: BorderSide(color: ink.line)),
-            ),
-            child: Row(
-              children: [
-                if (leading != null) ...[leading!, const SizedBox(width: 14)],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(title,
-                          style: TextStyle(fontSize: 15, color: ink.text)),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          subtitle!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              TextStyle(fontSize: 12.5, color: ink.textMuted),
-                        ),
+          child: InkWell(
+            onTap: () => onChanged(!value),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 60),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: ink.line)),
+              ),
+              child: Row(
+                children: [
+                  if (leading != null) ...[leading!, const SizedBox(width: 14)],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(title,
+                            style: TextStyle(fontSize: 15, color: ink.text)),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style:
+                                TextStyle(fontSize: 12.5, color: ink.textMuted),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                Switch(
-                  value: value,
-                  onChanged: onChanged,
-                  thumbColor: WidgetStateProperty.resolveWith(
-                    (s) => s.contains(WidgetState.selected)
-                        ? ink.onAccent
-                        : ink.textMuted,
+                  Switch(
+                    value: value,
+                    onChanged: onChanged,
+                    thumbColor: WidgetStateProperty.resolveWith(
+                      (s) => s.contains(WidgetState.selected)
+                          ? ink.onAccent
+                          : ink.textMuted,
+                    ),
+                    trackColor: WidgetStateProperty.resolveWith(
+                      (s) => s.contains(WidgetState.selected)
+                          ? ink.accent
+                          : const Color(0x2EFFFFFF),
+                    ),
+                    trackOutlineColor:
+                        const WidgetStatePropertyAll(Colors.transparent),
                   ),
-                  trackColor: WidgetStateProperty.resolveWith(
-                    (s) => s.contains(WidgetState.selected)
-                        ? ink.accent
-                        : const Color(0x2EFFFFFF),
-                  ),
-                  trackOutlineColor:
-                      const WidgetStatePropertyAll(Colors.transparent),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      );
+        );
 }
 
 /// A row of equal segments, one selected. Used for column counts and badges.
@@ -672,52 +673,52 @@ class SetupSegmented<T> extends StatelessWidget {
   Widget build(BuildContext context) => ink.look != null
       ? _lookSegmented<T>(this)
       : Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: const Color(0x40000000),
-          borderRadius: BorderRadius.circular(13),
-        ),
-        child: Row(
-          children: [
-            for (final e in options.entries)
-              Expanded(
-                child: Semantics(
-                  inMutuallyExclusiveGroup: true,
-                  checked: e.key == selected,
-                  button: true,
-                  label: e.value,
-                  excludeSemantics: true,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onChanged(e.key),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color:
-                            e.key == selected ? ink.accent : Colors.transparent,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        e.value,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: e.key == selected
-                              ? FontWeight.w700
-                              : FontWeight.w400,
-                          color: e.key == selected ? ink.onAccent : ink.text,
+          padding: const EdgeInsets.all(4),
+          decoration: BoxDecoration(
+            color: const Color(0x40000000),
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Row(
+            children: [
+              for (final e in options.entries)
+                Expanded(
+                  child: Semantics(
+                    inMutuallyExclusiveGroup: true,
+                    checked: e.key == selected,
+                    button: true,
+                    label: e.value,
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onChanged(e.key),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        height: 40,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: e.key == selected
+                              ? ink.accent
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          e.value,
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: e.key == selected
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                            color: e.key == selected ? ink.onAccent : ink.text,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-      );
+            ],
+          ),
+        );
 }
-
 
 // ─── THE SAME SETUP, IN THE CHOSEN DISTRO'S LOOK ────────────────────────────
 //
@@ -790,8 +791,7 @@ Widget _lookPrimary(SetupPrimaryButton w) {
                   ? ink.monoStyle(15, ink2, weight: FontWeight.w700)
                   : TextStyle(
                       fontSize: enabled ? 16 : 14,
-                      fontWeight:
-                          enabled ? FontWeight.w600 : FontWeight.w500,
+                      fontWeight: enabled ? FontWeight.w600 : FontWeight.w500,
                       color: ink2,
                     ),
             ),
@@ -964,9 +964,7 @@ Widget _lookChoice(SetupChoiceRow w) {
         style: ink.monoStyle(14, w.selected ? ink.accent : ink.textMuted),
       ),
     SettingsLook.form || SettingsLook.dialog => Icon(
-        w.selected
-            ? Icons.radio_button_checked
-            : Icons.radio_button_unchecked,
+        w.selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
         size: 20,
         color: w.selected ? ink.accent : ink.textMuted,
       ),
@@ -1089,8 +1087,7 @@ Widget _lookSegmented<T>(SetupSegmented<T> w) {
                             ? ink.accent.withValues(alpha: 0.32)
                             : ink.accent)
                         : Colors.transparent,
-                    borderRadius:
-                        joined ? null : BorderRadius.circular(r - 3),
+                    borderRadius: joined ? null : BorderRadius.circular(r - 3),
                     border: joined && i > 0
                         ? Border(left: BorderSide(color: ink.line))
                         : null,

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../data/usage/usage_repository.dart';
 import '../../engine/effective_theme.dart';
+import 'package:g_launcher/i18n/i18n.dart';
 
 /// The gestures a user can bind.
 ///
@@ -11,18 +12,21 @@ import '../../engine/effective_theme.dart';
 /// gesture someone used daily is how you lose an existing user base during a
 /// rewrite.
 enum Gesture {
-  doubleTapLeftEdge('doubleTapLeftEdge', 'Double-tap left edge'),
-  swipeUp('swipeUp', 'Swipe up'),
-  swipeDown('swipeDown', 'Swipe down'),
-  swipeLeft('swipeLeft', 'Swipe left'),
-  swipeRight('swipeRight', 'Swipe right'),
-  doubleTapHome('doubleTapHome', 'Double-tap home'),
-  twoFingerSwipeDown('twoFingerSwipeDown', 'Two-finger swipe down');
+  doubleTapLeftEdge('doubleTapLeftEdge', 'gestures.doubleTapLeftEdge'),
+  swipeUp('swipeUp', 'gestures.swipeUp'),
+  swipeDown('swipeDown', 'gestures.swipeDown'),
+  swipeLeft('swipeLeft', 'gestures.swipeLeft'),
+  swipeRight('swipeRight', 'gestures.swipeRight'),
+  doubleTapHome('doubleTapHome', 'gestures.doubleTapHome'),
+  twoFingerSwipeDown('twoFingerSwipeDown', 'gestures.twoFingerSwipeDown');
 
-  const Gesture(this.id, this.label);
+  const Gesture(this.id, this._labelKey);
 
   final String id;
-  final String label;
+  final String _labelKey;
+
+  /// The gesture's name, in the reader's language.
+  String get label => tr(_labelKey);
 }
 
 /// What a gesture can do.
@@ -31,25 +35,28 @@ enum Gesture {
 /// off. Never a crash, never a nag — the Settings screen is where we ask, not
 /// the home screen.
 enum GestureAction {
-  none('none', 'Nothing', false),
-  activities('activities', 'Open Activities', false),
-  showDock('showDock', 'Show dock', false),
-  search('search', 'Search apps', false),
+  none('none', 'gestures.nothing', false),
+  activities('activities', 'gestures.openActivities', false),
+  showDock('showDock', 'gestures.showDock', false),
+  search('search', 'drawer.searchApps', false),
 
   /// Hands off to the phone's own assistant. [needsService] is false: this is an
   /// ordinary intent, and it must never be dragged into the accessibility
   /// disclosure flow, which exists for four specific capabilities and would be
   /// a policy problem if it started covering anything else.
-  assistant('assistant', 'Voice assistant', false),
-  notifications('notifications', 'Notification shade', true),
-  quickSettings('quickSettings', 'Quick settings', true),
-  recents('recents', 'Recent apps', true),
-  lockScreen('lockScreen', 'Lock screen', true);
+  assistant('assistant', 'gestures.voiceAssistant', false),
+  notifications('notifications', 'gestures.notificationShade', true),
+  quickSettings('quickSettings', 'gestures.quickSettings', true),
+  recents('recents', 'gestures.recentApps', true),
+  lockScreen('lockScreen', 'gestures.actionLock', true);
 
-  const GestureAction(this.id, this.label, this.needsService);
+  const GestureAction(this.id, this._labelKey, this.needsService);
 
   final String id;
-  final String label;
+  final String _labelKey;
+
+  /// The action's name, in the reader's language.
+  String get label => tr(_labelKey);
 
   /// True = requires the AccessibilityService. Android gives launchers no other
   /// way to reach the shade or lock the device.

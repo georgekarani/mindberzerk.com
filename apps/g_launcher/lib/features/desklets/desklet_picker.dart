@@ -16,6 +16,7 @@ import '../../engine/widget_span.dart';
 import '../../platform/launcher_api.g.dart' as api;
 import '../drawer/app_icon.dart';
 import 'desklet_cell.dart';
+import 'dock_avoid.dart' show footprint;
 import 'desklet_edit.dart';
 import 'desklet_preview.dart';
 // DeskletSurfaceView for `gutter` only. The cell itself now arrives through
@@ -138,6 +139,31 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
 
   EffectiveTheme get theme => widget.theme;
 
+  /// The widget cells under app icons on this page. Empty on a distro with
+  /// no desktop icons, whatever an earlier distro left in the provider.
+  Set<int> _iconCells() => theme.desktopIcons
+      ? ref.read(deskletIconCellsProvider)[widget.page] ?? const {}
+      : const {};
+
+  /// May the widget go exactly where the user tapped? Only when a cell was
+  /// tapped and the rectangle from it misses every icon; otherwise the packer
+  /// chooses, and it skips the icons too.
+  bool _clearOfIcons(Set<int> icons, int spanX, int spanY) {
+    final col = widget.col;
+    final row = widget.row;
+    if (col == null || row == null) return false;
+    final cells = footprint(
+      col,
+      row,
+      spanX,
+      spanY,
+      theme.deskletCols,
+      theme.deskletRows,
+    );
+    // Off the grid: let placeAt clamp and decide, as it always has.
+    return cells == null || !cells.any(icons.contains);
+  }
+
   /// Add the kind and leave. An exact cell when the user tapped an empty one,
   /// otherwise wherever it fits. Refusal keeps the picker OPEN — you came here
   /// to place something, and closing on failure would make you reopen it — while
@@ -149,7 +175,8 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
 
     String newId() => 'dk${DateTime.now().microsecondsSinceEpoch}';
 
-    final after = (widget.col != null && widget.row != null)
+    final icons = _iconCells();
+    final after = _clearOfIcons(icons, kind.defaultSpanX, kind.defaultSpanY)
         ? DeskletLayout.placeAt(
             before,
             kindId: kind.id,
@@ -167,6 +194,7 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
             cols: theme.deskletCols,
             rows: theme.deskletRows,
             newId: newId,
+            blocked: icons,
           );
 
     if (identical(after, before)) {
@@ -282,7 +310,8 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
       WidgetConfigKeys.resizeMode: provider.resizeMode,
     };
 
-    var after = (widget.col != null && widget.row != null)
+    final icons = _iconCells();
+    var after = _clearOfIcons(icons, sx, sy)
         ? DeskletLayout.placeAt(
             before,
             kindId: 'appwidget',
@@ -310,6 +339,7 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
         spanX: sx,
         spanY: sy,
         config: config,
+        blocked: icons,
       );
     }
 
@@ -366,7 +396,8 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
                       theme: theme, label: context.t('drawer.gLauncher')),
                   const SizedBox(height: 12),
                   if (ours.isEmpty)
-                    _EmptyLine(theme: theme, text: 'No widgets match')
+                    _EmptyLine(
+                        theme: theme, text: tr('desklets.noWidgetsMatch'))
                   else
                     Wrap(
                       spacing: gap,
@@ -558,8 +589,6 @@ class _DeskletPreviewCard extends StatelessWidget {
           const SizedBox(height: 7),
           Text(
             context.t(kind.labelKey),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontFamily: theme.typography.display,
               fontSize: 14,
@@ -604,8 +633,10 @@ class _AppWidgetSection extends ConsumerWidget {
     final async = ref.watch(installedWidgetProvidersProvider);
 
     return async.when(
-      loading: () => _Note(theme: theme, text: 'Looking for app widgets'),
-      error: (_, __) => _Note(theme: theme, text: 'Could not read app widgets'),
+      loading: () =>
+          _Note(theme: theme, text: tr('desklets.lookingForAppWidgets')),
+      error: (_, __) =>
+          _Note(theme: theme, text: tr('desklets.couldNotReadApp')),
       data: (groups) {
         // Filter by app label or any of the app's widget labels, so typing
         // "clock" surfaces the app whose widget is a clock even if the app is
@@ -622,8 +653,8 @@ class _AppWidgetSection extends ConsumerWidget {
           return _Note(
             theme: theme,
             text: groups.isEmpty
-                ? 'No app widgets installed'
-                : 'No app widgets match',
+                ? tr('desklets.noAppWidgetsInstalled')
+                : tr('desklets.noAppWidgetsMatch'),
           );
         }
 
@@ -709,8 +740,6 @@ class _AppGroupTileState extends State<_AppGroupTile> {
                 Expanded(
                   child: Text(
                     g.appLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       fontFamily: widget.theme.typography.display,
                       fontSize: 16,

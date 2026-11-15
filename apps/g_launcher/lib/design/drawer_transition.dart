@@ -30,6 +30,7 @@ library;
 import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
+import 'package:g_launcher/i18n/i18n.dart';
 
 /// How one page gives way to the next.
 ///
@@ -125,25 +126,28 @@ enum DrawerTransition {
   /// screen than English is.
   (String, String) get copy => switch (this) {
         DrawerTransition.slide => (
-            'Pages',
-            'Swipe sideways. Wraps around at the end.'
+            tr('settings.pages'),
+            tr('setup.swipeSidewaysWrapsAround')
           ),
-        DrawerTransition.cube => ('Cube', 'The pages are faces of a solid.'),
+        DrawerTransition.cube => (
+            tr('settings.cube'),
+            tr('setup.thePagesAreFaces')
+          ),
         DrawerTransition.cylinder => (
-            'Cylinder',
-            'The cube, curved. Faces meet at a softer angle.'
+            tr('design.cylinder'),
+            tr('design.theCubeCurvedFaces')
           ),
         DrawerTransition.sphere => (
-            'Sphere',
-            'The cube, pinched top and bottom as it turns.'
+            tr('design.sphere'),
+            tr('design.theCubePinchedTop')
           ),
         DrawerTransition.depth => (
-            'Depth',
-            'The page you leave sinks behind the next one.'
+            tr('design.depth'),
+            tr('design.thePageYouLeaveSinks')
           ),
         DrawerTransition.stack => (
-            'Stack',
-            'The page you leave holds still. The next slides over it.'
+            tr('desklet_spec.stack'),
+            tr('design.thePageYouLeaveHolds')
           ),
       };
 

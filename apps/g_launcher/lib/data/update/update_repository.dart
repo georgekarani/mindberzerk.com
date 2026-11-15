@@ -37,6 +37,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:in_app_update/in_app_update.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -261,6 +262,28 @@ class AppUpdateNotifier extends Notifier<UpdateState> {
       debugPrint('Completing update failed: $e');
     }
   }
+
+  /// Finish the install the next time the screen goes off.
+  ///
+  /// The restart takes the home screen away for a few seconds. With the screen
+  /// off nobody is looking at it, so the user wakes the phone to a launcher
+  /// that is simply newer. Still an explicit choice: this is only reached from
+  /// the restart sheet's second button, never on its own. Native says when the
+  /// screen goes off on `g_launcher/screen` and says nothing else there.
+  void completeWhenScreenOff() {
+    if (state.status != UpdateStatus.readyToInstall) return;
+    _screen.setMessageHandler((message) async {
+      if (message == 'off' && state.status == UpdateStatus.readyToInstall) {
+        _screen.setMessageHandler(null);
+        await completeUpdate();
+      }
+      // The channel's reply is never read; an empty one satisfies the type.
+      return '';
+    });
+  }
+
+  static const _screen =
+      BasicMessageChannel<String>('g_launcher/screen', StringCodec());
 
   /// The Play listing for this app, for the case Play refuses the flexible flow.
   Future<void> openStoreListing() async {

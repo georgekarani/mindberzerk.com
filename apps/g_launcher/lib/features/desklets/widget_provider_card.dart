@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -74,8 +76,6 @@ class WidgetProviderCard extends ConsumerWidget {
               const SizedBox(height: 12),
               Text(
                 provider.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: theme.typography.display,
@@ -109,8 +109,6 @@ class WidgetProviderCard extends ConsumerWidget {
                 Text(
                   provider.description,
                   textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: theme.typography.display,
                     fontSize: 12.5,
@@ -145,7 +143,15 @@ class _Preview extends ConsumerWidget {
 
   final EffectiveTheme theme;
   final api.WidgetProviderInfo provider;
+
+  /// The card's inner width, which stands in for the desktop's full width.
   final double width;
+
+  /// The narrowest a preview is drawn, however few columns it spans.
+  static const double _minPreviewWidth = 72;
+
+  /// Columns assumed across the desktop before any desktop has laid out.
+  static const int _declaredGridCols = 4;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -161,33 +167,52 @@ class _Preview extends ConsumerWidget {
     // Falls back to the declared footprint before any desktop has laid out,
     // which is the picker's first frame on a cold start and nothing else.
     final cell = ref.watch(deskletCellProvider);
-    final aspect = cell == null
-        ? _aspect(provider)
-        : () {
-            final span = WidgetSpanResolver.resolve(
-              widgetFootprint(provider),
-              cell: cell,
-              colFactor: DeskletLayout.colFactor,
-              rowFactor: DeskletLayout.rowFactor,
-            );
-            return WidgetSpanResolver.aspectOf(span.spanX, span.spanY,
-                cell: cell);
-          }();
+
+    // [share] is how much of the desktop's width the widget takes, [aspect]
+    // its width over height. Both from the resolved span when a desktop has
+    // laid out, both from the declared footprint before that.
+    double aspect;
+    double share;
+    if (cell == null) {
+      aspect = _aspect(provider);
+      share = _declaredCols(provider) / _declaredGridCols;
+    } else {
+      final span = WidgetSpanResolver.resolve(
+        widgetFootprint(provider),
+        cell: cell,
+        colFactor: DeskletLayout.colFactor,
+        rowFactor: DeskletLayout.rowFactor,
+      );
+      aspect = WidgetSpanResolver.aspectOf(span.spanX, span.spanY, cell: cell);
+      share = span.spanX / (cell.cols < 1 ? 1 : cell.cols);
+    }
+
+    // ─── TRUE TO SIZE: THE WIDTH FOLLOWS THE SPAN ─────────────────────────
+    //
+    // Every preview used to take the card's full width, so a 2 x 2 was drawn
+    // as wide as a 4 x 2: about twice the size it lands, with its preview
+    // layout inflated into a canvas it was never designed for. The card's
+    // width stands in for the desktop's, so a widget half the desktop wide
+    // is half the card wide, and the column centres it.
+    //
+    // Floored so a one column widget stays visible and tappable, and never
+    // wider than the card.
+    final shown = math.min(width, math.max(_minPreviewWidth, width * share));
 
     // Capped so a 1x4 tower does not turn one widget into a full screen, and
     // floored so a very wide, very short strip is still tappable and visible.
-    final height = (width / aspect).clamp(64.0, 260.0);
+    final height = (shown / aspect).clamp(64.0, 260.0);
 
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final req = (
       providerKey: provider.providerKey,
-      width: (width * dpr).round(),
+      width: (shown * dpr).round(),
       height: (height * dpr).round(),
     );
     final preview = ref.watch(widgetPreviewProvider(req));
 
     return SizedBox(
-      width: width,
+      width: shown,
       height: height,
       child: preview.maybeWhen(
         data: (bytes) => bytes == null
@@ -211,6 +236,10 @@ class _Preview extends ConsumerWidget {
       );
 }
 
+/// Columns the provider asks for: its grid target, else its minimum width.
+int _declaredCols(api.WidgetProviderInfo p) =>
+    p.targetCellWidth > 0 ? p.targetCellWidth : _cells(p.minWidthDp);
+
 /// Width over height, from whichever of the two footprints the provider gave.
 double _aspect(api.WidgetProviderInfo p) {
   if (p.targetCellWidth > 0 && p.targetCellHeight > 0) {
@@ -231,7 +260,7 @@ double _aspect(api.WidgetProviderInfo p) {
 /// declares 250dp rather than 280 and is the reason a naive divide-by-70 reads
 /// every widget one cell short.
 String spanLabel(api.WidgetProviderInfo p) {
-  final cols = p.targetCellWidth > 0 ? p.targetCellWidth : _cells(p.minWidthDp);
+  final cols = _declaredCols(p);
   final rows =
       p.targetCellHeight > 0 ? p.targetCellHeight : _cells(p.minHeightDp);
   return '$cols \u00d7 $rows';

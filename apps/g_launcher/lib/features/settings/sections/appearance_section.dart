@@ -31,16 +31,16 @@ import '../wallpaper_screen.dart';
 
 String _iconsLong(EffectiveTheme theme) {
   if (theme.prefs.systemIconPack != null) {
-    return 'An installed pack, over the distro icons';
+    return tr('settings.anInstalledPackOver');
   }
   final hero = theme.prefs.iconPackId;
-  if (hero != null) return 'The $hero icon theme';
-  return "The distro's own icons";
+  if (hero != null) return tr('settings.iconThemeNamed', {'name': hero});
+  return tr('settings.theDistrosOwnIcons');
 }
 
 String _iconsShort(EffectiveTheme theme) {
-  if (theme.prefs.systemIconPack != null) return 'Custom';
-  return theme.prefs.iconPackId ?? 'Distro';
+  if (theme.prefs.systemIconPack != null) return tr('settings.custom');
+  return theme.prefs.iconPackId ?? tr('settings.distro');
 }
 
 /// The trailing label on a font row.
@@ -50,8 +50,10 @@ String _iconsShort(EffectiveTheme theme) {
 /// is more useful than "Ubuntu" here, because the next distro will say Distro
 /// too and that is the fact worth showing.
 String _fontShort(String? choice) {
-  if (choice == null) return 'Distro';
-  if (choice == systemChoice || choice == systemMonoChoice) return 'System';
+  if (choice == null) return tr('settings.distro');
+  if (choice == systemChoice || choice == systemMonoChoice) {
+    return tr('settings.system');
+  }
   return choice;
 }
 

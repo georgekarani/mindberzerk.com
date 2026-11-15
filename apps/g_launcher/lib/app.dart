@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/crash_context.dart';
 import 'data/billing/entitlements.dart';
 import 'data/prefs/setup_state.dart';
+import 'data/review/review_prompt.dart';
 import 'data/update/update_repository.dart';
 import 'design/theme.dart';
 import 'features/desklets/widget_stage.dart';
@@ -161,6 +162,14 @@ class _Root extends ConsumerWidget {
     // `Notifier` and nothing else; the prefs read and the platform call both
     // happen after the build phase has ended.
     ref.watch(appUpdateWatchProvider);
+
+    // ── THE PLAY RATING PROMPT ───────────────────────────────────────────
+    //
+    // Same reasons as the line above: mounted here so it outlives a theme
+    // switch, and synchronous, doing its reads after build. It asks at most
+    // once per version, days after the update, at a calm return to the home
+    // screen. See `review_prompt.dart`.
+    ref.watch(reviewPromptWatchProvider);
 
     // ── BILLING, WARMED BEFORE ANYONE ASKS ───────────────────────────────
     //

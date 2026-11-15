@@ -22,7 +22,9 @@ import '../../platform/launcher_api.g.dart';
 // deskletEditProvider and EditMode.apps: the jiggle state lives here rather
 // than in a local bool, because the pager, the desktop hold and back all read
 // it. See DeskletEditState.
+import '../desklets/desklet_cell.dart';
 import '../desklets/desklet_edit.dart';
+import '../desklets/dock_avoid.dart' show iconCells;
 import '../dock/dock_extent.dart';
 import '../dock/dock_insets.dart';
 import '../drawer/app_icon.dart';
@@ -54,7 +56,18 @@ import 'workspaces/edge_paging.dart' show homeDragActiveProvider;
 /// bool for the reason its own doc gives: the pager, the desktop hold and back
 /// all have to know, and they already read `active`.
 class HomeGrid extends ConsumerStatefulWidget {
-  const HomeGrid({super.key, required this.theme, required this.page});
+  const HomeGrid({
+    super.key,
+    required this.theme,
+    required this.page,
+    this.reportsIconCells = true,
+  });
+
+  /// Whether this grid tells the widget grid where its icons are. False for
+  /// the workspace overview's miniature, which is laid out in a different box
+  /// and would overwrite the real desktop's answer with its own.
+  final bool reportsIconCells;
+
 
   final EffectiveTheme theme;
 
@@ -90,6 +103,17 @@ class _HomeGridState extends ConsumerState<HomeGrid>
   void dispose() {
     _jiggle.dispose();
     super.dispose();
+  }
+
+  /// Hand the widget grid this page's icon cells. After the frame, because
+  /// provider state cannot be written while the tree is building.
+  void _reportIconCells(Set<int> cells) {
+    if (!widget.reportsIconCells) return;
+    final page = widget.page;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(deskletIconCellsProvider.notifier).set(page, cells);
+    });
   }
 
   @override
@@ -243,6 +267,8 @@ class _HomeGridState extends ConsumerState<HomeGrid>
             theme,
           ).deflate(windowGap / 2);
           final rects = _tile(area, capacity);
+          // Tiles already flow around the widgets, so nothing is blocked.
+          _reportIconCells(const {});
           // One focused window per screen. A page with desklets leaves focus
           // to them (Arch's kitty), so the first app tile does not light up
           // beside it as a second "focused" window.
@@ -290,6 +316,59 @@ class _HomeGridState extends ConsumerState<HomeGrid>
                 ),
             ],
           );
+        }
+
+        // ─── TELL THE WIDGET GRID WHICH OF ITS CELLS HOLD AN ICON ─────────
+        //
+        // The same geometry the GridView below is about to use, moved into
+        // the widget surface's coordinates (its margin plus the view padding,
+        // as `_freeArea` does for the tiled layout). See
+        // `deskletIconCellsProvider` for what reads it.
+        {
+          final view = MediaQuery.viewPaddingOf(context);
+          const margin = 6.0;
+          final left = margin + view.left;
+          final top = margin + view.top;
+          final surfaceW = constraints.maxWidth - left - margin - view.right;
+          final surfaceH = constraints.maxHeight - top - margin - view.bottom;
+          final fineCols = theme.deskletCols;
+          final fineRows = theme.deskletRows;
+
+          final slotH = GridMetrics.cellHeightFor(
+            iconSize: iconSize,
+            labelLines: theme.labelLines,
+            fontSize: fontSize,
+            textScaler: textScaler,
+          );
+          final gridPad = const EdgeInsets.all(pad) + dockPad;
+          final rtl = Directionality.of(context) == TextDirection.rtl;
+
+          final cells = surfaceW <= 0 || surfaceH <= 0
+              ? const <int>{}
+              : iconCells(
+                  [
+                    for (final item in prefs.homeItems)
+                      if (item.page == page && item.index < capacity)
+                        Rect.fromLTWH(
+                          gridPad.left +
+                              (rtl
+                                      ? cols - 1 - item.index % cols
+                                      : item.index % cols) *
+                                  (cellW + crossGap) -
+                              left,
+                          gridPad.top +
+                              (item.index ~/ cols) * (slotH + _rowGap) -
+                              top,
+                          cellW,
+                          slotH,
+                        ),
+                  ],
+                  cellW: surfaceW / fineCols,
+                  cellH: surfaceH / fineRows,
+                  cols: fineCols,
+                  rows: fineRows,
+                );
+          _reportIconCells(cells);
         }
 
         final grid = GridView.builder(
@@ -358,10 +437,13 @@ class _HomeGridState extends ConsumerState<HomeGrid>
         //
         // Above the grid in a Stack rather than beside it in a Column, so the
         // cells keep the geometry `GridMetrics` measured for them.
+        //
+        // Not on a phone home: Pocket's edit bar already carries Done at the
+        // top right, and a second Done under it read as two ways out.
         return Stack(
           children: [
             grid,
-            if (editing)
+            if (editing && !theme.phoneHome)
               Positioned(
                 top: 4,
                 right: 10,
@@ -1305,7 +1387,7 @@ class _FolderCell extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: GridMetrics.labelGap),
-          _Label(theme: theme, text: folder.name),
+          _Label(theme: theme, text: folder.label),
         ],
       ),
     );

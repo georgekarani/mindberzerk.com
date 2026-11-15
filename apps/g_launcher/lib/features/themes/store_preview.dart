@@ -180,9 +180,8 @@ class StorePreview extends ConsumerWidget {
     var dockTiles = const <Widget>[];
 
     // The distro's own first wallpaper, resolved where its files are.
-    final ownName = peeked.spec.wallpapers.isEmpty
-        ? null
-        : peeked.spec.wallpapers.first;
+    final ownName =
+        peeked.spec.wallpapers.isEmpty ? null : peeked.spec.wallpapers.first;
     final folder = ownName == null || peeked.assetsOnDisk
         ? null
         : ref.watch(packCdnFolderProvider(card.packIdOrSpec)).value;

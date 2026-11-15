@@ -977,7 +977,11 @@ class _Miniature extends StatelessWidget {
                   children: [
                     if (theme.desktopIcons)
                       Positioned.fill(
-                        child: HomeGrid(theme: theme, page: page),
+                        child: HomeGrid(
+                          theme: theme,
+                          page: page,
+                          reportsIconCells: false,
+                        ),
                       ),
                     Positioned.fill(
                       child: DeskletSurfaceView(theme: theme, page: page),

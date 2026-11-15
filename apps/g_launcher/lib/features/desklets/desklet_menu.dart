@@ -7,7 +7,6 @@ import '../../data/prefs/desklet_layout.dart';
 import '../../data/prefs/launcher_prefs.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../design/components/components.dart';
-import '../../engine/desklet_spec.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart' as api;
 import 'desklet_edit.dart';
@@ -64,27 +63,7 @@ Future<void> showDeskletMenu(
 }) {
   HapticFeedback.mediumImpact();
 
-  final kind = DeskletKinds.byId(desklet.kind);
   final isStack = desklet.kind == 'stack';
-
-  // A stack's header counts its members, because "Stack" alone says nothing
-  // about which one you are holding when there are two on a page.
-  final memberCount =
-      isStack ? DeskletLayout.membersOf(theme.prefs, desklet.id).length : 0;
-
-  // A hosted widget's own label, which the picker stored when it placed it.
-  // Falls back to the kind's label, then to something honest rather than to a
-  // blank header: an unknown kind is a CDN pack this build has never heard of,
-  // and it can still be moved and removed.
-  final label = switch (desklet.config['label']) {
-    final String s when s.isNotEmpty => s,
-    _ when isStack => memberCount == 1
-        ? context.t('desklets.stackOne')
-        : context.t('desklets.stackMany', {'n': '$memberCount'}),
-    // Those keys are minted now, so the kind's own name is translated like
-    // everything else in this menu.
-    _ => kind == null ? context.t('desklets.widget') : context.t(kind.labelKey),
-  };
 
   // Built from the theme rather than looked up: the desktop is not guaranteed
   // to sit under a ChromeScope, and this route is not a descendant of it.
@@ -118,120 +97,92 @@ Future<void> showDeskletMenu(
     context: context,
     chrome: chrome,
     anchor: anchor,
-    title: label,
-    width: 244,
-    // `context`, the CALLER's, is what the rows close over. Anything that opens
-    // a second surface must push from a context that OUTLIVES this panel: the
-    // menu's own is dead the instant a row pops it, and pushing onto a dead
-    // route silently does nothing. Same trap desktop_menu documents.
-    rows: (menu) => _rows(context, menu, ref, theme, desklet, label, isStack),
+    // ─── NO TITLE, NO DESCRIPTIONS, ONE ROW ───────────────────────────────
+    //
+    // This was a headed list: the widget's name, then four rows each with a
+    // sentence under it. The menu opens beside the widget it is about, so the
+    // name was repeating what the finger was already on, and the sentences
+    // turned a quick gesture into something to read.
+    //
+    // `actions` is the menu's own icon strip, the one an app's menu uses, so
+    // each distro still draws it its own way and a list-shaped menu gets plain
+    // rows without subtitles.
+    width: 272,
+    actions: _actions(context, ref, theme, desklet, isStack),
+    // `context`, the CALLER's, is what the actions close over. Anything that
+    // opens a second surface must push from a context that OUTLIVES this
+    // panel: the menu's own is dead the instant an action pops it.
+    rows: (_) => const [],
   );
 }
 
-List<Widget> _rows(
-  /// The context that opened the panel. Survives the pop, so it is what any
-  /// row pushing a further screen or sheet must use.
+/// What a held tile can do. The menu pops itself before calling `onTap`.
+///
+/// A stack trades Stack for Add and Unstack, the same action in the other
+/// direction plus the one a stack exists for.
+List<MenuAction> _actions(
   BuildContext host,
-
-  /// The panel's own route context. Only ever used to pop it.
-  BuildContext sheet,
   WidgetRef ref,
   EffectiveTheme theme,
   Desklet desklet,
-  String label,
   bool isStack,
 ) {
   return [
-    ThemedListRow(
+    MenuAction(
       icon: Icons.open_with,
-      // ─── IT WAS NEVER ONLY RESIZE ──────────────────────────────
-      //
-      // Edit mode has driven both since it existed: `EditableDesklet`
-      // pans to move and drags the corner handle to resize. The row said
-      // "Resize", so the move half was undiscoverable, and moving a widget
-      // read as a missing feature when it was a missing word.
-      title: host.t('desklets.moveOrResize'),
-      subtitle: host.t('desklets.moveOrResizeSub'),
+      label: host.t('desklets.actMove'),
       onTap: () {
-        Navigator.pop(sheet);
-        // The ONLY path that makes the desktop draggable, and it is now
-        // deliberate rather than a side effect of holding something.
         final edit = ref.read(deskletEditProvider.notifier);
         edit.enter();
         edit.select(desklet.id);
       },
     ),
-    if (isStack)
-      ThemedListRow(
+    if (isStack) ...[
+      MenuAction(
         icon: Icons.add,
-        title: host.t('desklets.addWidget'),
-        subtitle: host.t('desklets.addWidgetSub'),
-        onTap: () {
-          Navigator.pop(sheet);
-          // `host`, not `sheet`: the panel's route is dead by the time the
-          // picker pushes. Same reason the settings row uses it.
-          showDeskletPicker(
-            host,
-            ref,
-            theme,
-            page: desklet.page,
-            intoStack: desklet.id,
-          );
-        },
+        label: host.t('common.add'),
+        onTap: () => showDeskletPicker(
+          host,
+          ref,
+          theme,
+          page: desklet.page,
+          intoStack: desklet.id,
+        ),
       ),
-    if (isStack)
-      ThemedListRow(
+      MenuAction(
         icon: Icons.layers_clear_outlined,
-        title: host.t('desklets.unstack'),
-        subtitle: host.t('desklets.unstackSub'),
-        onTap: () {
-          Navigator.pop(sheet);
-          ref.read(prefsProvider(theme.spec.id).notifier).edit(
-                (p) => DeskletLayout.unstack(
-                  p,
-                  desklet.id,
-                  cols: theme.deskletCols,
-                  rows: theme.deskletRows,
-                ),
-              );
-        },
-      )
-    else
-      ThemedListRow(
-        icon: Icons.layers_outlined,
-        title: host.t('desklets.makeStack'),
-        subtitle: host.t('desklets.makeStackSub'),
-        onTap: () {
-          Navigator.pop(sheet);
-          // The tile keeps its config and its native allocation; only its
-          // position changes. See DeskletLayout.makeStack.
-          ref.read(prefsProvider(theme.spec.id).notifier).edit(
-                (p) => DeskletLayout.makeStack(
-                  p,
-                  desklet.id,
-                  newId: () => 'st${DateTime.now().microsecondsSinceEpoch}',
-                ),
-              );
-        },
+        label: host.t('desklets.unstack'),
+        onTap: () => ref.read(prefsProvider(theme.spec.id).notifier).edit(
+              (p) => DeskletLayout.unstack(
+                p,
+                desklet.id,
+                cols: theme.deskletCols,
+                rows: theme.deskletRows,
+              ),
+            ),
       ),
-    ThemedListRow(
+    ] else
+      MenuAction(
+        icon: Icons.layers_outlined,
+        label: host.t('desklet_spec.stack'),
+        onTap: () => ref.read(prefsProvider(theme.spec.id).notifier).edit(
+              (p) => DeskletLayout.makeStack(
+                p,
+                desklet.id,
+                newId: () => 'st${DateTime.now().microsecondsSinceEpoch}',
+              ),
+            ),
+      ),
+    MenuAction(
       icon: Icons.tune,
-      title: host.t('desklets.widgetSettings'),
-      subtitle: host.t('desklets.widgetSettingsSub'),
-      onTap: () {
-        Navigator.pop(sheet);
-        showDeskletSettings(host, ref, theme, desklet);
-      },
+      label: host.t('desklets.actStyle'),
+      onTap: () => showDeskletSettings(host, ref, theme, desklet),
     ),
-    ThemedListRow(
+    MenuAction(
       icon: Icons.delete_outline,
-      title: host.t('desklets.remove'),
-      subtitle: host.t('desklets.removeSub'),
+      label: host.t('desklets.remove'),
       danger: true,
-      onTap: () {
-        Navigator.pop(sheet);
-        removeDesklet(ref, theme, desklet);
-      },
+      onTap: () => removeDesklet(ref, theme, desklet),
     ),
   ];
 }

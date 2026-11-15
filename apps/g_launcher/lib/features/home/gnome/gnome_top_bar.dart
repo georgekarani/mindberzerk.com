@@ -613,7 +613,8 @@ class _OpensQuickSettings extends ConsumerWidget {
       label: context.t(labelKey),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => ref.read(quickSettingsProvider.notifier).toggle(),
+        onTap: () =>
+            ref.read(quickSettingsProvider.notifier).toggle(from: context),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 44),
           child: Center(widthFactor: 1, child: child),

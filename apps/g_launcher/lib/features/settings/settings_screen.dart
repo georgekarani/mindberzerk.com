@@ -284,7 +284,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     trailing: const Chevron(),
                     onTap: () => _openSection(
                       context,
-                      'Appearance',
+                      tr('settings.appearance'),
                       appearanceSection,
                       resets: const [
                         PrefsSection.icons,
@@ -304,7 +304,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     trailing: const Chevron(),
                     onTap: () => _openSection(
                       context,
-                      'Desktop and dock',
+                      tr('settings.desktopAndDock'),
                       desktopSection,
                       resets: const [PrefsSection.desktop],
                     ),
@@ -319,7 +319,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     trailing: const Chevron(),
                     onTap: () => _openSection(
                       context,
-                      'Applications',
+                      tr('settings.applications'),
                       applicationsSection,
                       resets: const [PrefsSection.drawer, PrefsSection.folders],
                     ),
@@ -334,7 +334,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     trailing: const Chevron(),
                     onTap: () => _openSection(
                       context,
-                      'Gestures',
+                      tr('settings.gestures'),
                       gesturesSection,
                       resets: const [PrefsSection.gestures],
                     ),
@@ -355,7 +355,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     subtitle:
                         context.t('settings.androidSettingsMaintenanceReset'),
                     trailing: const Chevron(),
-                    onTap: () => _openSection(context, 'System', systemSection),
+                    onTap: () => _openSection(
+                        context, tr('settings.system'), systemSection),
                   ),
                 ),
               ],
@@ -522,82 +523,86 @@ class _UpdateBanner extends ConsumerWidget {
 
     final s = SettingsSkin.of(context);
     final notifier = ref.read(appUpdateProvider.notifier);
-    final (String title, String subtitle) = switch (update.status) {
-      UpdateStatus.downloading => (
-          context.t('settings.update.downloading'),
-          context.t('settings.update.keepUsing'),
+    final status = update.status;
+    final ink = ThemeData.estimateBrightnessForColor(s.acc) == Brightness.dark
+        ? Colors.white // theme-exempt: ink on the accent
+        : const Color(0xFF111111); // theme-exempt: ink
+
+    // ─── ONE LINE, THE ICON CARRIES THE STATE ─────────────────────────
+    //
+    // It was a title, a subtitle explaining the title, and a button. The
+    // icon now says which state this is (an arrow, a turning ring, a tick)
+    // and the one line says it in words, so nothing needs explaining.
+    final Widget lead = switch (status) {
+      UpdateStatus.downloading => SizedBox(
+          width: 36,
+          height: 36,
+          child: Padding(
+            padding: const EdgeInsets.all(5),
+            // Indeterminate: the plugin reports no byte counts, so a
+            // percentage here would be invented.
+            child: CircularProgressIndicator(
+              strokeWidth: 3,
+              color: s.acc,
+              backgroundColor: s.card2,
+            ),
+          ),
         ),
-      UpdateStatus.readyToInstall => (
-          context.t('settings.update.ready'),
-          context.t('settings.update.willReloadOnRestart'),
+      UpdateStatus.readyToInstall => Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(color: s.acc, shape: BoxShape.circle),
+          child: Icon(Icons.check, size: 20, color: ink),
         ),
-      _ => (
-          context.t('settings.update.available'),
-          context.t('settings.update.fromPlay'),
+      _ => Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: s.acc.withValues(alpha: 0.18),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(Icons.arrow_downward, size: 20, color: s.acc),
         ),
     };
+
+    final title = context.t(switch (status) {
+      UpdateStatus.downloading => 'settings.update.downloading',
+      UpdateStatus.readyToInstall => 'settings.update.ready',
+      _ => 'settings.update.available',
+    });
 
     return Container(
       margin:
           EdgeInsets.fromLTRB(s.framing.cardInset, 0, s.framing.cardInset, 16),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       decoration: BoxDecoration(
-        color: s.acc.withValues(alpha: 0.10),
+        color: s.acc.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(s.framing.cardRadius),
-        border: Border.all(color: s.acc.withValues(alpha: 0.30)),
+        border: Border.all(color: s.acc.withValues(alpha: 0.34)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Icon(Icons.system_update_alt, color: s.acc),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        color: s.tx,
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(color: s.mut, fontSize: 12.5),
-                    ),
-                  ],
-                ),
+          lead,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              title,
+              style: TextStyle(
+                color: s.tx,
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
               ),
-              if (update.status != UpdateStatus.downloading) ...[
-                const SizedBox(width: 8),
-                ThemedButton(
-                  label: update.status == UpdateStatus.readyToInstall
-                      ? context.t('settings.update.restart')
-                      : context.t('settings.download'),
-                  onPressed: () => update.status == UpdateStatus.readyToInstall
-                      ? confirmUpdateRestart(context, notifier)
-                      : notifier.startDownload(),
-                ),
-              ],
-            ],
+            ),
           ),
-          // INDETERMINATE, and that is not laziness. The plugin does not surface
-          // `bytesDownloaded`, so a percentage here would be invented. See the
-          // header of update_repository.dart.
-          if (update.status == UpdateStatus.downloading) ...[
-            const SizedBox(height: 14),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                minHeight: 3,
-                backgroundColor: s.card2,
-                valueColor: AlwaysStoppedAnimation<Color>(s.acc),
-              ),
+          if (status != UpdateStatus.downloading) ...[
+            const SizedBox(width: 8),
+            ThemedButton(
+              label: status == UpdateStatus.readyToInstall
+                  ? context.t('settings.update.restart')
+                  : context.t('qs.update'),
+              onPressed: () => status == UpdateStatus.readyToInstall
+                  ? confirmUpdateRestart(context, notifier)
+                  : notifier.startDownload(),
             ),
           ],
         ],

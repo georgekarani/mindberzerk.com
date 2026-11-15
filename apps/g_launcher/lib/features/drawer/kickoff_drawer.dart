@@ -63,10 +63,11 @@ class _Slot {
           : 'cat:$category';
 
   String get label => switch (tab) {
-        KickoffTab.favorites => 'Favorites',
-        KickoffTab.frequent => 'Frequent',
-        KickoffTab.all => 'All',
-        null => isAdd ? 'New category' : category!,
+        KickoffTab.favorites => tr('drawer.kickoff.favorites'),
+        KickoffTab.frequent => tr('drawer.kickoff.frequent'),
+        KickoffTab.all => tr('drawer.kickoff.all'),
+        null =>
+          isAdd ? tr('drawer.kickoff.newCategory') : _categoryLabel(category!),
       };
 
   IconData get icon => switch (tab) {
@@ -1292,14 +1293,13 @@ class _Empty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = switch (slot.tab) {
-      KickoffTab.favorites =>
-        'Pin an app to the dock and it shows up here.\nHold any app, then Pin to dock.',
-      KickoffTab.frequent => 'The apps you use most will collect here.',
-      KickoffTab.all => 'No apps.',
+      KickoffTab.favorites => tr('drawer.pinAnAppTo'),
+      KickoffTab.frequent => tr('drawer.theAppsYouUse'),
+      KickoffTab.all => tr('drawer.noApps'),
       // A category slot only exists because it had members when the rail was
       // built, so this is the frame between an uninstall and the rebuild. It
       // needs words rather than a blank panel, but it never sits there.
-      null => 'Nothing in this category.',
+      null => tr('drawer.nothingInThisCategory'),
     };
 
     return Center(
@@ -1318,4 +1318,11 @@ class _Empty extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Translates a built-in category name for display, leaving custom ones as is.
+String _categoryLabel(String name) {
+  final key = 'category.${name.toLowerCase().replaceAll(' ', '')}';
+  final out = tr(key);
+  return out == key ? name : out;
 }

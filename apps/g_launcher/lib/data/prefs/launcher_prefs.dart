@@ -1,6 +1,7 @@
 import 'package:collection/collection.dart';
 
 import '../../engine/wallpaper_framing.dart';
+import '../../i18n/i18n.dart';
 import '../../platform/launcher_api.g.dart' as api;
 
 /// User overrides for ONE theme.
@@ -2077,6 +2078,18 @@ class AppFolder {
   /// is APPENDED to this class rather than inserted, so an older build reading
   /// a newer prefs blob simply drops the key.
   final String? glyph;
+
+  /// The name as shown to the user.
+  ///
+  /// Category folders ('cat:' ids) are named by the launcher, and [name] stays
+  /// the English identifier that ordering and glyph lookup key on, so only the
+  /// display is translated. Folders the user named are shown as typed.
+  String get label {
+    if (!id.startsWith('cat:')) return name;
+    final key = 'category.${name.toLowerCase().replaceAll(' ', '')}';
+    final out = tr(key);
+    return out == key ? name : out;
+  }
 
   /// [glyph] takes a WRAPPED value, unlike the two above it.
   ///

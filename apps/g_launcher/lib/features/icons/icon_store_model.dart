@@ -86,7 +86,10 @@ bool isChoosableBrand(PackInfo p) {
 /// what "included" means.
 String? distroLinePackFor(EffectiveTheme theme, Iterable<PackInfo> catalogue) {
   final ids = {for (final p in catalogue) p.packId};
-  for (final id in [theme.spec.icons.brandPack, defaultLinePackFor(theme.spec.id)]) {
+  for (final id in [
+    theme.spec.icons.brandPack,
+    defaultLinePackFor(theme.spec.id)
+  ]) {
     if (id != null && id.isNotEmpty && ids.contains(id)) return id;
   }
   return null;

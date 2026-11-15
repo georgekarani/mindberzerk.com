@@ -55,7 +55,7 @@ Future<void> showSearchSheet(
       opaque: false,
       barrierColor: Colors.black.withValues(alpha: 0.5),
       barrierDismissible: true,
-      barrierLabel: 'Dismiss',
+      barrierLabel: tr('drawer.dismiss'),
       transitionDuration: const Duration(milliseconds: 190),
       reverseTransitionDuration: const Duration(milliseconds: 150),
       pageBuilder: (_, __, ___) =>

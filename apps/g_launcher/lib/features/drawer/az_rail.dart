@@ -30,6 +30,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../engine/effective_theme.dart';
+import 'package:g_launcher/i18n/i18n.dart';
 
 /// How the index behaves, or whether it is there at all.
 enum IndexRail {
@@ -62,9 +63,12 @@ enum IndexRail {
   /// the key, which is worse on screen than English is, and the i18n sweep has
   /// not reached these rows.
   (String, String) get copy => switch (this) {
-        IndexRail.off => ('Off', 'No index on the edge.'),
-        IndexRail.plain => ('Plain', 'The letters hold still.'),
-        IndexRail.arc => ('Arc', 'The letters bow away from your finger.'),
+        IndexRail.off => (tr('settings.backup.off'), tr('drawer.noIndexOnThe')),
+        IndexRail.plain => (
+            tr('drawer.plain'),
+            tr('drawer.theLettersHoldStill')
+          ),
+        IndexRail.arc => (tr('drawer.arc'), tr('drawer.theLettersBowAway')),
       };
 
   /// Every style a picker offers, in the order it should read.

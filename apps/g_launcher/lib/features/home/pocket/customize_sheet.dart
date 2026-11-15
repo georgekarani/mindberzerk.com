@@ -26,7 +26,7 @@ Future<void> showCustomizeSheet(
     context: context,
     barrierColor: Colors.black.withValues(alpha: 0.25),
     barrierDismissible: true,
-    barrierLabel: 'Close',
+    barrierLabel: tr('common.close'),
     transitionDuration: const Duration(milliseconds: 200),
     pageBuilder: (routeContext, _, __) => Align(
       alignment: Alignment.bottomCenter,

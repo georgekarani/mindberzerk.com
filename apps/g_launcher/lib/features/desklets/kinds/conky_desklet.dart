@@ -1,9 +1,8 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../../../core/visibility_gate.dart';
 import '../../../data/prefs/desklet_layout.dart';
 import '../../../data/prefs/launcher_prefs.dart';
 import '../../../data/prefs/prefs_repository.dart';
@@ -48,7 +47,7 @@ class ConkyDesklet extends ConsumerStatefulWidget {
 }
 
 class _ConkyDeskletState extends ConsumerState<ConkyDesklet> {
-  Timer? _tick;
+  GatedTicker? _tick;
   DateTime _now = DateTime.now();
 
   @override
@@ -67,24 +66,26 @@ class _ConkyDeskletState extends ConsumerState<ConkyDesklet> {
 
   @override
   void dispose() {
-    _tick?.cancel();
+    _tick?.dispose();
     super.dispose();
   }
 
   /// Every second only when the rc prints seconds; otherwise on the minute,
   /// so an idle desktop is not repainted sixty times for nothing.
+  ///
+  /// Gated on lifecycle: a plain Timer kept firing behind every other app and
+  /// with the screen off, waking the CPU to rebuild a desklet nobody could see.
+  /// The gate stops it on pause and fires once on the way back, so the time is
+  /// right the moment the desktop returns.
   void _schedule() {
-    _tick?.cancel();
-    if (ConkyTemplate.needsSeconds(ConkyDesklet.rcOf(widget.desklet))) {
-      _tick = Timer.periodic(const Duration(seconds: 1), (_) => _refresh());
-    } else {
-      final now = DateTime.now();
-      final toMinute = Duration(seconds: 60 - now.second);
-      _tick = Timer(toMinute, () {
-        _refresh();
-        _schedule();
-      });
-    }
+    _tick?.dispose();
+    final seconds =
+        ConkyTemplate.needsSeconds(ConkyDesklet.rcOf(widget.desklet));
+    _tick = GatedTicker(
+      seconds ? const Duration(seconds: 1) : const Duration(minutes: 1),
+      _refresh,
+      alignToInterval: true,
+    )..start();
   }
 
   void _refresh() {

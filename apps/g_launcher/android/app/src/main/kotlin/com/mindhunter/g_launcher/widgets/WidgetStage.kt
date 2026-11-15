@@ -140,6 +140,9 @@ object WidgetStage {
     // battery drain nobody can see.
     private var lastPlacements: List<Placement> = emptyList()
     private var lastVisible = false
+
+    /** Has Dart ever synced? Before that there is nothing honest to replay. */
+    private var synced = false
     private var retries = 0
     private var retryScheduled = false
 
@@ -242,6 +245,14 @@ object WidgetStage {
                 view.visibility = View.GONE
                 layer.addView(view)
             }
+
+            // ─── AND REPLAY WHAT DART LAST ASKED FOR ─────────────────────
+            //
+            // The Dart side survives an Activity recreate (the engine is
+            // cached), so as far as it knows nothing changed and it will not
+            // sync again. Its last request is still the truth: same rects,
+            // same visibility. Without this the layer stayed GONE for good.
+            if (synced) sync(lastPlacements, lastVisible, interactive)
         }
     }
 
@@ -313,20 +324,27 @@ object WidgetStage {
         visible: Boolean,
         interactive: Boolean,
     ) {
+        // ─── REMEMBERED BEFORE THE EARLY RETURNS, NOT AFTER ─────────────────
+        //
+        // Dart only calls this when something CHANGES, and it cannot know the
+        // stage was missing. A sync that arrived between an Activity being
+        // recreated and [attach]'s post running was dropped here, the new
+        // layer came up GONE, and every hosted widget stayed invisible until
+        // the user moved something. Held first, so [attach] can replay it.
+        //
+        // Also why interactivity is set here: a sync carrying nothing but that
+        // change must still land. Dart sends exactly that when a menu opens
+        // over a desktop whose rects have not moved.
+        this.interactive = interactive
+        lastPlacements = placements
+        lastVisible = visible
+        synced = true
+
         val layer = stage ?: return
         val host = controller ?: return
 
-        // Set BEFORE the early returns below, so a sync carrying nothing but a
-        // change of interactivity still lands. Dart sends exactly that when a
-        // menu opens over a desktop whose rects have not moved.
-        this.interactive = interactive
-
         layer.visibility = if (visible) View.VISIBLE else View.GONE
         hitRects.clear()
-
-        // Held so a retry has something to replay. See the fields' note.
-        lastPlacements = placements
-        lastVisible = visible
 
         val present = mutableSetOf<Int>()
         var missing = false

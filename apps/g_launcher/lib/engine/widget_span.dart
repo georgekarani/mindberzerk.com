@@ -33,9 +33,21 @@
 /// column count or switches to a distro with a different grid: a widget that
 /// filled the width still fills it.
 ///
-/// The dp path needs the cell, but it is self-correcting for the same reason:
-/// 250dp is 250dp whatever the grid, so `ceil(250 / cellW)` lands on the same
-/// PROPORTION of the screen that any other launcher gives it.
+/// ─── AND THE DP PATH GOES THROUGH LAUNCHER CELLS TOO ────────────────────────
+///
+/// It used to divide the declared dp by our cell, on the reasoning that a
+/// legacy provider "declared a minimum, not a target". That handed the widget
+/// its bare minimum, which no other launcher does: a provider writing 250dp by
+/// 110dp is saying "4 by 2 cells" in the only unit it had, and every launcher
+/// reads it back with the same `70n - 30` relationship and then gives it four
+/// columns and two rows of ITS cells, which on a modern phone is far more than
+/// 250 by 110. Layouts are designed for that room. Given the minimum instead,
+/// Apple Music's 4 x 2 list came out about 260dp by 88dp with its second row
+/// cut in half, under a picker preview showing four rows.
+///
+/// So dp is converted to launcher cells first and then multiplied into the
+/// fine grid, exactly like the grid path. The placed widget is the size the
+/// picker's label has always claimed.
 ///
 /// ─── PURE, SO IT CAN BE TESTED WITHOUT A PHONE ──────────────────────────────
 ///
@@ -176,14 +188,24 @@ abstract final class WidgetSpanResolver {
 
     // ─── THE FOOTPRINT ────────────────────────────────────────────────────
     //
-    // Grid units when the provider gave them, dp otherwise. Never both, and
-    // never one converted into the other.
+    // Launcher cells either way: the provider's own when it gave them, the
+    // ones its dp stands for otherwise. Then into the fine grid. A provider
+    // that reported nothing keeps one fine cell rather than a whole icon cell.
+    //
+    // A cell that has not been measured yet (zero or not finite) also answers
+    // one: there is no desktop to size against, and the next layout pass
+    // re-derives with a real cell.
+    bool measured(double size) => size.isFinite && size > 0;
     final sx = f.targetCellWidth > 0
         ? f.targetCellWidth * colFactor
-        : _cellsForDp(f.minWidthDp, cell.w, cell.gutter);
+        : (f.minWidthDp > 0 && measured(cell.w)
+            ? launcherCells(f.minWidthDp) * colFactor
+            : 1);
     final sy = f.targetCellHeight > 0
         ? f.targetCellHeight * rowFactor
-        : _cellsForDp(f.minHeightDp, cell.h, cell.gutter);
+        : (f.minHeightDp > 0 && measured(cell.h)
+            ? launcherCells(f.minHeightDp) * rowFactor
+            : 1);
 
     final spanX = sx.clamp(1, cols);
     final spanY = sy.clamp(1, rows);
@@ -260,7 +282,19 @@ abstract final class WidgetSpanResolver {
     return a.isFinite && a > 0 ? a : 1;
   }
 
-  /// dp to cells, with the gutter accounted for.
+  /// How many LAUNCHER cells a declared dp stands for.
+  ///
+  /// The inverse of Android's `70n - 30`, rounded up, which is how every
+  /// launcher reads a provider that predates `targetCellWidth`: 250dp is four
+  /// cells, 110dp is two.
+  static int launcherCells(int dp) {
+    if (dp <= 0) return 1;
+    final n = ((dp + 30) / 70).ceil();
+    return n < 1 ? 1 : n;
+  }
+
+  /// dp to cells, with the gutter accounted for. For resize floors only: the
+  /// smallest a widget may be dragged to is a real dp limit, not a cell count.
   ///
   /// A tile of n cells is drawn inside `n * cell - gutter` of usable space, so
   /// dividing the raw dp by the raw cell is short by up to a full cell on a

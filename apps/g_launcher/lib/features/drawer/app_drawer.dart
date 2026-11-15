@@ -2105,7 +2105,7 @@ class _FolderTileState extends ConsumerState<_FolderTile> {
           context.showMessage(
             context.t(
               'drawer.mergedInto',
-              {'name': widget.item.folder.name},
+              {'name': widget.item.folder.label},
             ),
           );
         }
@@ -2230,7 +2230,7 @@ class _FolderTileState extends ConsumerState<_FolderTile> {
           shape: widget.shape,
           theme: theme,
           labelLines: widget.labelLines,
-          label: item.folder.name,
+          label: item.folder.label,
           icon: glyph,
         );
 

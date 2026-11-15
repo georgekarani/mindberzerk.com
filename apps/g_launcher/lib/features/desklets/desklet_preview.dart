@@ -44,7 +44,7 @@ import '../../engine/effective_theme.dart';
 // the enum has to come from where it is declared, which is the same place
 // `desklet_skin` takes it from.
 import '../../engine/theme_spec.dart' show ShellKind;
-import 'desklet_surface.dart' show buildDesklet;
+import 'desklet_surface.dart' show buildDesklet, deskletNeedsWidth;
 
 class DeskletPreview extends StatelessWidget {
   const DeskletPreview({
@@ -61,6 +61,11 @@ class DeskletPreview extends StatelessWidget {
   /// smaller because it shows two columns inside an installer window rather
   /// than two across a full screen.
   final double height;
+
+  /// Fine grid columns across a phone screen: a 4 column grid at
+  /// `DeskletLayout.colFactor` 2. Only used to give a preview a believable
+  /// tile width, so a wider grid costs nothing but a slightly roomier swatch.
+  static const int _fineColumns = 8;
 
   @override
   Widget build(BuildContext context) {
@@ -100,13 +105,35 @@ class DeskletPreview extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(10),
-        child: Center(
-          child: IgnorePointer(
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: preview ?? const SizedBox.shrink(),
-            ),
-          ),
+        child: LayoutBuilder(
+          builder: (context, box) {
+            final child = preview ?? const SizedBox.shrink();
+
+            // The width the tile would have on the desktop at its default
+            // span, and never narrower than the swatch. FittedBox measures
+            // unbounded, so a card needs this before its rows can lay out;
+            // it then scales down into the swatch like every other kind.
+            final tile = MediaQuery.sizeOf(context).width /
+                _fineColumns *
+                kind.defaultSpanX;
+            final width = box.maxWidth.isFinite && box.maxWidth > tile
+                ? box.maxWidth
+                : tile;
+
+            return Center(
+              child: IgnorePointer(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: deskletNeedsWidth(kind.id, skin)
+                      ? ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: width),
+                          child: child,
+                        )
+                      : child,
+                ),
+              ),
+            );
+          },
         ),
       ),
     );
