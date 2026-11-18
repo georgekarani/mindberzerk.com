@@ -47,19 +47,40 @@ abstract final class FrameProbe {
   /// suspects rather than a number to bisect by hand.
   static final Map<String, int> _rebuilds = {};
 
+  /// Elements already built once. An Expando, so it never keeps one alive.
+  static final Expando<bool> _seen = Expando<bool>('frame probe');
+
+  /// Which running animations were seen this window, keyed by the line in this
+  /// app that started them. Debug only. This is the half that names a
+  /// REPAINT-ONLY offender: an AnimationController driving a painter or a
+  /// transition never rebuilds a widget, so [_rebuilds] stays empty for it.
+  static final Map<String, int> _animations = {};
+
+  /// Sampled at most this often, so attribution costs nothing per frame.
+  static const _sampleEvery = Duration(milliseconds: 500);
+  static DateTime _lastSample = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// A static method, so every tear-off of it is the same object and the
+  /// identity check in [_flush] can tell whether someone replaced it.
+  static void _hook(Element element, bool builtOnce) {
+    // First builds are a page opening, not idle churn. Tracked here rather
+    // than read from `builtOnce`, which Flutter only ever sets while
+    // debugPrintRebuildDirtyWidgets is on, so it arrives false every time and
+    // filtered out every rebuild the probe existed to count.
+    if (_seen[element] == null) {
+      _seen[element] = true;
+      return;
+    }
+    final name = element.widget.runtimeType.toString();
+    _rebuilds[name] = (_rebuilds[name] ?? 0) + 1;
+  }
+
   static void start() {
     if (_running || kReleaseMode) return;
     _running = true;
 
     SchedulerBinding.instance.addTimingsCallback(_onTimings);
-    if (kDebugMode) {
-      debugOnRebuildDirtyWidget = (element, builtOnce) {
-        // First builds are a page opening, not idle churn.
-        if (!builtOnce) return;
-        final name = element.widget.runtimeType.toString();
-        _rebuilds[name] = (_rebuilds[name] ?? 0) + 1;
-      };
-    }
+    if (kDebugMode) debugOnRebuildDirtyWidget = _hook;
     // Flush on the way out so a window that ends with the screen off does not
     // report the frames before it as the idle rate. Then stop the timer: a
     // backgrounded probe printing "0 frames" every ten seconds is a wakeup that
@@ -102,6 +123,56 @@ abstract final class FrameProbe {
       _buildMicros += t.buildDuration.inMicroseconds;
       _rasterMicros += t.rasterDuration.inMicroseconds;
     }
+    if (kDebugMode) _sampleAnimations();
+  }
+
+  /// Names every animation running right now by where this app started it.
+  ///
+  /// Flutter records, in debug, the stack that registered each transient frame
+  /// callback, and a ticker that reschedules itself carries the ORIGINAL stack
+  /// forward. `debugAssertNoTransientCallbacks` is the only public way to read
+  /// those stacks: it reports an error that lists them. Intercepting it turns
+  /// that into "home_grid.dart:133 is animating", which is the whole question.
+  static void _sampleAnimations() {
+    final now = DateTime.now();
+    if (now.difference(_lastSample) < _sampleEvery) return;
+    _lastSample = now;
+    if (SchedulerBinding.instance.transientCallbackCount == 0) return;
+
+    // It REPORTS rather than throws, through FlutterError.onError, which is
+    // wired to Crashlytics. Swap the handler for the length of one synchronous
+    // call so the listing lands here and nowhere else.
+    List<String>? callbacks;
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      final info = details.informationCollector?.call() ?? const [];
+      // One DiagnosticsStackTrace per running callback.
+      callbacks = [for (final n in info) n.toStringDeep()];
+    };
+    try {
+      SchedulerBinding.instance.debugAssertNoTransientCallbacks('frame probe');
+    } finally {
+      FlutterError.onError = previous;
+    }
+    final found = callbacks;
+    if (found == null) return;
+
+    // Per callback, the first frame in OUR code that is not this file. The
+    // description nodes carry no stack and simply match nothing.
+    final site = RegExp(r'package:g_launcher/([^\s)]+\.dart):(\d+)');
+    // A Flutter widget that animates by itself (an indeterminate spinner, say)
+    // has no frame of ours on the stack, so it is named by its State instead.
+    final state = RegExp(r'#\d+\s+(_?\w+State)\.\w+ \(package:flutter/');
+    for (final section in found) {
+      String? key;
+      for (final m in site.allMatches(section)) {
+        if (m.group(1)!.endsWith('frame_probe.dart')) continue;
+        key = '${m.group(1)}:${m.group(2)}';
+        break;
+      }
+      key ??= state.firstMatch(section)?.group(1);
+      if (key != null) _animations[key] = (_animations[key] ?? 0) + 1;
+    }
   }
 
   /// `debugPrint`, not the app logger: this is scaffolding read in logcat next
@@ -122,6 +193,19 @@ abstract final class FrameProbe {
         .join(', ');
     _rebuilds.clear();
 
+    final anims = (_animations.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .take(6)
+        .map((e) => e.key)
+        .join(', ');
+    _animations.clear();
+
+    // DevTools and the IDE switch widget-rebuild tracking off on attach by
+    // setting this hook to null, which silently blinds the probe. Put it back.
+    if (kDebugMode && debugOnRebuildDirtyWidget != _hook) {
+      debugOnRebuildDirtyWidget = _hook;
+    }
+
     if (frames == 0) {
       debugPrint(
         'frame probe: 0 frames in ${_window.inSeconds}s (idle, as it should be)',
@@ -134,7 +218,8 @@ abstract final class FrameProbe {
     debugPrint(
       'frame probe: $frames frames in ${_window.inSeconds}s ($fps fps), '
       'build ${build}ms, raster ${raster}ms'
-      '${top.isEmpty ? ' (no rebuilds: a repaint-only animation or a platform texture)' : ', rebuilt: $top'}',
+      '${top.isEmpty ? ', no rebuilds' : ', rebuilt: $top'}'
+      '${anims.isEmpty ? '' : ', animating: $anims'}',
     );
   }
 }

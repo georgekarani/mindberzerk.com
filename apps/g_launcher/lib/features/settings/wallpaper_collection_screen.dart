@@ -79,6 +79,9 @@ class WallpaperCollectionScreen extends ConsumerWidget {
         theme,
         now.hasValue ? now.requireValue : collections,
         source: theme.prefs.wallpaperRotationSource,
+        others: otherDistroFiles(
+          container.read(otherDistroWallpapersProvider).value ?? const [],
+        ),
       );
     }
 

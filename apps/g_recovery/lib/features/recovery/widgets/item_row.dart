@@ -143,6 +143,8 @@ class ItemRow extends StatelessWidget {
 
   Widget _stamp() {
     if (_isLive) return GBadge(label: 'On device');
+    // Still inside a chat app: nothing to restore, so no restore stamp.
+    if (item.role == 'media') return GBadge.live('In the app');
     // Status first, because it changes what the ACTION means, not just what
     // quality to expect. A status was never deleted; it is on a 24 hour timer.
     if (item.role == 'status') return GBadge.partial('Status');

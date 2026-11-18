@@ -141,41 +141,69 @@ class _Media extends ConsumerWidget {
           onPressed: onTap,
         );
 
+    // ─── TWO ROWS, NOT ONE ─────────────────────────────────────────────
+    //
+    // The calendar popover is 224dp wide. One row held the note, the titles
+    // and three 48dp buttons, which left the titles 0dp: every character
+    // wrapped onto its own line, the card grew taller than the popover, and
+    // the month and the notification counts were pushed out of reach. The
+    // titles now get the full width and the transport sits under them, as
+    // the Quick Settings card already does. Two lines at most, cut at
+    // runtime, so a long track name cannot crowd out the calendar either.
     return _Card(
       style: style,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.music_note, color: style.accent),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(s.title,
-                    style: _body(style)),
-                if (s.artist.isNotEmpty)
-                  Text(s.artist,
-                      style: _sub(style)),
-              ],
-            ),
+          Row(
+            children: [
+              Icon(Icons.music_note, color: style.accent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      s.title,
+                      style: _body(style),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (s.artist.isNotEmpty)
+                      Text(
+                        s.artist,
+                        style: _sub(style),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          button(
-            Icons.skip_previous,
-            context.t('panel.mediaPrevious'),
-            s.canSkipPrevious ? () => _send(ref, s, 'previous') : null,
-          ),
-          button(
-            s.playing ? Icons.pause : Icons.play_arrow,
-            s.playing
-                ? context.t('panel.mediaPause')
-                : context.t('panel.mediaPlay'),
-            () => _send(ref, s, s.playing ? 'pause' : 'play'),
-          ),
-          button(
-            Icons.skip_next,
-            context.t('panel.mediaNext'),
-            s.canSkipNext ? () => _send(ref, s, 'next') : null,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              button(
+                Icons.skip_previous,
+                context.t('panel.mediaPrevious'),
+                s.canSkipPrevious ? () => _send(ref, s, 'previous') : null,
+              ),
+              button(
+                s.playing ? Icons.pause : Icons.play_arrow,
+                s.playing
+                    ? context.t('panel.mediaPause')
+                    : context.t('panel.mediaPlay'),
+                () => _send(ref, s, s.playing ? 'pause' : 'play'),
+              ),
+              button(
+                Icons.skip_next,
+                context.t('panel.mediaNext'),
+                s.canSkipNext ? () => _send(ref, s, 'next') : null,
+              ),
+            ],
           ),
         ],
       ),

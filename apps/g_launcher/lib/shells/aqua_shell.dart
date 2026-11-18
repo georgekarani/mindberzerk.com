@@ -19,6 +19,7 @@ import '../engine/effective_theme.dart';
 import '../engine/theme_spec.dart';
 import '../features/dock/dock_entrance.dart';
 import '../features/desklets/desklet_edit.dart';
+import '../features/desklets/desklet_edit_bar.dart';
 import '../features/dock/aqua_dock_metrics.dart';
 import '../features/dock/dock_extent.dart';
 import '../features/drawer/app_icon.dart';
@@ -41,6 +42,7 @@ import '../features/panel/applets/panel_tray_button.dart';
 import '../features/panel/modules/panel_clock_module.dart';
 import '../platform/launcher_api.g.dart';
 import 'safe_page.dart';
+import '../features/desklets/layout_lock.dart';
 
 /// The macOS desktop. Menu bar across the top, magnifying dock floating at the
 /// bottom, and nothing else — no icons on the desktop, same authentic-reading
@@ -157,21 +159,27 @@ class _AquaShellState extends ConsumerState<AquaShell> {
           MenuAction(
             icon: Icons.push_pin_outlined,
             label: host.t('shell.removeFromDock'),
-            onTap: () => notifier.edit(
-              (p) => HomeLayout.unpinFromDock(p, app.componentKey),
-            ),
+            onTap: () {
+              if (layoutLockRefuses(host)) return;
+              notifier.edit(
+                (p) => HomeLayout.unpinFromDock(p, app.componentKey),
+              );
+            },
           )
         else
           MenuAction(
             icon: Icons.push_pin,
             label: host.t('shell.keepInDock'),
-            onTap: () => notifier.edit(
-              (p) => HomeLayout.pinToDock(
-                p,
-                app.componentKey,
-                capacity: capacity,
-              ),
-            ),
+            onTap: () {
+              if (layoutLockRefuses(host)) return;
+              notifier.edit(
+                (p) => HomeLayout.pinToDock(
+                  p,
+                  app.componentKey,
+                  capacity: capacity,
+                ),
+              );
+            },
           ),
         if (isPinned)
           MenuAction(
@@ -190,9 +198,12 @@ class _AquaShellState extends ConsumerState<AquaShell> {
           MenuAction(
             icon: Icons.remove_circle_outline,
             label: host.t('shell.takeOutOfDock'),
-            onTap: () => notifier.edit(
-              (p) => HomeLayout.excludeFromDock(p, app.componentKey),
-            ),
+            onTap: () {
+              if (layoutLockRefuses(host)) return;
+              notifier.edit(
+                (p) => HomeLayout.excludeFromDock(p, app.componentKey),
+              );
+            },
           ),
         // A system app cannot be uninstalled, so the third slot takes App info
         // rather than leaving a hole: two glyphs in a three-column row look
@@ -376,19 +387,22 @@ class _AquaShellState extends ConsumerState<AquaShell> {
         MenuAction(
           icon: Icons.open_in_new,
           label: host.t('shell.moveToHomeScreen'),
-          onTap: () => notifier.edit((p) {
-            final page = ref.read(activeWorkspaceProvider);
-            final slot = HomeLayout.lastFreeSlot(p, page, capacity, theme.cols);
-            if (slot == null) return p;
-            return HomeLayout.placeFolderAt(
-              p,
-              folder.id,
-              page: page,
-              index: slot,
-              capacity: capacity,
-              cols: theme.cols,
-            );
-          }),
+          onTap: () {
+            if (layoutLockRefuses(host)) return;
+            notifier.edit((p) {
+              final page = ref.read(activeWorkspaceProvider);
+              final slot = HomeLayout.lastFreeSlot(p, page, capacity, theme.cols);
+              if (slot == null) return p;
+              return HomeLayout.placeFolderAt(
+                p,
+                folder.id,
+                page: page,
+                index: slot,
+                capacity: capacity,
+                cols: theme.cols,
+              );
+            });
+          },
         ),
         MenuAction(
           icon: Icons.unfold_more,
@@ -527,6 +541,7 @@ class _AquaShellState extends ConsumerState<AquaShell> {
       frequent: frequent,
       capacity: capacity,
       defaultLimit: AquaDockMetrics.minCapacity + 1,
+      fill: [for (final a in apps) a.componentKey],
     );
     if (keys.isEmpty) {
       keys = [
@@ -739,7 +754,10 @@ class _AquaShellState extends ConsumerState<AquaShell> {
                   // held icon keeps moving, and letting it go where it started
                   // still opens its menu.
                   onHold: theme.phoneHome
-                      ? () => ref.read(deskletEditProvider.notifier).enterApps()
+                      ? () {
+                          if (layoutLockRefuses(context)) return;
+                          ref.read(deskletEditProvider.notifier).enterApps();
+                        }
                       : null,
                   capacity: capacity,
                   folders: theme.dockFolders,
@@ -794,6 +812,13 @@ class _AquaShellState extends ConsumerState<AquaShell> {
         // A phone home's edit mode: Edit and Done at the top, home undimmed.
         if (editing && theme.phoneHome && !activitiesOpen)
           Positioned.fill(child: PocketEditBar(theme: theme)),
+
+        // A desktop Aqua (not a phone) gets the floating pill every other
+        // desktop shell has: a visible way out, plus Add and Lock.
+        if (!theme.phoneHome &&
+            !activitiesOpen &&
+            !ref.watch(deskletEditProvider).editingPanel)
+          DeskletEditBar(theme: theme),
       ],
     );
   }

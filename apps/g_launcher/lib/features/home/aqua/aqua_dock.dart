@@ -10,6 +10,7 @@ import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../../data/prefs/home_layout.dart';
 import '../../../design/components/anchored_menu.dart';
+import '../../../design/components/box_probe.dart';
 import '../../../design/liquid_glass.dart';
 import '../../../engine/theme_spec.dart' show ThemePalette;
 import '../../dock/aqua_dock_metrics.dart';
@@ -18,6 +19,7 @@ import '../../dock/dock_motion.dart';
 import '../../drawer/drawer_drag.dart';
 import '../gnome/gnome_dock.dart' show DockEntry;
 import '../workspaces/edge_paging.dart' show homeDragActiveProvider;
+import '../../desklets/layout_lock.dart';
 
 /// The magnifying dock.
 ///
@@ -259,10 +261,10 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
 
   /// The panel's own left edge in global coordinates, so pointer positions can
   /// be converted into the dock-local space the metrics expect.
-  final _panelKey = GlobalKey();
+  final _panel = BoxRef();
 
   /// The run the slots sit in, for converting a drag's pointer to slot space.
-  final _runKey = GlobalKey();
+  final _run = BoxRef();
 
   /// The same wobble the home grid draws, on its own ticker. One ticker for
   /// the whole dock, phase from each slot's index, for the grid's reason.
@@ -382,7 +384,7 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
   }
 
   void _setFocusFrom(Offset globalPosition) {
-    final box = _panelKey.currentContext?.findRenderObject() as RenderBox?;
+    final box = _panel.box;
     if (box == null) return;
     final local = box.globalToLocal(globalPosition);
     setState(() => _focus = local.dx - _padding);
@@ -457,9 +459,9 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
 
   /// The drag moved over the dock. Decide between a gap and a folder.
   void _hover(DrawerDrag drag) {
-    final box = _runKey.currentContext?.findRenderObject() as RenderBox?;
+    final box = _run.box;
     final p = _pointer;
-    if (box == null || p == null || !box.hasSize) return;
+    if (box == null || p == null) return;
     final x = box.globalToLocal(p).dx;
     final others = _others;
     final draggedId = switch (drag) {
@@ -571,12 +573,11 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
         // hairline sits just outside it), so a full dock lands in the grid's
         // columns to the pixel. See [AquaDock.restSlot].
         final phone = widget.restSlot != null;
-        final whole = phone
+        var whole = phone
             ? constraints.maxWidth - _phoneMargin * 2
             : (constraints.maxWidth * 0.92) - _padding * 2;
         final hasTray = widget.tray != null;
-        final available = hasTray ? whole - widget.trayWidth : whole;
-        _available = available;
+        var available = hasTray ? whole - widget.trayWidth : whole;
 
         final rest = widget.restSlot ?? AquaDockMetrics.baseSlot;
         final perSlot = widget.capacity + _launcherCount;
@@ -585,6 +586,33 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
         _spacing = _spacingFor(appCount(gapOn));
 
         final appSlots = appCount(gapOn);
+
+        // ─── PLANK AND DEEPIN HUG THEIR ICONS ─────────────────────────────
+        //
+        // The plate was always 92% of the screen, icons centred inside it,
+        // which is the Mac's swelling dock and nobody else's: elementary's
+        // Plank and Deepin's floating dock are exactly as wide as what they
+        // hold. So a desktop dock that does not swell is measured at rest and
+        // shrunk to that run. A drag opening a gap grows it by a slot, as Plank
+        // does. Pocket's phone dock keeps the grid's width, as an iPhone's.
+        if (!phone && !_swells && widget.style != AquaDockStyle.magnified) {
+          final probe = AquaDockMetrics.layout(
+            count: appSlots + _launcherCount,
+            available: available,
+            restSize: _rest,
+            spacing: _spacing,
+          );
+          if (probe.isNotEmpty) {
+            final run = (probe.last.center + probe.last.size / 2) -
+                (probe.first.center - probe.first.size / 2);
+            if (run < available) {
+              available = run;
+              whole = hasTray ? available + widget.trayWidth : available;
+            }
+          }
+        }
+        _available = available;
+
         final slots = AquaDockMetrics.layout(
           count: appSlots + _launcherCount,
           available: available,
@@ -714,7 +742,13 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
             if (_accepts(d.data)) _hover(d.data);
           },
           onLeave: (_) => setState(_resetDrag),
-          onAcceptWithDetails: (d) => _drop(d.data),
+          onAcceptWithDetails: (d) {
+            if (layoutLockRefuses(context)) {
+              setState(_resetDrag);
+              return;
+            }
+            _drop(d.data);
+          },
           builder: (context, candidate, __) => DockExtentProbe(
             vertical: false,
             child: Center(
@@ -748,70 +782,74 @@ class _AquaDockState extends State<AquaDock> with TickerProviderStateMixin {
                       // the one that makes it read as Aqua. If it janks on a
                       // budget phone, measure here first.
                       filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-                      child: Container(
-                        key: _panelKey,
-                        // The border is INSIDE this width: Container adds a
-                        // decoration's border to its padding, so leaving it out
-                        // took two pixels from the row and overflowed it.
-                        width: phone
-                            ? whole + _border * 2
-                            : whole + _padding * 2 + _border * 2,
-                        padding: phone
-                            ? EdgeInsets.symmetric(vertical: vPad)
-                            : const EdgeInsets.all(_padding),
-                        decoration: widget.glass
-                            ? BoxDecoration(
-                                gradient:
-                                    LiquidGlass.fill(dark: widget.glassDark),
-                                border: Border.all(
-                                  color: LiquidGlass.edge,
-                                  width: _border,
+                      child: BoxProbe(
+                        handle: _panel,
+                        child: Container(
+                          // The border is INSIDE this width: Container adds a
+                          // decoration's border to its padding, so leaving it out
+                          // took two pixels from the row and overflowed it.
+                          width: phone
+                              ? whole + _border * 2
+                              : whole + _padding * 2 + _border * 2,
+                          padding: phone
+                              ? EdgeInsets.symmetric(vertical: vPad)
+                              : const EdgeInsets.all(_padding),
+                          decoration: widget.glass
+                              ? BoxDecoration(
+                                  gradient:
+                                      LiquidGlass.fill(dark: widget.glassDark),
+                                  border: Border.all(
+                                    color: LiquidGlass.edge,
+                                    width: _border,
+                                  ),
+                                  borderRadius: radius,
+                                )
+                              : BoxDecoration(
+                                  color: palette.dock.withValues(
+                                    alpha: palette.dock.a * widget.opacity,
+                                  ),
+                                  border: Border.all(
+                                    color: onDark.withValues(alpha: 0.14),
+                                    width: _border,
+                                  ),
+                                  borderRadius: radius,
                                 ),
-                                borderRadius: radius,
-                              )
-                            : BoxDecoration(
-                                color: palette.dock.withValues(
-                                  alpha: palette.dock.a * widget.opacity,
+                          foregroundDecoration:
+                              widget.glass ? LiquidGlass.rim(radius) : null,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              BoxProbe(
+                                handle: _run,
+                                child: SizedBox(
+                                  width: available,
+                                  height: tallest,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: children,
+                                  ),
                                 ),
-                                border: Border.all(
-                                  color: onDark.withValues(alpha: 0.14),
-                                  width: _border,
-                                ),
-                                borderRadius: radius,
                               ),
-                        foregroundDecoration:
-                            widget.glass ? LiquidGlass.rim(radius) : null,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              key: _runKey,
-                              width: available,
-                              height: tallest,
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: children,
-                              ),
-                            ),
-                            if (hasTray)
-                              SizedBox(
-                                width: widget.trayWidth,
-                                height: tallest,
-                                child: Row(
-                                  children: [
-                                    Container(
-                                      width: 1,
-                                      height: tallest * 0.6,
-                                      margin: const EdgeInsets.symmetric(
-                                        horizontal: 6,
+                              if (hasTray)
+                                SizedBox(
+                                  width: widget.trayWidth,
+                                  height: tallest,
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 1,
+                                        height: tallest * 0.6,
+                                        margin: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                        ),
+                                        color: onDark.withValues(alpha: 0.25),
                                       ),
-                                      color: onDark.withValues(alpha: 0.25),
-                                    ),
-                                    Expanded(child: widget.tray!),
-                                  ],
+                                      Expanded(child: widget.tray!),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),

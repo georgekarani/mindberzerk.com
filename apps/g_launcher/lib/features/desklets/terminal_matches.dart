@@ -39,10 +39,15 @@ class TerminalMatches extends ConsumerWidget {
     super.key,
     required this.theme,
     required this.query,
+    this.onRun,
   });
 
   final EffectiveTheme theme;
   final String query;
+
+  /// Runs a tapped row. Null where the host has no prompt to clear, and then
+  /// the rows are read-only, as before.
+  final ValueChanged<String>? onRun;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -67,6 +72,7 @@ class TerminalMatches extends ConsumerWidget {
             isTop: hits[i] == enterRuns,
             palette: p,
             mono: mono,
+            onTap: onRun == null ? null : () => onRun!(hits[i]),
           ),
       ],
     );
@@ -80,6 +86,7 @@ class _Row extends StatelessWidget {
     required this.isTop,
     required this.palette,
     required this.mono,
+    this.onTap,
   });
 
   final String name;
@@ -87,68 +94,76 @@ class _Row extends StatelessWidget {
   final bool isTop;
   final ThemePalette palette;
   final String? mono;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final onDark = palette.onDark;
     final accent = palette.accent;
 
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        // The same selection wash the top app match uses, so the two lists read
-        // as one ranked list rather than two competing ones.
-        color: isTop ? accent.withValues(alpha: 0.14) : Colors.transparent,
-        borderRadius: BorderRadius.circular(5),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 46,
-            child: Text(
-              // The word a shell would use. `app` on the rows below is already
-              // the other half of this vocabulary.
-              'builtin',
-              style: TextStyle(
-                fontFamily: mono,
-                fontSize: 11,
-                color: onDark.withValues(alpha: 0.45),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          // The same selection wash the top app match uses, so the two lists read
+          // as one ranked list rather than two competing ones.
+          color: isTop ? accent.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: BorderRadius.circular(5),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 56,
+              child: Text(
+                // The word a shell would use. `app` on the rows below is already
+                // the other half of this vocabulary. One line: at 46 it broke
+                // into "builti" and "n".
+                'builtin',
+                maxLines: 1,
+                softWrap: false,
+                style: TextStyle(
+                  fontFamily: mono,
+                  fontSize: 11,
+                  color: onDark.withValues(alpha: 0.45),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                style: TextStyle(fontFamily: mono, fontSize: 14),
-                children: [
-                  TextSpan(
-                    text: name,
-                    style: TextStyle(
-                      color: accent,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  if (description.isNotEmpty)
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  style: TextStyle(fontFamily: mono, fontSize: 14),
+                  children: [
                     TextSpan(
-                      text: '   $description',
+                      text: name,
                       style: TextStyle(
-                        color: onDark.withValues(alpha: 0.6),
-                        fontSize: 12,
+                        color: accent,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                ],
+                    if (description.isNotEmpty)
+                      TextSpan(
+                        text: '   $description',
+                        style: TextStyle(
+                          color: onDark.withValues(alpha: 0.6),
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-          if (isTop)
-            Text(
-              '\u21b5',
-              style: TextStyle(fontFamily: mono, fontSize: 14, color: accent),
-            ),
-        ],
+            if (isTop)
+              Text(
+                '\u21b5',
+                style: TextStyle(fontFamily: mono, fontSize: 14, color: accent),
+              ),
+          ],
+        ),
       ),
     );
   }

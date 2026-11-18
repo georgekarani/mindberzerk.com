@@ -3,11 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/analytics.dart';
 import '../../data/prefs/prefs_repository.dart';
+import '../../data/prefs/launcher_prefs.dart';
 import '../../design/device_preview.dart';
+import '../../design/distro_preview.dart';
+import '../../engine/effective_theme.dart';
 import '../../engine/theme_spec.dart';
 import '../../i18n/i18n.dart';
 import '../../system/wallpaper_source.dart';
 import '../themes/theme_catalog.dart';
+import '../themes/theme_peek.dart';
 import '../themes/themes_screen.dart' show ThemePreview;
 import 'setup_sheet.dart';
 
@@ -217,14 +221,8 @@ class _SetupDesktopPagerState extends ConsumerState<SetupDesktopPager> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Text(
-                      ref.t('setup.desktop.position', {
-                        'n': '${index + 1}',
-                        'total': '${pages.length}',
-                      }),
-                      style: TextStyle(fontSize: 12, color: ink.textMuted),
-                    ),
+                    // No "1 of 4" here: the dots below already say where
+                    // this page sits, and the same fact twice is clutter.
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -277,27 +275,39 @@ class _SetupDesktopPagerState extends ConsumerState<SetupDesktopPager> {
 }
 
 /// A free distro's desktop, drawn from its real spec and wallpaper.
-class _FreeDesktop extends StatelessWidget {
+///
+/// Through [DistroPreview], the adapter the store uses, so setup shows the same
+/// desktop the store and the shell do: Ubuntu's top bar and left dock, Plasma's
+/// bottom panel. Drawing [DevicePreview] straight from the spec passed the
+/// dock and nothing else, so Ubuntu showed a sliver of dock and no bar and
+/// Plasma showed wallpaper with no panel at all.
+class _FreeDesktop extends ConsumerWidget {
   const _FreeDesktop({required this.spec});
 
   final ThemeSpec spec;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final walls = spec.wallpapers;
     final wall = walls.isNotEmpty && isThemeAssetRef(walls.first)
         ? spec.asset(walls.first).image
         : null;
-    return SizedBox.expand(
-      child: DevicePreview(
-        palette: spec.palette,
-        mode: DevicePreviewMode.desktop,
-        dock: spec.layout.dock,
-        cols: spec.layout.cols,
-        rows: spec.layout.rows,
-        framed: false,
-        background: wall,
+
+    // Neutral prefs, as the store's peek resolves: the distro as it ships,
+    // not as anyone has edited it. Bundled, so its files are on the device.
+    final peeked = PeekedTheme(
+      packId: spec.id,
+      spec: spec,
+      effective: EffectiveTheme.resolve(
+        spec,
+        const LauncherPrefs(),
+        systemDark: ref.watch(systemDarkProvider),
       ),
+      assetsOnDisk: true,
+    );
+
+    return SizedBox.expand(
+      child: DistroPreview(peeked: peeked, background: wall),
     );
   }
 }

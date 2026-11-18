@@ -105,7 +105,6 @@ class FoldersScreen extends ConsumerWidget {
           ThemedListRow(
             icon: Icons.view_column_outlined,
             title: context.t('settings.columns'),
-            subtitle: context.t('settings.appsPerRowInside'),
             trailing: _Stepper(
               value: cols,
               min: 3,
@@ -117,7 +116,6 @@ class FoldersScreen extends ConsumerWidget {
           ThemedListRow(
             icon: Icons.table_rows_outlined,
             title: context.t('settings.rows'),
-            subtitle: context.t('settings.howTallAFolder'),
             trailing: _Stepper(
               value: rows,
               min: 2,

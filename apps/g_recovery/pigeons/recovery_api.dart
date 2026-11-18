@@ -271,6 +271,14 @@ class RecoverySummary {
     required this.audioCount,
     required this.documentCount,
     required this.otherCount,
+    required this.deletedItems,
+    required this.deletedBytes,
+    required this.statusItems,
+    required this.statusBytes,
+    required this.previewItems,
+    required this.previewBytes,
+    required this.appMediaItems,
+    required this.appMediaBytes,
   });
 
   final List<RecoverySource> sources;
@@ -303,6 +311,22 @@ class RecoverySummary {
   /// showing that as a total would be the fake count every competitor opens
   /// with.
   final bool partial;
+
+  /// Counts by what happened, appended after [partial] for the same encoding
+  /// reason as the per-kind counts.
+  ///
+  /// Only [deletedItems] is "recoverable now". Statuses were never deleted,
+  /// previews are low-resolution copies whose originals are gone, and app media
+  /// is still inside the chat app. Folding any of them into one total is the
+  /// overclaim the app exists to avoid.
+  final int deletedItems;
+  final int deletedBytes;
+  final int statusItems;
+  final int statusBytes;
+  final int previewItems;
+  final int previewBytes;
+  final int appMediaItems;
+  final int appMediaBytes;
 }
 
 @HostApi()

@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.util.SizeF
 import android.view.Choreographer
 import android.view.ContextThemeWrapper
@@ -261,6 +262,16 @@ class WidgetHostController(context: Context) {
 
     private fun configureOrFinish(a: Activity, id: Int, onResult: (Int?) -> Unit) {
         val info: AppWidgetProviderInfo? = manager.getAppWidgetInfo(id)
+        // Android 12+: a provider that marks its setup screen optional draws
+        // without it, and the stock launcher skips it. Running it anyway lets a
+        // setup screen that closes without RESULT_OK (some OEM widgets do this
+        // under a launcher that is not their own) delete a widget the user
+        // just chose.
+        if (info != null && isConfigurationOptional(info)) {
+            Log.i(TAG, "add ${info.provider.flattenToShortString()}: setup optional, skipped")
+            onResult(id)
+            return
+        }
         if (info?.configure != null) {
             pending = Pending(id, info.provider, onResult)
             runCatching {
@@ -285,6 +296,13 @@ class WidgetHostController(context: Context) {
 
         val ok = resultCode == Activity.RESULT_OK
         val a = activity
+        // One line per add, so a widget that will not add on a given phone
+        // shows which step said no: `adb logcat -s WidgetHost`.
+        Log.i(
+            TAG,
+            "add ${p.provider.flattenToShortString()}: " +
+                "${if (requestCode == REQ_BIND) "bind" else "setup"} result $resultCode",
+        )
         if (!ok || a == null) {
             host.deleteAppWidgetId(p.widgetId)
             p.onResult(null)
@@ -426,6 +444,15 @@ class WidgetHostController(context: Context) {
     }
 
     private companion object {
+        const val TAG = "WidgetHost"
+
+        /** `WIDGET_FEATURE_CONFIGURATION_OPTIONAL`, API 31. */
+        const val FEATURE_CONFIG_OPTIONAL = 4
+
+        fun isConfigurationOptional(info: AppWidgetProviderInfo): Boolean =
+            Build.VERSION.SDK_INT >= 31 &&
+                (info.widgetFeatures and FEATURE_CONFIG_OPTIONAL) != 0
+
         const val REQ_BIND = 0x0B1D
         const val REQ_CONFIG = 0x0C06
     }

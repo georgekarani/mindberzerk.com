@@ -13,6 +13,7 @@ import 'desklet_edit.dart';
 import 'desklet_picker.dart';
 import 'desklet_settings.dart';
 import 'widget_stage.dart';
+import 'layout_lock.dart';
 
 /// What a held desklet offers.
 ///
@@ -132,6 +133,7 @@ List<MenuAction> _actions(
       icon: Icons.open_with,
       label: host.t('desklets.actMove'),
       onTap: () {
+        if (layoutLockRefuses(host)) return;
         final edit = ref.read(deskletEditProvider.notifier);
         edit.enter();
         edit.select(desklet.id);
@@ -141,37 +143,46 @@ List<MenuAction> _actions(
       MenuAction(
         icon: Icons.add,
         label: host.t('common.add'),
-        onTap: () => showDeskletPicker(
-          host,
-          ref,
-          theme,
-          page: desklet.page,
-          intoStack: desklet.id,
-        ),
+        onTap: () {
+          if (layoutLockRefuses(host)) return;
+          showDeskletPicker(
+            host,
+            ref,
+            theme,
+            page: desklet.page,
+            intoStack: desklet.id,
+          );
+        },
       ),
       MenuAction(
         icon: Icons.layers_clear_outlined,
         label: host.t('desklets.unstack'),
-        onTap: () => ref.read(prefsProvider(theme.spec.id).notifier).edit(
-              (p) => DeskletLayout.unstack(
-                p,
-                desklet.id,
-                cols: theme.deskletCols,
-                rows: theme.deskletRows,
-              ),
-            ),
+        onTap: () {
+          if (layoutLockRefuses(host)) return;
+          ref.read(prefsProvider(theme.spec.id).notifier).edit(
+                (p) => DeskletLayout.unstack(
+                  p,
+                  desklet.id,
+                  cols: theme.deskletCols,
+                  rows: theme.deskletRows,
+                ),
+              );
+        },
       ),
     ] else
       MenuAction(
         icon: Icons.layers_outlined,
         label: host.t('desklet_spec.stack'),
-        onTap: () => ref.read(prefsProvider(theme.spec.id).notifier).edit(
-              (p) => DeskletLayout.makeStack(
-                p,
-                desklet.id,
-                newId: () => 'st${DateTime.now().microsecondsSinceEpoch}',
-              ),
-            ),
+        onTap: () {
+          if (layoutLockRefuses(host)) return;
+          ref.read(prefsProvider(theme.spec.id).notifier).edit(
+                (p) => DeskletLayout.makeStack(
+                  p,
+                  desklet.id,
+                  newId: () => 'st${DateTime.now().microsecondsSinceEpoch}',
+                ),
+              );
+        },
       ),
     MenuAction(
       icon: Icons.tune,
@@ -182,7 +193,12 @@ List<MenuAction> _actions(
       icon: Icons.delete_outline,
       label: host.t('desklets.remove'),
       danger: true,
-      onTap: () => removeDesklet(ref, theme, desklet),
+      // Removing is the most final change to a layout, and it was the one a
+      // lock let through. Style stays open: it is how a tile looks, not where.
+      onTap: () {
+        if (layoutLockRefuses(host)) return;
+        removeDesklet(ref, theme, desklet);
+      },
     ),
   ];
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart' show showConfirmSheet;
 
 import '../../app/theme/tokens.dart';
 import '../../bridge/server_api.g.dart';
@@ -48,7 +49,6 @@ class ServerPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             GSpace.gutter,
@@ -198,42 +198,17 @@ class ServerPage extends ConsumerWidget {
   }
 
   Future<void> _confirmForget(BuildContext context, WidgetRef ref) async {
-    final GTokens t = context.g;
-    final bool? go = await showDialog<bool>(
+    final bool go = await showConfirmSheet(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        backgroundColor: t.panel,
-        shape: RoundedRectangleBorder(borderRadius: GRadius.all(GRadius.card)),
-        title: Text(
-          context.s('Forget this server'),
-          style: GType.title.copyWith(color: t.text),
-        ),
-        content: Text(
-          context.s(
-            'The address and password are removed from this phone. Everything '
-            'already copied stays on the server, untouched.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              context.s('Keep'),
-              style: GType.label.copyWith(color: t.muted),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              context.s('Forget'),
-              style: GType.label.copyWith(color: t.danger),
-            ),
-          ),
-        ],
+      title: context.s('Forget this server'),
+      message: context.s(
+        'The address and password are removed from this phone. Everything '
+        'already copied stays on the server, untouched.',
       ),
+      confirmLabel: context.s('Forget'),
+      cancelLabel: context.s('Keep'),
     );
-    if (go != true) return;
+    if (!go) return;
     await ref.read(serverBridgeProvider).forget();
     ref.invalidate(serverConfigProvider);
   }
@@ -450,7 +425,6 @@ class _Empty extends ConsumerWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             GSpace.gutter,

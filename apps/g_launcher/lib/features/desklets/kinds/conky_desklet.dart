@@ -110,8 +110,15 @@ class _ConkyDeskletState extends ConsumerState<ConkyDesklet> {
     );
 
     final size = skin.num_('rowSize', 12);
+    // Two layers, matching the frame's bare surface: a tight outline for a
+    // bright wallpaper, a soft lift for a dark one.
     final shadows = skin.surface == DeskletSurface.bare
         ? [
+            Shadow(
+              color: p.bgBottom.withValues(alpha: 0.85),
+              blurRadius: 2,
+              offset: const Offset(0, 1),
+            ),
             Shadow(
               color: p.bgBottom.withValues(alpha: 0.55),
               blurRadius: 10,

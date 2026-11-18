@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/cdn/pack_repository.dart';
 import '../../data/prefs/new_apps.dart';
+import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../design/theme_mark.dart';
 import '../../engine/effective_theme.dart';
@@ -279,13 +280,23 @@ class AppIcon extends ConsumerWidget {
       ),
     );
 
+    // This app's own icon choice (G2b), selected down to its one key so a
+    // change re-requests one icon, not the drawer.
+    final override = ref.watch(
+      effectiveThemeProvider.select(
+        (t) => t.hasValue
+            ? (t.requireValue.prefs.iconOverrides[entry.componentKey] ?? '-')
+            : '-',
+      ),
+    );
+
     final request = IconRequest(
       entry.componentKey,
       sizePx,
       // updateToken is the app changing its OWN icon, which native keys on
       // and Dart did not. Update WhatsApp, get WhatsApp's old icon until
       // something else happened to move the key.
-      '$styleId|$systemPack|$packGeneration|${entry.updateToken}',
+      '$styleId|$systemPack|$packGeneration|${entry.updateToken}|$override',
     );
     final icon = ref.watch(iconProvider(request));
     final scale =
@@ -354,6 +365,15 @@ class AppIcon extends ConsumerWidget {
       ),
     );
     if (style == BadgeStyle.none) return art;
+
+    // The person turned this app's count off (G2). Selected down to this one
+    // key, so muting one app rebuilds one icon.
+    final muted = ref.watch(
+      globalPrefsProvider.select(
+        (g) => g.value?.badgeMuted?.contains(entry.componentKey) ?? false,
+      ),
+    );
+    if (muted) return art;
 
     // Watched with a selector down to THIS app's number, so a notification
     // arriving for one app rebuilds one icon rather than every icon in the

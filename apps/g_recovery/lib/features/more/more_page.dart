@@ -464,7 +464,7 @@ class _Status extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     _Stat(
-                      value: GFormat.count(summary!.totalItems),
+                      value: GFormat.count(summary!.deletedItems),
                       label: context.s('can be brought back'),
                       tone: t.text,
                     ),

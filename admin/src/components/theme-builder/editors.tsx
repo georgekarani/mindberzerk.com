@@ -7,11 +7,14 @@ import { Field, TextInput, NumberInput, SelectInput, Segmented, Toggle, ColorFie
 import {
   APPS_SURFACES,
   CHROMES,
+  SETTINGS_LOOKS,
+  settingsLookLabels,
   DOCKS,
   DOCK_REVEALS,
   DOCK_STYLES,
   DRAWER_GROUPINGS,
   DRAWER_SCROLLS,
+  LAUNCH_ANIMATIONS,
   ICON_TREATMENTS,
   KICKOFF_RAILS,
   SHELLS,
@@ -22,6 +25,7 @@ import {
   TOP_BAR_SIDES,
   type AppsSurfaceName,
   type ChromeName,
+  type SettingsLookName,
   type DockName,
   type DockRevealName,
   type DockStyleName,
@@ -29,6 +33,7 @@ import {
   type KickoffRailName,
   type ShellName,
   type ThemeAccentJson,
+  type LaunchAnimationName,
   type ThemeDraft,
   type ThemeLayoutJson,
   type ThemeLayoutPresetJson,
@@ -98,6 +103,14 @@ export function MetaEditor(props: {
             value={chrome}
             options={['auto', ...CHROMES] as (ChromeName | 'auto')[]}
             onChange={(v) => setSpec({ chromeFamily: v === 'auto' ? null : v })}
+          />
+        </Field>
+        <Field label="settings look" hint="auto = follow chrome">
+          <SelectInput<SettingsLookName | 'auto'>
+            value={s.settingsLook ?? 'auto'}
+            options={['auto', ...SETTINGS_LOOKS] as (SettingsLookName | 'auto')[]}
+            labels={settingsLookLabels}
+            onChange={(v) => setSpec({ settingsLook: v === 'auto' ? null : v })}
           />
         </Field>
         <Field label="min app version" hint="gates old clients">
@@ -645,6 +658,19 @@ export function LayoutEditor(props: {
         />
       </Field>
       ) : null}
+      {/* Every shell launches apps, so this one is never gated. */}
+      <Field
+        label="launch animation"
+        hint="how an app opens from this distro; the user can still change it"
+      >
+        <Segmented<LaunchAnimationName>
+          value={layout.launchAnimation ?? 'zoom'}
+          options={[...LAUNCH_ANIMATIONS]}
+          onChange={(v) =>
+            setLayout({ launchAnimation: v === 'zoom' ? undefined : v })
+          }
+        />
+      </Field>
     </>
   );
 }
@@ -915,6 +941,16 @@ export function PassthroughEditor(props: {
           absent. The canon path already validates and dedupes what lands here,
           so a malformed entry is caught at publish rather than on someone's
           phone, which is the part that actually needed building. */}
+      <Field
+        label="accent from wallpaper"
+        hint="default to the colour taken from the wallpaper until the user picks one"
+      >
+        <Toggle
+          value={props.spec.accentFromWallpaper ?? false}
+          label="Follow the wallpaper"
+          onChange={(v) => props.setSpec({ accentFromWallpaper: v || undefined })}
+        />
+      </Field>
       <JsonArea
         label="accents"
         hint="the accent colours this distro offers, or blank for one"

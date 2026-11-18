@@ -13,6 +13,7 @@ import '../../dock/dock_extent.dart';
 import '../../dock/dock_metrics.dart';
 import '../../dock/dock_motion.dart';
 import '../../drawer/drawer_drag.dart';
+import '../../desklets/layout_lock.dart';
 
 /// One dock slot.
 ///
@@ -422,6 +423,7 @@ class GnomeDock extends StatelessWidget {
           d.data is AppDrag &&
           d.data.from != DragOrigin.dock,
       onAcceptWithDetails: (d) {
+        if (layoutLockRefuses(context)) return;
         HapticFeedback.mediumImpact();
         onDropApp!((d.data as AppDrag).componentKey);
       },
@@ -776,6 +778,7 @@ class _DockSlotState extends ConsumerState<_DockSlot> {
         onAcceptWithDetails: (d) {
           final after = _dropAfter ?? false;
           setState(() => _dropAfter = null);
+          if (layoutLockRefuses(context)) return;
           HapticFeedback.selectionClick();
           widget.onReorder!((d.data as AppDrag).componentKey, entry.id, after);
         },

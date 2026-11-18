@@ -52,6 +52,7 @@ import '../gnome/desktop_menu.dart';
 import '../home_grid.dart';
 import 'workspace_controller.dart';
 import 'workspace_dots.dart';
+import '../../desklets/layout_lock.dart';
 
 /// ─── EVERY POSITION IS A FRACTION OF THE SCREEN ────────────────────────────
 ///
@@ -440,9 +441,13 @@ class _GnomeOverviewState extends ConsumerState<_GnomeOverview> {
 
   Future<void> _launch(AppEntry app) async {
     HapticFeedback.lightImpact();
+    // Read before closing: closing unmounts this overview, and `ref` is unsafe
+    // from then on (the "Using ref when a widget is unmounted" crash).
+    final apps = ref.read(appListProvider.notifier);
+    final usage = ref.read(usageProvider.notifier);
     _close();
-    await ref.read(appListProvider.notifier).launch(app);
-    await ref.read(usageProvider.notifier).record(app.componentKey);
+    await apps.launch(app);
+    await usage.record(app.componentKey);
   }
 
   /// Substring, in list order, for the reason the drawer's filter is: results
@@ -690,11 +695,10 @@ class _GnomeResults extends StatelessWidget {
               const SizedBox(height: 6),
               AppIcon(entry: a, size: 56),
               const SizedBox(height: 8),
-              Text(
+              // Shrinks to fit, never cut mid-word or ended in an ellipsis.
+              FitLabel(
                 a.label,
                 maxLines: 2,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontFamily: theme.typography.display,
                   fontSize: 12 * theme.textScale,
@@ -738,6 +742,7 @@ class _GnomeDash extends ConsumerWidget {
       frequent: ref.watch(frequentAppsProvider),
       capacity: _gnomeDashCount,
       defaultLimit: _gnomeDashCount,
+      fill: [for (final a in apps) a.componentKey],
     );
     if (keys.isEmpty) {
       keys = [for (final a in apps.take(_gnomeDashCount)) a.componentKey];
@@ -1066,6 +1071,9 @@ class _TrashState extends ConsumerState<_Trash> {
         onTap: !on
             ? null
             : () {
+                // Deleting a workspace deletes what sits on it. Adding one
+                // is left alone: an empty page moves nothing.
+                if (layoutLockRefuses(context)) return;
                 if (!_armed) {
                   HapticFeedback.selectionClick();
                   setState(() => _armed = true);

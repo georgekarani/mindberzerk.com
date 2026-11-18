@@ -393,6 +393,27 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _refreshDefaultLauncher();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _offerFoundBackup());
+  }
+
+  /// Offered once, on its own, the moment setup opens.
+  bool _offeredFound = false;
+
+  /// A reinstall or a new phone that already has a backup goes straight to it.
+  ///
+  /// Nothing is asked to find it: Google's Auto Backup has put its copy back
+  /// before first launch, and anything this install can see in the folder is
+  /// read too. The restore screen that opens still has "Set up fresh
+  /// instead", so this offers the backup rather than imposing it. Only when
+  /// nothing turns up does the restore button fall back to the folder picker,
+  /// which Android requires for files an earlier install wrote.
+  Future<void> _offerFoundBackup() async {
+    if (_offeredFound || !mounted) return;
+    _offeredFound = true;
+    final record =
+        await ref.read(backupsProvider.notifier).findAutomatically();
+    if (record == null || !mounted) return;
+    await _restore(record);
   }
 
   @override
@@ -496,15 +517,14 @@ class _SetupScreenState extends ConsumerState<SetupScreen>
   /// the open-a-file flow runs instead.
   Future<BackupRecord?> _findFolderBackup() async {
     final notifier = ref.read(backupsProvider.notifier);
-    var added = await notifier.absorbFolder();
-    if (added == 0) {
-      final picked = await ref.read(backupFolderProvider.notifier).choose();
-      if (picked == null) return null;
-      added = await notifier.absorbFolder();
-    }
-    if (added == 0) return null;
-    final records = await ref.read(backupsProvider.future);
-    return records.isEmpty ? null : records.first;
+    // Whatever is already reachable first; the picker only when that is none.
+    final found = await notifier.findAutomatically();
+    if (found != null) return found;
+    final picked = await ref.read(backupFolderProvider.notifier).choose();
+    if (picked == null) return null;
+    // [best], never the newest file: after a reinstall the newest is often a
+    // blank copy written by the fresh install a moment before.
+    return notifier.findAutomatically();
   }
 
   Future<BackupRecord?> _pickBackupFile() async {
@@ -3006,7 +3026,6 @@ class _StepDrawer extends ConsumerWidget {
               // a single scrolling grid.
               SetupRow(
                 title: context.t('setup.oneLongList'),
-                subtitle: context.t('setup.scrollsUpAndDownNoPages'),
                 selected: style == 'vertical',
                 mono: mono,
                 marker: mono ? SetupMarker.chevron : SetupMarker.radio,

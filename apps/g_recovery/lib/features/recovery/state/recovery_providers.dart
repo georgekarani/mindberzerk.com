@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show immutable;
+import 'package:flutter/foundation.dart' show immutable, setEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../bridge/recovery_api.g.dart';
@@ -150,7 +150,11 @@ const List<String> kAllSourceIds = <String>[
 /// the routing.
 @immutable
 class RecoveryQuery {
-  const RecoveryQuery({required this.sourceIds, this.kind});
+  const RecoveryQuery({
+    required this.sourceIds,
+    this.kind,
+    this.roles = kRolesDeleted,
+  });
 
   /// Sources to search. Usually all of them.
   final List<String> sourceIds;
@@ -158,16 +162,33 @@ class RecoveryQuery {
   /// "image", "video", "audio", "document", or null for everything.
   final String? kind;
 
+  /// What happened to the item. Defaults to deleted only, so a Photos screen
+  /// never mixes in statuses, previews or media still inside a chat app.
+  final Set<String> roles;
+
   @override
   bool operator ==(Object other) =>
       other is RecoveryQuery &&
       other.kind == kind &&
+      setEquals(other.roles, roles) &&
       other.sourceIds.length == sourceIds.length &&
       other.sourceIds.join(',') == sourceIds.join(',');
 
   @override
-  int get hashCode => Object.hash(kind, sourceIds.join(','));
+  int get hashCode =>
+      Object.hash(kind, sourceIds.join(','), Object.hashAllUnordered(roles));
 }
+
+/// Role values written by the trash map and the native index.
+const String kRoleTrash = 'trash';
+const String kRoleStatus = 'status';
+const String kRoleCache = 'cache';
+const String kRoleMedia = 'media';
+
+const Set<String> kRolesDeleted = <String>{kRoleTrash};
+
+/// An item with no role predates roles and was found in a bin.
+String roleOf(RecoverableItem item) => item.role ?? kRoleTrash;
 
 /// Findings matching a query, merged across sources.
 ///
@@ -192,11 +213,13 @@ final recoveryItemsProvider =
       for (final String sourceId in query.sourceIds) {
         merged.addAll(await bridge.items(sourceId, limit: 400));
       }
-      final List<RecoverableItem> filtered = query.kind == null
-          ? merged
-          : merged
-                .where((RecoverableItem item) => item.kind == query.kind)
-                .toList();
+      final List<RecoverableItem> filtered = merged
+          .where(
+            (RecoverableItem item) =>
+                (query.kind == null || item.kind == query.kind) &&
+                query.roles.contains(roleOf(item)),
+          )
+          .toList();
       filtered.sort((RecoverableItem a, RecoverableItem b) {
         final int byDate = (b.dateDeletedMillis ?? 0).compareTo(
           a.dateDeletedMillis ?? 0,

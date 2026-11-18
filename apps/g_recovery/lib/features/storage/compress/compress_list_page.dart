@@ -114,7 +114,6 @@ class _CompressListPageState extends ConsumerState<CompressListPage> {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Padding(

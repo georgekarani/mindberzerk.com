@@ -47,7 +47,11 @@ class ClockDesklet extends ConsumerWidget {
     const kind = DeskletKinds.clock;
     final config = desklet.config;
 
-    final twelve = kind.read<String>(config, 'format', '24h') == '12h';
+    // An explicit choice in the desklet's settings wins. With none, follow the
+    // phone, as every other clock in the launcher does.
+    final twelve = config.containsKey('format')
+        ? kind.read<String>(config, 'format', '24h') == '12h'
+        : !MediaQuery.alwaysUse24HourFormatOf(context);
     final seconds = kind.read<bool>(config, 'showSeconds', false);
 
     // The USER's config wins over the SKIN's, and the skin wins over nothing.

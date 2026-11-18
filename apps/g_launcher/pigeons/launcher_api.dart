@@ -616,6 +616,31 @@ class NowPlaying {
   bool canSkipPrevious;
 }
 
+/// PHASE 5. One app shortcut found by a search across every app.
+///
+/// ─── APPENDED LAST, SAME ARGUMENT AS AppShortcut ────────────────────────────
+///
+/// A new class takes the next free codec id, so it goes after every class a
+/// shipped APK already speaks. It carries [componentKey] where [AppShortcut]
+/// does not, because a search result has to say which app it belongs to and
+/// how to launch it; the per-app call already knew both.
+class SearchedShortcut {
+  SearchedShortcut({
+    required this.componentKey,
+    required this.id,
+    required this.label,
+    required this.disabled,
+  });
+
+  /// The publishing app's launcher activity, for [LauncherHostApi.launchShortcut]
+  /// and for finding the app's icon and name.
+  String componentKey;
+
+  String id;
+  String label;
+  bool disabled;
+}
+
 /// A transport command, as the session understands it.
 ///
 /// ─── A STRING, NOT AN ENUM, AND THIS IS THE ONE THAT MATTERS ────────────────
@@ -1128,6 +1153,24 @@ abstract class LauncherHostApi {
   @async
   void setIconPack(String? packageName);
 
+  /// The icons a person picked for single apps, by component key. PHASE G2b.
+  ///
+  /// Each value names where that one app's icon comes from, ahead of every
+  /// tier `getIcon` walks:
+  ///
+  ///   app          the app's own artwork, remasked into the theme's shape
+  ///   pack:<pkg>   that installed Nova/ADW pack's drawing for this app
+  ///   image:<path> a photo the person chose, saved inside this app's files
+  ///
+  /// The WHOLE map every time, not a delta: native swaps it and evicts, so a
+  /// lost call can never leave half an edit applied.
+  ///
+  /// A method only, like the icon pack calls above it: no new class, so no
+  /// codec id moves. `@async` because a pack named here is parsed before the
+  /// reply, which is what lets Dart re-request the icon knowing it is ready.
+  @async
+  void setIconOverrides(Map<String, String> overrides);
+
   // ─── A GENERAL INTENT SEAM ─────────────────────────────────────────────────
 
   /// Fire an arbitrary view intent and let Android pick who handles it.
@@ -1417,6 +1460,27 @@ abstract class LauncherHostApi {
   /// Hand [text] to Android's share sheet (a rice code, for now). False when
   /// there is no window to open it from or nothing can receive text.
   bool shareText(String text);
+
+  /// PHASE 5. Shortcuts from every app whose label contains [query], at most
+  /// [limit]. One `getShortcuts` per user profile with no package set, which
+  /// is how the platform answers "all of them" in a single binder call; asking
+  /// app by app on each keystroke would be hundreds. Never cached natively,
+  /// for the same reason [shortcutsFor] is not: these are the apps' live state.
+  @async
+  List<SearchedShortcut> searchShortcuts(String query, int limit);
+
+  /// PHASE 6. How apps open from now on: 'zoom' | 'reveal' | 'fade' |
+  /// 'slide' | 'none'. Sent when the theme resolves, like [setIconPack], so
+  /// [launchApp] keeps its signature and every caller gets the distro's style
+  /// without passing it. An unknown value is treated as 'zoom'.
+  void setLaunchStyle(String style);
+
+  /// PHASE 6. The system wallpaper's main colours as unsigned ARGB, most
+  /// prominent first (`WallpaperColors` primary, secondary, tertiary). Empty
+  /// below Android 8.1 or when the system cannot describe the wallpaper. Dart
+  /// picks the accent and makes it readable; native only reports.
+  @async
+  List<int> wallpaperColors();
 }
 
 // ─── FLUTTER API (Kotlin calls, Dart implements) ─────────────────────────────

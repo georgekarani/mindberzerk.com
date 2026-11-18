@@ -92,6 +92,9 @@ class BackupRecord {
   /// True when this file can bring its photos with it to another phone.
   bool get carriesPhotos => photoCount > 0;
 
+  /// Same test as [BackupSummary.isBlank], from the row's own counts.
+  bool get isBlank => themeCount == 0 && collectionCount == 0 && photoCount == 0;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'savedAt': savedAt.toUtc().toIso8601String(),
@@ -393,7 +396,9 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
     if (summary == null) return null;
 
     final record = await _store(bytes, summary, imported: false);
-    if (record != null) {
+    // A blank backup stays local. Sent to Google it would replace the real
+    // copy a reinstall restores from.
+    if (record != null && !summary.isBlank) {
       unawaited(_writeCloudCopy(
         bytes,
         withWallpapers: summary.photoCount > 0,
@@ -515,7 +520,10 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
     // A copy of every backup this phone MADE goes to the visible folder.
     // Not the imported ones: they came from that folder, or from a file the
     // user already holds, and a second copy would only crowd out real ones.
-    if (!imported) unawaited(_mirror(record.fileName, bytes));
+    // Never a blank one: it would take over the fixed-name latest file.
+    if (!imported && !summary.isBlank) {
+      unawaited(_mirror(record.fileName, bytes));
+    }
     return record;
   }
 
@@ -560,6 +568,8 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
   static const autoFolderLabel = 'Documents/GLauncher';
 
   /// A dated copy for GLauncher/History: glauncher-2026-11-12-0941.glbak.
+  static final _numberedLatest = RegExp(r'^glauncher-backup \(\d+\)\.glbak$');
+
   static String historyFileName(DateTime t) {
     String two(int n) => n.toString().padLeft(2, '0');
     return 'glauncher-${t.year}-${two(t.month)}-${two(t.day)}-'
@@ -585,10 +595,21 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
       // Newest first from native, so everything past keepMax is the oldest.
       final rows = await api.listBackups();
       var history = 0;
+      var numberedLatest = 0;
       for (final raw in rows) {
         final j = _row(raw);
         if (j == null) continue;
         final name = j.name.toLowerCase();
+        // Numbered copies of the latest file ("glauncher-backup (2).glbak")
+        // piled up one per backup before native learned to reuse its own.
+        // Keep the newest, which is the one native writes to now, and clear
+        // the rest. Only rows this install can see are listed, so this never
+        // touches a file it may not delete.
+        if (_numberedLatest.hasMatch(name)) {
+          numberedLatest++;
+          if (numberedLatest > 1) await api.deleteBackup(j.uri);
+          continue;
+        }
         if (!name.startsWith('glauncher-') ||
             name.startsWith('glauncher-backup')) {
           continue;
@@ -599,6 +620,26 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
     } catch (_) {
       // Shared storage is a convenience copy; never fail a backup over it.
     }
+  }
+
+  /// The backup a restore should use: the most recently TAKEN one that holds
+  /// something. Not the newest file, which after a reinstall is often a blank
+  /// copy written seconds earlier, and not the newest import, whose date is
+  /// the moment it was copied in.
+  Future<BackupRecord?> best() async {
+    final usable = (await future).where((r) => !r.isBlank).toList()
+      ..sort((a, b) => b.takenAt.compareTo(a.takenAt));
+    return usable.isEmpty ? null : usable.first;
+  }
+
+  /// Every place a backup can be found without asking the user anything:
+  /// Google's restored copy, this install's own files, and the visible folder
+  /// as far as Android lets this install see it. Then [best].
+  Future<BackupRecord?> findAutomatically() async {
+    // Absorbing writes the index through [_write], which updates state, so
+    // [best] reads the merged list without a rebuild.
+    await absorbFolder();
+    return best();
   }
 
   /// Imports every backup in the folder that this phone does not already have.
@@ -636,7 +677,7 @@ class BackupsNotifier extends AsyncNotifier<List<BackupRecord>> {
       final bytes = await api.readBackup(j.uri);
       if (bytes == null) continue;
       final summary = PrefsBackup.inspect(bytes);
-      if (summary == null) continue;
+      if (summary == null || summary.isBlank) continue;
       if (await _alreadyHeld(summary)) continue;
       if (await adopt(bytes, summary) != null) added++;
     }

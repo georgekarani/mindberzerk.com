@@ -286,6 +286,7 @@ void main() {
         'launcher.layout',
         'shell.alias',
         'apps.open',
+        'apps.edit',
       };
       final inCode = CommandAction.values.map((a) => a.id).toSet();
       expect(inCode, inSchema);

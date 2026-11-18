@@ -11,6 +11,7 @@ import '../drawer/app_icon.dart';
 import '../drawer/drawer_actions.dart';
 import '../drawer/drawer_items.dart';
 import '../command/command_rows.dart';
+import 'unified_search.dart';
 import '../command/command_router.dart';
 import '../command/search_settings.dart';
 import '../palette/palette_controller.dart';
@@ -316,6 +317,26 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
                               first: route.hits.length + i == sel,
                               onTap: () => _run(results[i]),
                             ),
+                        // Shortcuts and settings after the apps, as Spotlight
+                        // lists its other sources. Capped and scrolling: the
+                        // sheet hangs from the top with the keyboard up.
+                        // PHASE 5.
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: MediaQuery.sizeOf(context).height * 0.3,
+                          ),
+                          child: SingleChildScrollView(
+                            child: UnifiedExtraRows(
+                              theme: theme,
+                              query: query,
+                              style: rowStyle,
+                              commands: false,
+                              onClose: () {
+                                if (mounted) Navigator.of(context).pop();
+                              },
+                            ),
+                          ),
+                        ),
                       ],
                     ],
                   ),

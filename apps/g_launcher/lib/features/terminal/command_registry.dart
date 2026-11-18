@@ -113,7 +113,10 @@ enum CommandAction {
   alias('shell.alias'),
 
   /// `open telegram`: launch an app by name from the Terminal app.
-  openApp('apps.open');
+  openApp('apps.open'),
+
+  /// `edit telegram`: rename an app, change its icon or mute its count.
+  editApp('apps.edit');
 
   const CommandAction(this.id);
 
@@ -484,6 +487,14 @@ abstract final class TerminalRegistry {
       description: 'Open an app by name',
       surfaces: {CommandSurface.terminal},
     ),
+    // On BOTH surfaces: the terminal distros have no app menu, so this is
+    // their only way to the editor every other distro opens with a long-press.
+    TerminalCommand(
+      name: 'edit',
+      action: CommandAction.editApp,
+      category: CommandCategory.launcher,
+      description: 'Rename an app, change its icon',
+    ),
     TerminalCommand(
       name: 'alias',
       aliases: ['unalias'],
@@ -672,7 +683,7 @@ abstract final class TerminalRegistry {
     // either typed in full or followed by arguments.
     final hits = [
       for (final n in matching(q, surface: surface))
-        if (surface != CommandSurface.tui || !_handedOver(_byName[n]!)) n,
+        if (surface != CommandSurface.tui || !_exactOnly(_byName[n]!)) n,
     ];
     return hits.length == 1 ? hits.first : null;
   }
@@ -685,6 +696,14 @@ abstract final class TerminalRegistry {
   static bool _handedOver(TerminalCommand c) =>
       c.category == CommandCategory.remote &&
       c.appearsOn(CommandSurface.terminal);
+
+  /// Commands the TUI prompt runs by their whole name only.
+  ///
+  /// The handed-over ones, plus `edit`, which needs an app after it and would
+  /// otherwise make `ed` + enter open a usage message instead of the app the
+  /// person was typing.
+  static bool _exactOnly(TerminalCommand c) =>
+      _handedOver(c) || c.action == CommandAction.editApp;
 
   /// Is [raw] something this surface handles?
   ///

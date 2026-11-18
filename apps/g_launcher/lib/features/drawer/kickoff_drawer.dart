@@ -13,6 +13,7 @@ import '../../design/components/anchored_menu.dart';
 import '../../engine/effective_theme.dart';
 import '../../features/dock/dock_metrics.dart';
 import '../command/command_rows.dart';
+import '../search/unified_search.dart';
 import '../home/workspaces/workspace_controller.dart';
 import '../palette/palette_controller.dart';
 import 'app_icon.dart';
@@ -250,6 +251,17 @@ class KickoffDrawer extends ConsumerWidget {
     // slot and the query clears, because choosing a category IS the decision to
     // stop searching.
     final query = ref.watch(_kickoffQueryProvider).trim();
+
+    // One style for KRunner's answers and the shortcut and settings rows, so
+    // the two blocks read as one result list.
+    final rowStyle = CommandRowStyle(
+      text: theme.palette.onDark,
+      muted: theme.palette.onDark.withValues(alpha: 0.6),
+      accent: theme.palette.accent,
+      fontFamily: theme.typography.display,
+      monoFamily: theme.typography.mono,
+      scale: theme.textScale,
+    );
     final shown = query.isEmpty
         ? _forSlot(ref, active, listable, buckets)
         : [
@@ -327,14 +339,7 @@ class KickoffDrawer extends ConsumerWidget {
                         PaletteCommandBlock(
                           query: query,
                           hasApps: shown.isNotEmpty,
-                          style: CommandRowStyle(
-                            text: theme.palette.onDark,
-                            muted: theme.palette.onDark.withValues(alpha: 0.6),
-                            accent: theme.palette.accent,
-                            fontFamily: theme.typography.display,
-                            monoFamily: theme.typography.mono,
-                            scale: theme.textScale,
-                          ),
+                          style: rowStyle,
                           onClose: () => closeApps(ref),
                           fillQuery: (v) {
                             ref.read(_kickoffQueryProvider.notifier).state = v;
@@ -342,23 +347,35 @@ class KickoffDrawer extends ConsumerWidget {
                           },
                         ),
                         Expanded(
-                          child: shown.isEmpty && query.isNotEmpty
-                              ? const SizedBox.shrink()
-                              : shown.isEmpty
-                                  ? _Empty(theme: theme, slot: active)
-                                  : ListView.builder(
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 10),
-                                      itemCount: shown.length,
-                                      itemBuilder: (context, i) => _Row(
-                                        // Stable identity so switching tabs or creating a
-                                        // folder reuses rows instead of re-requesting
-                                        // every icon from native.
-                                        key: ValueKey(_idOf(shown[i])),
-                                        theme: theme,
-                                        item: shown[i],
-                                      ),
-                                    ),
+                          child: shown.isEmpty && query.isEmpty
+                              ? _Empty(theme: theme, slot: active)
+                              : ListView.builder(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 10),
+                                  // While searching, one more row after the
+                                  // apps: KRunner's other runners (shortcuts,
+                                  // settings), below the apps they must not
+                                  // push down. PHASE 5.
+                                  itemCount:
+                                      shown.length + (query.isEmpty ? 0 : 1),
+                                  itemBuilder: (context, i) => i == shown.length
+                                      ? UnifiedExtraRows(
+                                          theme: theme,
+                                          query: query,
+                                          style: rowStyle,
+                                          commands: false,
+                                          onClose: () => closeApps(ref),
+                                        )
+                                      : _Row(
+                                          // Stable identity so switching tabs
+                                          // or creating a folder reuses rows
+                                          // instead of re-requesting every
+                                          // icon from native.
+                                          key: ValueKey(_idOf(shown[i])),
+                                          theme: theme,
+                                          item: shown[i],
+                                        ),
+                                ),
                         ),
                       ],
                     ),

@@ -39,7 +39,7 @@ class PanelClockModule extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Text(
-            formatTime(now),
+            formatClock(context, now),
             style: TextStyle(
               color: onDark,
               fontSize: narrow ? 11 : 14,

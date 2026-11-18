@@ -24,6 +24,7 @@ import 'desklet_preview.dart';
 import 'desklet_surface.dart' show DeskletSurfaceView;
 import 'widget_catalog.dart';
 import 'widget_provider_card.dart';
+import 'layout_lock.dart';
 
 /// Add something to the desktop. PHASE D4 → the image-2 restructure.
 ///
@@ -76,6 +77,10 @@ Future<void> showDeskletPicker(
   // had been carrying its own hardcoded copy. That copy offered `df`, `free`
   // and `uptime` on a GNOME desktop, which this filter has always excluded
   // here, so the two surfaces disagreed about what a distro offers.
+  //
+  // Adding is arranging. Every way in (the desktop menu, an empty cell, the
+  // edit bar) lands here, so the lock is asked once, at the door.
+  if (layoutLockRefuses(context)) return;
   final shown = offeredDesklets(theme);
 
   if (shown.isEmpty) {

@@ -36,6 +36,7 @@ import '../../dock/dock_motion.dart';
 import '../../drawer/app_icon.dart';
 import '../../drawer/drawer_drag.dart';
 import '../panel_skin.dart';
+import '../../desklets/layout_lock.dart';
 
 class PanelTaskStrip extends ConsumerWidget {
   const PanelTaskStrip({
@@ -64,6 +65,7 @@ class PanelTaskStrip extends ConsumerWidget {
       frequent: frequent,
       capacity: capacity,
       defaultLimit: DockMetrics.defaultCount,
+      fill: [for (final a in apps) a.componentKey],
     );
     if (keys.isEmpty) {
       keys = [
@@ -85,6 +87,7 @@ class PanelTaskStrip extends ConsumerWidget {
       onWillAcceptWithDetails: (d) =>
           d.data is AppDrag && d.data.from != DragOrigin.dock,
       onAcceptWithDetails: (d) {
+        if (layoutLockRefuses(context)) return;
         HapticFeedback.mediumImpact();
         final key = (d.data as AppDrag).componentKey;
         ref.read(prefsProvider(theme.spec.id).notifier).edit((p) {
@@ -146,6 +149,11 @@ class PanelTaskStrip extends ConsumerWidget {
 
     ListView list(Widget Function(int i, String k) wrap) => ListView(
           scrollDirection: vertical ? Axis.vertical : Axis.horizontal,
+          // Hugs its icons, so a bar can place it without a flex: inside an
+          // Expanded it still fills, inside a capped box it is exactly as wide
+          // as its apps. A handful of icons makes the cost of shrink-wrapping
+          // negligible.
+          shrinkWrap: true,
           children: [
             for (var i = 0; i < taskKeys.length; i++) wrap(i, taskKeys[i]),
           ],
@@ -296,6 +304,7 @@ class _TaskReorderTarget extends ConsumerWidget {
     return DragTarget<DrawerDrag>(
       onWillAcceptWithDetails: (d) => _isSibling(d.data),
       onAcceptWithDetails: (d) {
+        if (layoutLockRefuses(context)) return;
         final moved = (d.data as AppDrag).componentKey;
         final box = context.findRenderObject() as RenderBox?;
         var after = false;

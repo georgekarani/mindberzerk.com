@@ -68,8 +68,7 @@ class AppsPage extends ConsumerWidget {
               //
               // The shell re-reads on resume, which is the only moment the
               // answer can have changed.
-              onGrant: () =>
-                  ref.read(appsBridgeProvider).requestUsageAccess(),
+              onGrant: () => ref.read(appsBridgeProvider).requestUsageAccess(),
             ),
           )
         else if (apps.isEmpty)

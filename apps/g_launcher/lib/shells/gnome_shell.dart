@@ -40,6 +40,7 @@ import '../features/home/workspaces/workspace_overview.dart';
 import '../features/home/workspaces/workspace_dots.dart';
 import '../platform/launcher_api.g.dart';
 import 'safe_page.dart';
+import '../features/desklets/layout_lock.dart';
 
 /// The Ubuntu 24.04 / any-GNOME desktop. Authentic reading: no app icons on the
 /// desktop — wallpaper, conky, workspace dots, dock. That's the screen.
@@ -70,10 +71,6 @@ class GnomeShell extends ConsumerStatefulWidget {
 }
 
 class _GnomeShellState extends ConsumerState<GnomeShell> {
-  /// Keeps the workspace one subtree across panel and layout changes. See
-  /// the note where it is used.
-  final _workspaceKey = GlobalKey();
-
   late final PageController _pages =
       PageController(initialPage: ref.read(activeWorkspaceProvider));
 
@@ -233,21 +230,27 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
           MenuAction(
             icon: Icons.push_pin_outlined,
             label: host.t('shell.unpinFromDock'),
-            onTap: () => notifier.edit(
-              (p) => HomeLayout.unpinFromDock(p, app.componentKey),
-            ),
+            onTap: () {
+              if (layoutLockRefuses(host)) return;
+              notifier.edit(
+                (p) => HomeLayout.unpinFromDock(p, app.componentKey),
+              );
+            },
           )
         else
           MenuAction(
             icon: Icons.push_pin,
             label: host.t('shell.pinToDock'),
-            onTap: () => notifier.edit(
-              (p) => HomeLayout.pinToDock(
-                p,
-                app.componentKey,
-                capacity: capacity,
-              ),
-            ),
+            onTap: () {
+              if (layoutLockRefuses(host)) return;
+              notifier.edit(
+                (p) => HomeLayout.pinToDock(
+                  p,
+                  app.componentKey,
+                  capacity: capacity,
+                ),
+              );
+            },
           ),
         if (isPinned)
           MenuAction(
@@ -266,9 +269,12 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
           MenuAction(
             icon: Icons.remove_circle_outline,
             label: host.t('shell.removeFromDock'),
-            onTap: () => notifier.edit(
-              (p) => HomeLayout.excludeFromDock(p, app.componentKey),
-            ),
+            onTap: () {
+              if (layoutLockRefuses(host)) return;
+              notifier.edit(
+                (p) => HomeLayout.excludeFromDock(p, app.componentKey),
+              );
+            },
           ),
         // A system app cannot be uninstalled, so the third slot takes App info
         // rather than leaving a hole: two glyphs in a three-column row look
@@ -389,6 +395,7 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
                   onLongPress: (!theme.panelEdit || editing)
                       ? null
                       : () async {
+                          if (layoutLockRefuses(context)) return;
                           HapticFeedback.mediumImpact();
                           // The same flow as Plasma's `PanelBar`: the editor
                           // sheet is the panel editor, and edit mode only marks
@@ -529,6 +536,7 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
                   frequent: frequent,
                   capacity: capacity,
                   defaultLimit: DockMetrics.defaultCount,
+                  fill: [for (final a in apps) a.componentKey],
                 );
                 if (keys.isEmpty) {
                   keys = [
@@ -721,7 +729,12 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
                     // Dots ghost through the drawer too, and a column of
                     // faint pips down the right edge of an app grid reads
                     // as a rendering fault rather than as chrome.
-                    if (!activitiesOpen)
+                    // Not under GNOME 46's workspace pill: the pill in the top bar
+                    // already says which workspace this is, and Fedora drew
+                    // the same fact twice, pill at the top, dots at the foot.
+                    if (!activitiesOpen &&
+                        theme.workspaceDots &&
+                        !(theme.activitiesPill && theme.topBar))
                       Positioned(
                         // ── THE STRIP LIES ALONG THE AXIS IT INDICATES ──
                         //
@@ -948,21 +961,23 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
           children: [
             ...panelsOn(TopBarSide.top),
             Expanded(
+              key: const ValueKey<String>('gnome.middle'),
               child: Row(
                 children: [
                   ...panelsOn(TopBarSide.left),
                   // ─── KEYED, SO A PANEL MOVING DOES NOT REMOUNT IT ──────
                   //
-                  // Moving a panel between edges, or a layout preset adding
-                  // or removing one, changes this Column's and this Row's
-                  // child lists. Unkeyed, the workspace was matched by index,
-                  // missed, and REBUILT: the new PageView attached to `_pages`
-                  // before the old one detached, and for that frame the
-                  // controller had two positions. That is the overlap
-                  // `safe_page.dart` was waiting to name. A GlobalKey moves the
-                  // same subtree to its new slot instead.
+                  // Adding or removing a panel changes this Row's and the
+                  // Column's child lists. Unkeyed, the workspace was matched
+                  // by index, missed and rebuilt, and its PageView attached to
+                  // `_pages` before the old one detached. LOCAL keys on both
+                  // Expandeds let the element diff find the same subtree in
+                  // the new list. A GlobalKey did the same job but threw
+                  // "Duplicate GlobalKey" when a distro switch rebuilt the
+                  // shell while the old parent was still finalising.
                   Expanded(
-                    child: Stack(key: _workspaceKey, children: workspace),
+                    key: const ValueKey<String>('gnome.workspace'),
+                    child: Stack(children: workspace),
                   ),
                   ...panelsOn(TopBarSide.right),
                 ],

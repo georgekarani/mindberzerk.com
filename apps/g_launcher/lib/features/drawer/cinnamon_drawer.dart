@@ -7,6 +7,7 @@ import '../../design/components/anchored_menu.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
 import '../command/command_rows.dart';
+import '../search/unified_search.dart';
 import '../home/workspaces/workspace_controller.dart';
 import '../palette/palette_controller.dart';
 import 'app_icon.dart';
@@ -652,27 +653,47 @@ class _Apps extends ConsumerWidget {
     // While searching, the column leads with the command answers (sums,
     // units, bangs) and, with no app matching, the web and Play rows.
     if (query.isNotEmpty) {
+      final style = CommandRowStyle(
+        text: palette.onDark,
+        muted: palette.onDark.withValues(alpha: 0.55),
+        accent: palette.accent,
+        fontFamily: theme.typography.display,
+        monoFamily: theme.typography.mono,
+        scale: theme.textScale,
+      );
+      // Shortcuts and settings after the apps, as the Cinnamon menu lists
+      // its other search providers below the applications. PHASE 5.
+      final extras = UnifiedExtraRows(
+        theme: theme,
+        query: query,
+        commands: false,
+        style: style,
+        onClose: () => closeApps(ref),
+      );
       final block = PaletteCommandBlock(
         query: query,
         hasApps: apps.isNotEmpty,
-        style: CommandRowStyle(
-          text: palette.onDark,
-          muted: palette.onDark.withValues(alpha: 0.55),
-          accent: palette.accent,
-          fontFamily: theme.typography.display,
-          monoFamily: theme.typography.mono,
-          scale: theme.textScale,
-        ),
+        style: style,
         onClose: () => closeApps(ref),
         fillQuery: (v) {
           ref.read(_queryProvider.notifier).state = v;
           ref.read(paletteQueryProvider.notifier).state = v;
         },
       );
-      if (apps.isEmpty) return SingleChildScrollView(child: block);
+      if (apps.isEmpty) {
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [block, extras],
+          ),
+        );
+      }
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [block, Expanded(child: _list(context, ref))],
+        children: [
+          block,
+          Expanded(child: _list(context, ref, trailing: extras)),
+        ],
       );
     }
 
@@ -692,11 +713,13 @@ class _Apps extends ConsumerWidget {
     return _list(context, ref);
   }
 
-  Widget _list(BuildContext context, WidgetRef ref) {
+  /// The app rows, then [trailing] as the last item when searching.
+  Widget _list(BuildContext context, WidgetRef ref, {Widget? trailing}) {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 3),
-      itemCount: apps.length,
+      itemCount: apps.length + (trailing == null ? 0 : 1),
       itemBuilder: (context, i) {
+        if (i == apps.length) return trailing!;
         final a = apps[i];
         return GestureDetector(
           behavior: HitTestBehavior.opaque,

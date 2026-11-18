@@ -44,10 +44,13 @@ class PanelKickoffButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = theme.palette.accent;
-    // The panel is chrome and dark on every pack here, so the dark-surface
-    // variant is the right one. `onDarkSurface` describes the SURFACE, not the
-    // ink of the artwork: see `ThemeSpec.logoAsset`.
-    final logo = theme.spec.logoAsset(onDarkSurface: true);
+    // The variant follows the panel's own fill. Most packs paint a dark bar,
+    // but Zorin's light palette paints a white one, and the dark-surface mark
+    // (pale blue) all but vanished on it. `onDarkSurface` describes the
+    // SURFACE, not the ink of the artwork: see `ThemeSpec.logoAsset`.
+    final logo = theme.spec.logoAsset(
+      onDarkSurface: theme.palette.bar.computeLuminance() < 0.5,
+    );
 
     return InkWell(
       onTap: onTap,

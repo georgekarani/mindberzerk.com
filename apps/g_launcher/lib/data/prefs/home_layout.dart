@@ -799,6 +799,7 @@ class HomeLayout {
     required List<String> frequent,
     required int capacity,
     int? defaultLimit,
+    List<String> fill = const [],
   }) {
     // Pins fill the whole dock: the user asked for these, up to what fits.
     if (p.favourites.isNotEmpty) {
@@ -817,10 +818,22 @@ class HomeLayout {
     // has to mean on a surface that refills itself.
     //
     // Only reachable here, on the frequent path. Pinned mode returned above.
-    return [
+    final out = <String>[
       for (final k in frequent)
         if (!p.dockExcluded.contains(k)) k,
     ].take(limit).toList();
+
+    // ─── TOPPED UP, NOT REPLACED ─────────────────────────────────────────
+    //
+    // Callers filled from [fill] only when this came back EMPTY, so a single
+    // launch made the auto dock exactly that one app: open Phone once and
+    // Deepin's dock went from four apps to one. The most-used apps still lead;
+    // [fill] (the alphabetical app list) only tops the dock up to [limit].
+    for (final k in fill) {
+      if (out.length >= limit) break;
+      if (!out.contains(k) && !p.dockExcluded.contains(k)) out.add(k);
+    }
+    return out;
   }
 
   // ─── DOCK FOLDERS AND POSITIONED PINS ──────────────────────────────────────

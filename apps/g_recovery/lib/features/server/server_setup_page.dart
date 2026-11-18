@@ -172,7 +172,6 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             GSpace.gutter,

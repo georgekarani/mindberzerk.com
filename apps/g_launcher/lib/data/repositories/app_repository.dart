@@ -1,5 +1,6 @@
 import 'dart:ui' show Rect;
 
+import 'package:collection/collection.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../engine/effective_theme.dart';
@@ -10,6 +11,10 @@ import '../prefs/hidden_lock.dart';
 import '../prefs/prefs_repository.dart';
 import '../prefs/query_learning.dart';
 import '../search/search_text.dart';
+
+/// Android's Settings app. The same package on AOSP, Pixel, Samsung and the
+/// other large OEMs, which is why it is a constant rather than a lookup.
+const String kSettingsPackage = 'com.android.settings';
 
 /// No codegen. Plain Riverpod 3.
 ///
@@ -29,16 +34,62 @@ final appListProvider =
     AsyncNotifierProvider<AppList, List<AppEntry>>(AppList.new);
 
 class AppList extends AsyncNotifier<List<AppEntry>> {
+  /// What native sent, untouched. The state is this with the user's own
+  /// names applied, so every drawer, dock, search and menu shows a rename
+  /// without knowing renames exist.
+  List<AppEntry> _raw = const [];
+
+  /// The renames applied to [_raw], kept to skip a relabel that changes
+  /// nothing: the global bucket is written for many reasons.
+  Map<String, String> _labels = const {};
+
   @override
   Future<List<AppEntry>> build() async {
     // Register the FlutterApi *before* the first host call, so a package change
     // landing mid-startup isn't dropped on the floor.
     LauncherFlutterApi.setUp(_AppListSink(_swap));
 
-    return ref.read(launcherHostApiProvider).getInstalledApps();
+    // A rename relabels the list already held. Native is not asked again:
+    // nothing about the installed apps changed.
+    ref.listen(globalPrefsProvider, (_, next) {
+      final labels = next.value?.appLabels ?? const <String, String>{};
+      if (const MapEquality<String, String>().equals(labels, _labels)) return;
+      _labels = labels;
+      if (state.hasValue) state = AsyncData(_labelled(_raw));
+    });
+    _labels = ref.read(globalPrefsProvider).value?.appLabels ??
+        const <String, String>{};
+
+    _raw = await ref.read(launcherHostApiProvider).getInstalledApps();
+    return _labelled(_raw);
   }
 
-  void _swap(List<AppEntry> apps) => state = AsyncData(apps);
+  void _swap(List<AppEntry> apps) {
+    _raw = apps;
+    state = AsyncData(_labelled(apps));
+  }
+
+  /// [raw] with the user's names. An entry is COPIED before it is renamed:
+  /// the Pigeon object is mutable, and editing [_raw] in place would lose the
+  /// app's own name, which the edit sheet shows and the reset returns to.
+  List<AppEntry> _labelled(List<AppEntry> raw) {
+    if (_labels.isEmpty) return raw;
+    return [
+      for (final e in raw)
+        if (_labels[e.componentKey] case final name?)
+          AppEntry.decode(e.encode())..label = name
+        else
+          e,
+    ];
+  }
+
+  /// The app's own name, before any rename. Null for an app not installed.
+  String? originalLabel(String componentKey) {
+    for (final e in _raw) {
+      if (e.componentKey == componentKey) return e.label;
+    }
+    return null;
+  }
 
   /// Launch [entry]. A HIDDEN app behind the hidden apps lock asks for the
   /// owner's fingerprint first, wherever the launch came from: hidden apps

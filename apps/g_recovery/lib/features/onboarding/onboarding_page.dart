@@ -401,7 +401,7 @@ class _AccessStepState extends ConsumerState<_AccessStep> {
     final AppsState? apps = ref.watch(appsStateProvider).value;
     final bool granted = access?.allFilesAccess ?? false;
     final RecoverySummary? summary = ref.watch(prescanProvider).value;
-    final int found = summary?.totalItems ?? 0;
+    final int found = summary?.deletedItems ?? 0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

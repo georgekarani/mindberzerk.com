@@ -81,6 +81,19 @@ const dockEntranceModes = [
   DockAnimation('gloss', Icons.gradient),
 ];
 
+/// How an app opens when it is launched from this distro. PHASE 6.
+///
+/// Not a dock motion, but the same shape (an id, a glyph, a name and a hint
+/// in `settings.launchAnimation.*`), so it rides the same settings row. Native
+/// turns the id into `ActivityOptions`; see `LauncherHostApi.setLaunchStyle`.
+const launchAnimationModes = [
+  DockAnimation('zoom', Icons.zoom_out_map),
+  DockAnimation('reveal', Icons.radio_button_unchecked),
+  DockAnimation('fade', Icons.gradient),
+  DockAnimation('slide', Icons.north),
+  DockAnimation('none', Icons.remove),
+];
+
 /// The mode on [modes] with this [id], or the first one.
 ///
 /// Falling back to the first rather than returning null, because every caller

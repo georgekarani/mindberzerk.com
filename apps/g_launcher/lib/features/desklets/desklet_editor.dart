@@ -19,7 +19,9 @@ import 'desklet_cell.dart';
 import 'desklet_edit.dart';
 import 'desklet_menu.dart';
 import 'dock_avoid.dart';
+import 'drag_guides.dart';
 import 'widget_stage.dart';
+import 'layout_lock.dart';
 
 /// One desklet, while the desktop is being edited. PHASE D4.
 ///
@@ -142,36 +144,53 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
 
   // ── move ──────────────────────────────────────────────────────────────────
 
-  void _moveEnd() {
+  /// Where the tile would land for a drag of [drag], and the prefs that
+  /// landing would commit.
+  ///
+  /// The ONE calculation behind both the live guide and the drop, so the
+  /// outline on screen is always exactly where the tile ends up. [after] is
+  /// null for a drag that goes nowhere, and identical to the current prefs
+  /// when the engine refuses the spot.
+  ({DeskletLanding landing, LauncherPrefs? after})? _landingFor(Offset drag) {
+    final before = ref.read(prefsProvider(widget.theme.spec.id)).value;
+    if (before == null) return null;
+
     // Round rather than floor: a tile dragged 60% of a cell should land in the
     // next one. Flooring makes every drag feel like it fell short.
-    final dc = (_drag.dx / widget.cellW).round();
-    final dr = (_drag.dy / widget.cellH).round();
+    final dc = (drag.dx / widget.cellW).round();
+    final dr = (drag.dy / widget.cellH).round();
 
-    setState(() {
-      _drag = Offset.zero;
-      _moving = false;
-    });
+    DeskletLanding at(int col, int row, {required bool legal}) =>
+        DeskletLanding(
+          id: _d.id,
+          page: _d.page,
+          col: col,
+          row: row,
+          spanX: _d.spanX,
+          spanY: _d.spanY,
+          legal: legal,
+        );
 
-    if (dc == 0 && dr == 0) return;
-
-    final before = ref.read(prefsProvider(widget.theme.spec.id)).value;
-    if (before == null) return;
+    if (dc == 0 && dr == 0) {
+      return (landing: at(_d.col, _d.row, legal: true), after: null);
+    }
 
     final cols = widget.theme.deskletCols;
     final rows = widget.theme.deskletRows;
-    var toCol = _d.col + dc;
-    var toRow = _d.row + dr;
+
+    final members = DeskletLayout.groupOf(before, _d.id);
+    if (members.length > 1) {
+      return _groupLanding(before, members, dc, dr, cols, rows);
+    }
+
+    var toCol = (_d.col + dc).clamp(0, cols - _d.spanX);
+    var toRow = (_d.row + dr).clamp(0, rows - _d.spanY);
 
     // A drop onto the dock lands at the nearest free spot beside it instead.
     // Whatever spot it lands on is saved: that is the user's chosen place.
     // App icons block the same way, on a distro that has them: see
     // `deskletIconCellsProvider`.
-    final dock = <int>{
-      ...ref.read(deskletDockCellsProvider),
-      if (widget.theme.desktopIcons)
-        ...?ref.read(deskletIconCellsProvider)[_d.page],
-    };
+    final dock = _blockedCells();
     final target = footprint(toCol, toRow, _d.spanX, _d.spanY, cols, rows);
     if (target != null && target.any(dock.contains)) {
       final taken = <int>{
@@ -208,7 +227,150 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
     // Identity, not equality. The engine returns the SAME object on refusal,
     // which is the cheapest possible signal and the reason every refusal path
     // in DeskletLayout is written to return `p` rather than a copy.
-    if (identical(after, before)) {
+    return (
+      landing: at(toCol, toRow, legal: !identical(after, before)),
+      after: after,
+    );
+  }
+
+  /// Cells nothing may land on: under the dock, and under app icons on a
+  /// distro that has them (see `deskletIconCellsProvider`).
+  Set<int> _blockedCells() => <int>{
+        ...ref.read(deskletDockCellsProvider),
+        if (widget.theme.desktopIcons)
+          ...?ref.read(deskletIconCellsProvider)[_d.page],
+      };
+
+  /// The landing for a grouped tile: the whole group moves by one offset.
+  ///
+  /// ─── NO RELOCATION FOR A GROUP ──────────────────────────────────────────
+  ///
+  /// A single tile dropped on the dock is moved to the nearest free spot. A
+  /// group cannot be, without either breaking its shape or searching every
+  /// offset for one that clears, and a group that silently rearranges itself
+  /// is the bug grouping exists to prevent. So a group over the dock is
+  /// refused and springs back, and the red outline says so before the drop.
+  ({DeskletLanding landing, LauncherPrefs? after}) _groupLanding(
+    LauncherPrefs before,
+    Set<String> members,
+    int dc,
+    int dr,
+    int cols,
+    int rows,
+  ) {
+    final group = [
+      for (final id in members)
+        if (DeskletLayout.byId(before, id) case final d?) d,
+    ];
+
+    // Clamped as a whole, so a drag past the edge stops the group at the
+    // edge rather than refusing it.
+    var left = cols, top = rows, right = 0, bottom = 0;
+    for (final d in group) {
+      if (d.col < left) left = d.col;
+      if (d.row < top) top = d.row;
+      if (d.right > right) right = d.right;
+      if (d.bottom > bottom) bottom = d.bottom;
+    }
+    final gc = dc.clamp(-left, cols - right);
+    final gr = dr.clamp(-top, rows - bottom);
+
+    final blocked = _blockedCells();
+    final overDock = group.any((d) =>
+        footprint(d.col + gc, d.row + gr, d.spanX, d.spanY, cols, rows)
+            ?.any(blocked.contains) ??
+        true);
+
+    final moved = gc == 0 && gr == 0;
+    final after = moved
+        ? null
+        : DeskletLayout.moveGroup(
+            before,
+            id: _d.id,
+            dCol: gc,
+            dRow: gr,
+            cols: cols,
+            rows: rows,
+          );
+    final legal = moved || (!overDock && !identical(after, before));
+
+    return (
+      landing: DeskletLanding(
+        id: _d.id,
+        page: _d.page,
+        col: _d.col + gc,
+        row: _d.row + gr,
+        spanX: _d.spanX,
+        spanY: _d.spanY,
+        legal: legal,
+        companions: [
+          for (final d in group)
+            if (d.id != _d.id)
+              (
+                col: d.col + gc,
+                row: d.row + gr,
+                spanX: d.spanX,
+                spanY: d.spanY,
+              ),
+        ],
+      ),
+      after: legal ? after : before,
+    );
+  }
+
+  /// Keeps the guide under the finger, ticking once per cell crossed.
+  void _showLanding() {
+    final result = _landingFor(_drag);
+    if (result == null) return;
+
+    // On a locked desktop the drop will spring back, so the guide says so in
+    // red rather than promising a spot the lock is about to refuse.
+    final l = result.landing;
+    final landing = ref.read(layoutLockedProvider)
+        ? DeskletLanding(
+            id: l.id,
+            page: l.page,
+            col: l.col,
+            row: l.row,
+            spanX: l.spanX,
+            spanY: l.spanY,
+            legal: false,
+            companions: l.companions,
+          )
+        : l;
+    final moved = ref.read(deskletLandingProvider.notifier).show(landing);
+    if (moved) HapticFeedback.selectionClick();
+
+    // The rest of a group follows the finger, every frame.
+    if (landing.companions.isNotEmpty) {
+      final prefs = ref.read(prefsProvider(widget.theme.spec.id)).value;
+      if (prefs != null) {
+        ref
+            .read(deskletGroupDragProvider.notifier)
+            .update(DeskletLayout.groupOf(prefs, _d.id), _drag);
+      }
+    }
+  }
+
+  /// Ends every trace of a drag: the guide and the followers.
+  void _clearDrag() {
+    ref.read(deskletLandingProvider.notifier).clear();
+    ref.read(deskletGroupDragProvider.notifier).clear();
+  }
+
+  void _moveEnd() {
+    final result = _landingFor(_drag);
+    _clearDrag();
+
+    setState(() {
+      _drag = Offset.zero;
+      _moving = false;
+    });
+
+    final after = result?.after;
+    if (result == null || after == null) return;
+
+    if (!result.landing.legal) {
       HapticFeedback.heavyImpact();
       context.showMessage(context.t('desklets.noRoomThere'));
       return;
@@ -278,6 +440,8 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
     // the press began, so a dropped frame cannot leave the tile permanently
     // offset from the finger the way a running sum of deltas can.
     setState(() => _drag = e.offsetFromOrigin);
+    // Past the menu threshold the hold is a move, so the guide appears.
+    if (_drag.distance >= _dragThreshold) _showLanding();
   }
 
   void _liftEnd(LongPressEndDetails _) {
@@ -288,11 +452,22 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
     // remove) is still exactly one hold away, and now a hold that keeps moving
     // is a move instead of a dead gesture.
     if (_drag.distance < _dragThreshold) {
+      _clearDrag();
       setState(() {
         _drag = Offset.zero;
         _moving = false;
       });
       _openMenu();
+      return;
+    }
+
+    // A real move on a locked desktop: the tile goes back where it was.
+    if (layoutLockRefuses(context)) {
+      _clearDrag();
+      setState(() {
+        _drag = Offset.zero;
+        _moving = false;
+      });
       return;
     }
 
@@ -304,11 +479,13 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
     // under the write.
     final edit = ref.read(deskletEditProvider.notifier);
     if (!widget.editing) edit.enter();
-    edit.select(_d.id);
+    // While picking, a moved tile stays a pick, not a handle-bearing focus.
+    if (!ref.read(deskletEditProvider).selecting) edit.select(_d.id);
   }
 
   void _liftCancel() {
     if (!_moving) return;
+    _clearDrag();
     setState(() {
       _drag = Offset.zero;
       _moving = false;
@@ -482,6 +659,11 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
 
     final edit = ref.watch(deskletEditProvider);
     final selected = edit.selected == _d.id;
+    final picked = edit.picked.contains(_d.id);
+
+    // A member of a group being dragged by another member follows the finger.
+    final follow = ref.watch(deskletGroupDragProvider.select((g) =>
+        g != null && g.ids.contains(_d.id) && !_moving ? g.offset : null));
     final p = widget.theme.palette;
 
     final w = _d.spanX * widget.cellW + _grow.width;
@@ -498,7 +680,7 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
     // appear late and flicker at the moment the user most needs it.
 
     return Transform.translate(
-      offset: _drag,
+      offset: follow ?? _drag,
       child: SizedBox(
         width: w,
         height: h,
@@ -571,16 +753,28 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                     TapGestureRecognizer: GestureRecognizerFactoryWithHandlers<
                         TapGestureRecognizer>(
                       () => TapGestureRecognizer(),
-                      (r) => r.onTap = () => ref
-                          .read(deskletEditProvider.notifier)
-                          .select(selected ? null : _d.id),
+                      (r) => r.onTap = () {
+                        final notifier = ref.read(deskletEditProvider.notifier);
+                        // Selecting: a tap picks the tile, with its group.
+                        if (edit.selecting) {
+                          final prefs = ref
+                              .read(prefsProvider(widget.theme.spec.id))
+                              .value;
+                          if (prefs == null) return;
+                          HapticFeedback.selectionClick();
+                          notifier.togglePick(
+                              DeskletLayout.groupOf(prefs, _d.id));
+                          return;
+                        }
+                        notifier.select(selected ? null : _d.id);
+                      },
                     ),
                 },
                 child: _Frame(
                   palette: p,
                   editing: widget.editing,
-                  selected: selected,
-                  lifted: _moving || _resizing,
+                  selected: selected || picked,
+                  lifted: _moving || _resizing || follow != null,
                   // IGNORE POINTERS ON THE TILE CONTENT WHILE EDITING.
                   //
                   // In edit mode the tile itself must not be interactive: the
@@ -621,6 +815,28 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
             // cannot fall back forever: the last resort tucks the handle INSIDE
             // the tile edge instead of outside it. Slightly cramped and always
             // reachable beats correctly placed and off the screen.
+            // ─── A GROUP SAYS SO ──────────────────────────────────────
+            //
+            // Without a mark, grouping is invisible until something moves,
+            // and then it reads as a bug: why did that one come along? A
+            // link in the corner while editing says it is on purpose.
+            if (widget.editing && _d.group != null && !selected)
+              Positioned(
+                left: 8,
+                top: 8,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: p.accent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(Icons.link, size: 12, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ),
             if (widget.editing && selected) ...[
               for (final placed in _resolveHandles(
                 _d,
@@ -713,13 +929,18 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                               _drag = Offset.zero;
                             });
                           },
-                          onPointerMove: (e) =>
-                              setState(() => _drag += e.delta),
+                          onPointerMove: (e) {
+                            setState(() => _drag += e.delta);
+                            _showLanding();
+                          },
                           onPointerUp: (_) => _moveEnd(),
-                          onPointerCancel: (_) => setState(() {
-                            _drag = Offset.zero;
-                            _moving = false;
-                          }),
+                          onPointerCancel: (_) {
+                            _clearDrag();
+                            setState(() {
+                              _drag = Offset.zero;
+                              _moving = false;
+                            });
+                          },
                           child: _Handle(
                             palette: p,
                             icon: Icons.open_with,

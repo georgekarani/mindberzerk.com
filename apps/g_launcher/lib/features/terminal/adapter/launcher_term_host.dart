@@ -8,6 +8,7 @@
 /// `prefsStoreProvider` for aliases.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -37,6 +38,10 @@ import 'files_bridge.dart';
 /// the terminal without a navigator is a compile error rather than four
 /// commands that quietly stop working.
 typedef TermPageOpener = Future<TermOutcome> Function(TermLauncherPage page);
+
+/// Opens the app editor sheet. A callback for the same reason as
+/// [TermPageOpener]: a sheet needs a BuildContext, which only the view has.
+typedef TermAppEditor = Future<void> Function(AppEntry entry);
 
 /// Returns [LauncherTermHost], not [TermHost], so the view can install the
 /// opener on it. Everything else reads it through the interface.
@@ -166,6 +171,24 @@ class LauncherTermHost extends TermHost {
     final AppEntry? entry = _entryFor(app);
     if (entry == null) return;
     await _ref.read(appListProvider.notifier).openInfo(entry);
+  }
+
+  /// Installed by the view. See [TermAppEditor].
+  TermAppEditor? appEditor;
+
+  @override
+  Future<TermOutcome> editApp(TermApp app) async {
+    final AppEntry? entry = _entryFor(app);
+    if (entry == null) return const TermOutcome.failed('no longer installed');
+    final TermAppEditor? edit = appEditor;
+    if (edit == null) {
+      return const TermOutcome.failed(
+          'this terminal has no navigator attached');
+    }
+    // Not awaited: the sheet stays open while the prompt returns, and the
+    // shell has nothing to print about a choice the user has not made yet.
+    unawaited(edit(entry));
+    return const TermOutcome.ok();
   }
 
   // ── ~ ───────────────────────────────────────────────────────────────

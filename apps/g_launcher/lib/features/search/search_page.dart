@@ -14,6 +14,7 @@ import '../../design/components/components.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
 import '../command/command_rows.dart';
+import 'unified_search.dart';
 import '../command/command_router.dart';
 import '../command/search_settings.dart';
 import '../settings/search_settings_screen.dart';
@@ -581,6 +582,22 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           )
         : null;
 
+    // Shortcuts from every app, Android settings pages and G Launcher's own
+    // settings: the same answers every distro's search now gives, in this
+    // page's card. Only from two letters, where the rows have something to
+    // say; an empty card would be a grey bar. PHASE 5.
+    final extrasCard = _query.trim().length < 2
+        ? null
+        : card(
+            UnifiedExtraRows(
+              theme: widget.theme,
+              query: _query,
+              style: rowStyle,
+              commands: false,
+              onClose: _dismiss,
+            ),
+          );
+
     final actionsCard = actionApp == null
         ? null
         : SliverToBoxAdapter(
@@ -606,6 +623,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 ),
               ),
             ),
+          if (extrasCard != null) extrasCard,
           if (fallbackCard != null) fallbackCard,
         ],
       );
@@ -693,6 +711,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
             ),
           ),
         if (actionsCard != null) actionsCard,
+        if (extrasCard != null) extrasCard,
         if (fallbackCard != null) fallbackCard,
       ],
     );

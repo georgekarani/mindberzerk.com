@@ -141,7 +141,7 @@ class _Clock extends ConsumerWidget {
     final now = ref.watch(clockProvider).asData?.value ?? DateTime.now();
 
     return Text(
-      formatTime(now),
+      formatClock(context, now),
       style: TextStyle(
         fontFamily: fontFamily,
         fontSize: 12,

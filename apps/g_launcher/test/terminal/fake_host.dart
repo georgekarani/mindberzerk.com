@@ -113,6 +113,9 @@ class FakeHost extends TermHost {
   Future<void> openAppSettings(TermApp app) async {}
 
   @override
+  Future<TermOutcome> editApp(TermApp app) async => const TermOutcome.ok();
+
+  @override
   Future<List<TermEntry>?> list(TermPath path) async {
     final FakeNode? node = _node(path);
     if (node == null || !node.isDirectory) return null;

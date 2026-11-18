@@ -135,7 +135,6 @@ class _CompareReviewPageState extends ConsumerState<CompareReviewPage> {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Padding(

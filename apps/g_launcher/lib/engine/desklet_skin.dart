@@ -196,6 +196,23 @@ class DeskletSkin {
   /// decision down to the getter and make `card` the silent answer for a
   /// desktop that wanted `bare`.
   static DeskletSkin defaultFor(ShellKind shell, String kindId) {
+    // ─── NOW PLAYING IS A CONTROL, SO IT GETS A PLATE ───────────────────
+    //
+    // Bare is right for readouts, which are text with a shadow. Now Playing
+    // carries buttons, and three glyphs floating over a photograph read as
+    // part of the wallpaper rather than as something to press. So the shells
+    // whose generic desklet is bare (GNOME, Aqua) draw it on a card, the way
+    // GNOME's own media controls sit in a card. Plasma, tiling and the
+    // terminal keep their generic surface, which already has a frame.
+    if (kindId == 'nowplaying' &&
+        (shell == ShellKind.gnome || shell == ShellKind.aqua)) {
+      return const DeskletSkin(
+        surface: DeskletSurface.card,
+        font: DeskletFont.display,
+        accent: false,
+        props: {'radius': 18.0},
+      );
+    }
     if (kindId != 'clock') return _genericFor(shell);
 
     return switch (shell) {

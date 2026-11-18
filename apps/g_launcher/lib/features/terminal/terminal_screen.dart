@@ -45,6 +45,7 @@ import '../../engine/terminal_spec.dart';
 import '../../platform/keys_api.g.dart';
 import '../../platform/launcher_api.g.dart';
 import '../../system/system_stats.dart';
+import '../drawer/app_edit_sheet.dart';
 import '../palette/fuzzy.dart';
 import '../settings/settings_screen.dart';
 import '../themes/themes_screen.dart';
@@ -703,6 +704,9 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
 
       case CommandAction.openApp:
         _openApp(_args);
+
+      case CommandAction.editApp:
+        _editApp(_args);
     }
   }
 
@@ -774,6 +778,23 @@ class _TerminalScreenState extends ConsumerState<TerminalScreen> {
     _write('\x1b[90mopening\x1b[0m ${app.label}');
     ref.read(appListProvider.notifier).launch(app);
     ref.read(usageProvider.notifier).record(app.componentKey);
+  }
+
+  /// `edit telegram`: the same editor the graphical distros open from their
+  /// app menu, found the way `open` finds an app.
+  void _editApp(String query) {
+    final q = query.trim();
+    if (q.isEmpty) {
+      _fail('edit: give an app name');
+      return;
+    }
+    final app = appForEdit(ref, widget.theme, q);
+    if (app == null) {
+      _fail('edit: no app matches $q');
+      return;
+    }
+    _write('\x1b[90mediting\x1b[0m ${app.label}');
+    unawaited(showAppEditSheet(context, ref, widget.theme, app));
   }
 
   /// `apt`, `pacman` and the rest. Hidden apps are not in the list, so

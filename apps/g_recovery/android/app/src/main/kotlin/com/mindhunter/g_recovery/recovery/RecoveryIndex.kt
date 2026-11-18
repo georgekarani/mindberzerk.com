@@ -34,6 +34,21 @@ internal class RecoveryIndex {
          * showing a list of files that may no longer be there.
          */
         val shared = RecoveryIndex()
+
+        /** In a trash or bin, comes back in full. MediaStore trash rows carry this. */
+        const val ROLE_TRASH = "trash"
+
+        /** A status or story: never deleted, gone 24 hours after posting. */
+        const val ROLE_STATUS = "status"
+
+        /** A cached preview whose original is gone. */
+        const val ROLE_CACHE = "cache"
+
+        /** Media a chat app still holds in its own folder. Not deleted. */
+        const val ROLE_MEDIA = "media"
+
+        /** An item without a role predates roles and was found in a bin. */
+        fun roleOf(item: RecoverableItem): String = item.role ?: ROLE_TRASH
     }
 
     internal sealed class Record {
@@ -97,13 +112,20 @@ internal class RecoveryIndex {
         return all.subList(offset, minOf(offset + limit, all.size))
     }
 
+    /** Deleted items with 48 hours or less left in their bin. */
     fun expiringSoon(): Int = records.values.count {
         val days = it.item.expiresInDays
-        days != null && days <= 2
+        roleOf(it.item) == ROLE_TRASH && days != null && days <= 2
     }
 
+    /** Deleted items of one kind. Statuses, previews and app media are counted apart. */
     fun countOfKind(kind: String): Int =
-        records.values.count { it.item.kind == kind }
+        records.values.count { it.item.kind == kind && roleOf(it.item) == ROLE_TRASH }
+
+    fun countOfRole(role: String): Int = records.values.count { roleOf(it.item) == role }
+
+    fun bytesOfRole(role: String): Long =
+        records.values.filter { roleOf(it.item) == role }.sumOf { it.item.sizeBytes }
 
     /**
      * Name match across everything found so far.

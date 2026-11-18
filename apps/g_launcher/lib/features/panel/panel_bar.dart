@@ -25,6 +25,7 @@ import 'panel_edit.dart';
 import 'panel_editor_sheet.dart';
 import 'panel_modules.dart';
 import 'panel_skin.dart';
+import '../desklets/layout_lock.dart';
 
 class PanelBar extends ConsumerWidget {
   const PanelBar({super.key, required this.theme, required this.insets});
@@ -48,6 +49,7 @@ class PanelBar extends ConsumerWidget {
       // is squeezed by an upright phone.
       narrow: !theme.panelSide.isVertical && panelIsNarrow(context),
     );
+    final hasTasks = items.any((i) => i.kind == PanelModule.tasks);
 
     // ─── HEIGHT AND SIDE COME FROM THE RESOLVER ──────────────────────────
     //
@@ -77,6 +79,7 @@ class PanelBar extends ConsumerWidget {
       onLongPress: (!theme.panelEdit || editing)
           ? null
           : () async {
+              if (layoutLockRefuses(context)) return;
               HapticFeedback.mediumImpact();
               // ─── THE NOTIFIER IS CAPTURED BEFORE THE AWAIT ─────────────
               //
@@ -147,6 +150,13 @@ class PanelBar extends ConsumerWidget {
                 for (final item in items)
                   if (item.kind == PanelModule.tasks)
                     Expanded(child: panelModuleWidget(ref, item, host))
+                  // A spacer beside a task strip split the free width with
+                  // it, so Plasma's task manager got half the panel: the
+                  // fourth app was cut in two with empty panel after it. The
+                  // strip already pushes what follows to the far end, as
+                  // Plasma's own task manager does, so the spacer stands down.
+                  else if (item.kind == PanelModule.spacer && hasTasks)
+                    const SizedBox.shrink()
                   else
                     panelModuleWidget(ref, item, host),
                 // The trailing gutter turns with the panel: on a vertical strip

@@ -115,6 +115,24 @@ class DistroPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = peeked.effective;
 
+    // ─── TERMINAL HAS NO DESKTOP TO DRAW ──────────────────────────────────
+    //
+    // No wallpaper, panel, dock, icons or drawer: its whole screen is a
+    // prompt. Through the generic path it came out as the WORN distro's
+    // wallpaper with an icon grid and an app drawer, a desktop Terminal cannot
+    // produce, and in setup as a blank black screen. Every pane is the prompt.
+    if (t.shell == ShellKind.tui) {
+      return DevicePreview(
+        palette: t.palette,
+        mode: DevicePreviewMode.desktop,
+        framed: framed,
+        dock: DockSide.off,
+        panels: const <PanelSpec>[],
+        desktopIcons: false,
+        overlay: _Prompt(color: t.palette.accent, font: t.typography.mono),
+      );
+    }
+
     return DevicePreview(
       palette: t.palette,
       mode: mode,
@@ -266,4 +284,42 @@ class DistroPreview extends StatelessWidget {
         api.IconTreatment.roundedSquare => t.icons.cornerRadius,
         api.IconTreatment.original => t.icons.cornerRadius,
       };
+}
+
+
+/// Terminal's desktop at any size: a prompt and a block cursor, scaled to the
+/// pane so a store thumbnail and setup's full screen read the same.
+class _Prompt extends StatelessWidget {
+  const _Prompt({required this.color, required this.font});
+
+  final Color color;
+  final String? font;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, box) {
+          final size = (box.maxWidth * 0.055).clamp(6.0, 20.0);
+          return Padding(
+            padding: EdgeInsets.fromLTRB(size, size * 4, size, 0),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '~ \u276F ',
+                    style: TextStyle(
+                      fontFamily: font,
+                      fontSize: size,
+                      height: 1,
+                      color: color,
+                    ),
+                  ),
+                  Container(width: size * 0.55, height: size, color: color),
+                ],
+              ),
+            ),
+          );
+        },
+      );
 }

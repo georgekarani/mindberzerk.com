@@ -59,6 +59,7 @@ class LauncherPrefs {
     this.dockHover,
     this.dockPress,
     this.dockEntrance,
+    this.launchAnimation,
     this.topBar,
     this.statusBar,
     this.homeLayout,
@@ -98,6 +99,8 @@ class LauncherPrefs {
     this.badgeStyle,
     this.workspaceCount,
     this.verboseBoot,
+    this.workspaceDots,
+    this.layoutLocked,
     this.iconSizeDp,
     this.iconTreatment,
     this.iconPackId,
@@ -112,6 +115,9 @@ class LauncherPrefs {
     this.gestures = const {},
     this.hiddenApps = const {},
     this.hiddenAppsSearchable,
+    this.appLabels = const {},
+    this.badgeMuted = const {},
+    this.iconOverrides = const {},
     this.favourites = const [],
     this.dockExcluded = const {},
     this.homeItems = const [],
@@ -204,6 +210,10 @@ class LauncherPrefs {
   /// from Ubuntu. Reusing that name would have made a cosmetic setting look
   /// like a structural one.
   final String? dockEntrance;
+
+  /// How an app opens from this distro: one of `launchAnimationModes`. Null
+  /// follows the distro's authored default. PHASE 6.
+  final String? launchAnimation;
 
   final bool? topBar;
 
@@ -622,6 +632,21 @@ class LauncherPrefs {
   /// rides the same per-theme store as every other override.
   final bool? verboseBoot;
 
+  /// Draw the workspace dots on the GNOME shell. null = on, as GNOME draws them.
+  ///
+  /// Per theme, because it is a property of the desktop being imitated: the
+  /// dots are GNOME's own switcher, and a distro that hides them is making a
+  /// statement about what it looks like. Only the GNOME shell reads it; the
+  /// other shells show their workspaces in a panel module instead.
+  final bool? workspaceDots;
+
+  /// Freeze the home layout: icons, the dock, desklets and panel modules stay
+  /// where they are until it is turned off. null = unlocked.
+  ///
+  /// PROMOTED to [GlobalPrefs], like the hidden set: someone who locked their
+  /// desktop because a child keeps rearranging it means every distro.
+  final bool? layoutLocked;
+
   final double? iconSizeDp;
 
   // --- icons ---
@@ -807,6 +832,19 @@ class LauncherPrefs {
   ///
   /// Global, like [hiddenApps]: the set and its search rule travel together.
   final bool? hiddenAppsSearchable;
+
+  /// The user's own name for an app, by component key. Absent means the
+  /// app's own label. PROMOTED to [GlobalPrefs]: a name is the person's, not
+  /// the distro's, so "Bank" stays "Bank" when they try Plasma.
+  final Map<String, String> appLabels;
+
+  /// Apps whose notification count is never drawn, by component key.
+  /// PROMOTED, like the badge style it narrows.
+  final Set<String> badgeMuted;
+
+  /// Where one app's icon comes from, by component key (G2b): `app`,
+  /// `pack:<package>` or `image:<path>`. See `AppIdentity`. PROMOTED.
+  final Map<String, String> iconOverrides;
 
   /// The dock's pinned apps, in dock order.
   ///
@@ -1113,6 +1151,7 @@ class LauncherPrefs {
     String? dockHover,
     String? dockPress,
     String? dockEntrance,
+    String? launchAnimation,
     bool? topBar,
     bool? statusBar,
     String? homeLayout,
@@ -1152,6 +1191,8 @@ class LauncherPrefs {
     String? badgeStyle,
     int? workspaceCount,
     bool? verboseBoot,
+    bool? workspaceDots,
+    bool? layoutLocked,
     double? iconSizeDp,
     String? iconTreatment,
     String? iconPackId,
@@ -1166,6 +1207,9 @@ class LauncherPrefs {
     Map<String, String>? gestures,
     Set<String>? hiddenApps,
     bool? hiddenAppsSearchable,
+    Map<String, String>? appLabels,
+    Set<String>? badgeMuted,
+    Map<String, String>? iconOverrides,
     List<String>? favourites,
     Set<String>? dockExcluded,
     List<HomeItem>? homeItems,
@@ -1201,6 +1245,7 @@ class LauncherPrefs {
       dockHover: dockHover ?? this.dockHover,
       dockPress: dockPress ?? this.dockPress,
       dockEntrance: dockEntrance ?? this.dockEntrance,
+      launchAnimation: launchAnimation ?? this.launchAnimation,
       topBar: topBar ?? this.topBar,
       statusBar: statusBar ?? this.statusBar,
       homeLayout: homeLayout ?? this.homeLayout,
@@ -1240,6 +1285,8 @@ class LauncherPrefs {
       badgeStyle: badgeStyle ?? this.badgeStyle,
       workspaceCount: workspaceCount ?? this.workspaceCount,
       verboseBoot: verboseBoot ?? this.verboseBoot,
+      workspaceDots: workspaceDots ?? this.workspaceDots,
+      layoutLocked: layoutLocked ?? this.layoutLocked,
       iconSizeDp: iconSizeDp ?? this.iconSizeDp,
       iconTreatment: iconTreatment ?? this.iconTreatment,
       iconPackId: iconPackId ?? this.iconPackId,
@@ -1254,6 +1301,9 @@ class LauncherPrefs {
       gestures: gestures ?? this.gestures,
       hiddenApps: hiddenApps ?? this.hiddenApps,
       hiddenAppsSearchable: hiddenAppsSearchable ?? this.hiddenAppsSearchable,
+      appLabels: appLabels ?? this.appLabels,
+      badgeMuted: badgeMuted ?? this.badgeMuted,
+      iconOverrides: iconOverrides ?? this.iconOverrides,
       favourites: favourites ?? this.favourites,
       dockExcluded: dockExcluded ?? this.dockExcluded,
       homeItems: homeItems ?? this.homeItems,
@@ -1295,6 +1345,7 @@ class LauncherPrefs {
     bool dockHover = false,
     bool dockPress = false,
     bool dockEntrance = false,
+    bool launchAnimation = false,
     bool topBar = false,
     bool statusBar = false,
     bool homeLayout = false,
@@ -1349,6 +1400,8 @@ class LauncherPrefs {
     bool folderOrderCustom = false,
     bool workspaceCount = false,
     bool verboseBoot = false,
+    bool workspaceDots = false,
+    bool layoutLocked = false,
     bool hiddenAppsSearchable = false,
     bool iconSizeDp = false,
     bool iconTreatment = false,
@@ -1368,6 +1421,7 @@ class LauncherPrefs {
       dockHover: dockHover ? null : this.dockHover,
       dockPress: dockPress ? null : this.dockPress,
       dockEntrance: dockEntrance ? null : this.dockEntrance,
+      launchAnimation: launchAnimation ? null : this.launchAnimation,
       // Clearable now, for the section resets. It was pass-through, so
       // "restore defaults" on Icons and bar could turn the bar back ON but
       // could never hand it back to the distro's own answer.
@@ -1421,6 +1475,8 @@ class LauncherPrefs {
       badgeStyle: badgeStyle ? null : this.badgeStyle,
       workspaceCount: workspaceCount ? null : this.workspaceCount,
       verboseBoot: verboseBoot ? null : this.verboseBoot,
+      workspaceDots: workspaceDots ? null : this.workspaceDots,
+      layoutLocked: layoutLocked ? null : this.layoutLocked,
       iconSizeDp: iconSizeDp ? null : this.iconSizeDp,
       iconTreatment: iconTreatment ? null : this.iconTreatment,
       iconPackId: iconPackId ? null : this.iconPackId,
@@ -1442,6 +1498,9 @@ class LauncherPrefs {
       hiddenApps: hiddenApps,
       hiddenAppsSearchable:
           hiddenAppsSearchable ? null : this.hiddenAppsSearchable,
+      appLabels: appLabels,
+      badgeMuted: badgeMuted,
+      iconOverrides: iconOverrides,
       favourites: favourites,
       dockExcluded: dockExcluded,
       homeItems: homeItems,
@@ -1499,6 +1558,7 @@ class LauncherPrefs {
         if (dockHover != null) 'dockHover': dockHover,
         if (dockPress != null) 'dockPress': dockPress,
         if (dockEntrance != null) 'dockEntrance': dockEntrance,
+        if (launchAnimation != null) 'launchAnimation': launchAnimation,
         if (topBar != null) 'topBar': topBar,
         if (statusBar != null) 'statusBar': statusBar,
         if (homeLayout != null) 'homeLayout': homeLayout,
@@ -1540,6 +1600,8 @@ class LauncherPrefs {
           'drawerSearchPosition': drawerSearchPosition,
         if (workspaceCount != null) 'workspaceCount': workspaceCount,
         if (verboseBoot != null) 'verboseBoot': verboseBoot,
+        if (workspaceDots != null) 'workspaceDots': workspaceDots,
+        if (layoutLocked != null) 'layoutLocked': layoutLocked,
         if (iconSizeDp != null) 'iconSizeDp': iconSizeDp,
         if (iconTreatment != null) 'iconTreatment': iconTreatment,
         if (iconPackId != null) 'iconPackId': iconPackId,
@@ -1553,6 +1615,9 @@ class LauncherPrefs {
         if (monoFont != null) 'monoFont': monoFont,
         'gestures': gestures,
         'hiddenApps': hiddenApps.toList(),
+        if (appLabels.isNotEmpty) 'appLabels': appLabels,
+        if (badgeMuted.isNotEmpty) 'badgeMuted': badgeMuted.toList()..sort(),
+        if (iconOverrides.isNotEmpty) 'iconOverrides': iconOverrides,
         if (hiddenAppsSearchable != null)
           'hiddenAppsSearchable': hiddenAppsSearchable,
         'favourites': favourites,
@@ -1608,6 +1673,7 @@ class LauncherPrefs {
       dockHover: j['dockHover'] as String?,
       dockPress: j['dockPress'] as String?,
       dockEntrance: j['dockEntrance'] as String?,
+      launchAnimation: j['launchAnimation'] as String?,
       topBar: j['topBar'] as bool?,
       statusBar: j['statusBar'] as bool?,
       homeLayout: j['homeLayout'] as String?,
@@ -1650,6 +1716,8 @@ class LauncherPrefs {
       badgeStyle: j['badgeStyle'] as String?,
       workspaceCount: (j['workspaceCount'] as num?)?.toInt(),
       verboseBoot: j['verboseBoot'] as bool?,
+      workspaceDots: j['workspaceDots'] as bool?,
+      layoutLocked: j['layoutLocked'] as bool?,
       iconSizeDp: (j['iconSizeDp'] as num?)?.toDouble(),
       iconTreatment: j['iconTreatment'] as String?,
       iconPackId: j['iconPackId'] as String?,
@@ -1670,6 +1738,13 @@ class LauncherPrefs {
           .map((e) => e as String)
           .toSet(),
       hiddenAppsSearchable: j['hiddenAppsSearchable'] as bool?,
+      appLabels: ((j['appLabels'] as Map?) ?? const {})
+          .map((k, v) => MapEntry(k.toString(), v.toString())),
+      badgeMuted: ((j['badgeMuted'] as List?) ?? const [])
+          .whereType<String>()
+          .toSet(),
+      iconOverrides: ((j['iconOverrides'] as Map?) ?? const {})
+          .map((k, v) => MapEntry(k.toString(), v.toString())),
       dockExcluded: ((j['dockExcluded'] as List?) ?? const [])
           .map((e) => e as String)
           .toSet(),
@@ -1755,6 +1830,7 @@ class LauncherPrefs {
         other.dockHover == dockHover &&
         other.dockPress == dockPress &&
         other.dockEntrance == dockEntrance &&
+        other.launchAnimation == launchAnimation &&
         other.topBar == topBar &&
         other.statusBar == statusBar &&
         other.homeLayout == homeLayout &&
@@ -1795,6 +1871,8 @@ class LauncherPrefs {
         other.badgeStyle == badgeStyle &&
         other.workspaceCount == workspaceCount &&
         other.verboseBoot == verboseBoot &&
+        other.workspaceDots == workspaceDots &&
+        other.layoutLocked == layoutLocked &&
         other.iconSizeDp == iconSizeDp &&
         other.iconTreatment == iconTreatment &&
         other.iconPackId == iconPackId &&
@@ -1825,6 +1903,10 @@ class LauncherPrefs {
         const MapEquality<String, String>().equals(other.gestures, gestures) &&
         const SetEquality<String>().equals(other.hiddenApps, hiddenApps) &&
         other.hiddenAppsSearchable == hiddenAppsSearchable &&
+        const MapEquality<String, String>().equals(other.appLabels, appLabels) &&
+        const SetEquality<String>().equals(other.badgeMuted, badgeMuted) &&
+        const MapEquality<String, String>()
+            .equals(other.iconOverrides, iconOverrides) &&
         const ListEquality<String>().equals(other.favourites, favourites) &&
         const SetEquality<String>().equals(other.dockExcluded, dockExcluded) &&
         const ListEquality<HomeItem>().equals(other.homeItems, homeItems) &&
@@ -1867,6 +1949,7 @@ class LauncherPrefs {
         dockHover,
         dockPress,
         dockEntrance,
+        launchAnimation,
         topBar,
         statusBar,
         homeLayout,
@@ -1906,6 +1989,8 @@ class LauncherPrefs {
         badgeStyle,
         workspaceCount,
         verboseBoot,
+        workspaceDots,
+        layoutLocked,
         iconSizeDp,
         iconTreatment,
         iconPackId,
@@ -1920,6 +2005,9 @@ class LauncherPrefs {
         const MapEquality<String, String>().hash(gestures),
         const SetEquality<String>().hash(hiddenApps),
         hiddenAppsSearchable,
+        const MapEquality<String, String>().hash(appLabels),
+        const SetEquality<String>().hash(badgeMuted),
+        const MapEquality<String, String>().hash(iconOverrides),
         const ListEquality<String>().hash(favourites),
         const SetEquality<String>().hash(dockExcluded),
         const ListEquality<HomeItem>().hash(homeItems),
@@ -2056,6 +2144,9 @@ class AppFolder {
     required this.name,
     this.members = const [],
     this.glyph,
+    this.auto,
+    this.autoSeen = const [],
+    this.sort,
   });
 
   final String id;
@@ -2079,6 +2170,25 @@ class AppFolder {
   /// a newer prefs blob simply drops the key.
   final String? glyph;
 
+  /// What this folder files on its own: 'games' | 'social', or null for a
+  /// folder that only holds what the user put in it.
+  ///
+  /// An automatic folder takes a matching app the moment it is installed, so a
+  /// new game lands in Games without anyone dragging it there. See
+  /// `folder_behaviour.dart` for the rule and why [autoSeen] exists.
+  final String? auto;
+
+  /// Apps this automatic folder has already considered, filed or not.
+  ///
+  /// The memory that makes it polite: an app the user drags OUT is already in
+  /// here, so it is never pulled back in. Only apps that match [auto] are
+  /// recorded, which keeps it to the size of the folder's own subject.
+  final List<String> autoSeen;
+
+  /// How the folder orders its apps: null = the user's own order (custom),
+  /// 'az' = alphabetical, 'mostUsed' = by how often each is opened.
+  final String? sort;
+
   /// The name as shown to the user.
   ///
   /// Category folders ('cat:' ids) are named by the launcher, and [name] stays
@@ -2097,16 +2207,23 @@ class AppFolder {
   /// it": passing null means inherit. Clearing a glyph back to the fallback is
   /// a thing the picker has to be able to do, so this one is a one-element
   /// list where absent means inherit and `[null]` means clear.
+  /// [sort] is wrapped like [glyph], because "back to custom" is null.
   AppFolder copyWith({
     String? name,
     List<String>? members,
     List<String?>? glyph,
+    String? auto,
+    List<String>? autoSeen,
+    List<String?>? sort,
   }) =>
       AppFolder(
         id: id,
         name: name ?? this.name,
         members: members ?? this.members,
         glyph: glyph == null ? this.glyph : glyph.first,
+        auto: auto ?? this.auto,
+        autoSeen: autoSeen ?? this.autoSeen,
+        sort: sort == null ? this.sort : sort.first,
       );
 
   Map<String, dynamic> toJson() => {
@@ -2116,6 +2233,9 @@ class AppFolder {
         // Omitted when absent, so a folder that has never been given an icon
         // serialises byte for byte the way it did before this field existed.
         if (glyph != null) 'glyph': glyph,
+        if (auto != null) 'auto': auto,
+        if (autoSeen.isNotEmpty) 'autoSeen': autoSeen,
+        if (sort != null) 'sort': sort,
       };
 
   static AppFolder fromJson(Map<String, dynamic> j) => AppFolder(
@@ -2127,6 +2247,11 @@ class AppFolder {
         glyph: (j['glyph'] as String?)?.trim().isEmpty ?? true
             ? null
             : (j['glyph'] as String).trim(),
+        auto: j['auto'] as String?,
+        autoSeen: ((j['autoSeen'] as List?) ?? const [])
+            .map((e) => e as String)
+            .toList(),
+        sort: j['sort'] as String?,
       );
 
   @override
@@ -2136,7 +2261,10 @@ class AppFolder {
           other.id == id &&
           other.name == name &&
           other.glyph == glyph &&
-          const ListEquality<String>().equals(other.members, members);
+          other.auto == auto &&
+          other.sort == sort &&
+          const ListEquality<String>().equals(other.members, members) &&
+          const ListEquality<String>().equals(other.autoSeen, autoSeen);
 
   @override
   int get hashCode => Object.hash(
@@ -2181,6 +2309,7 @@ class Desklet {
     this.spanX = 1,
     this.spanY = 1,
     this.config = const {},
+    this.group,
   });
 
   /// Stable across moves and resizes. Not derived from position, because the
@@ -2223,6 +2352,15 @@ class Desklet {
   /// written by a newer build degrades instead of failing to parse.
   final Map<String, Object?> config;
 
+  /// The group this desklet moves with, or null. PHASE 3c.
+  ///
+  /// Every member of a group shares the id, and a move of any one moves them
+  /// all by the same offset (`DeskletLayout.moveGroup`). A field rather than a
+  /// config key because it is placement, not a setting of the kind, and the
+  /// editor reads it on every drag. Optional and omitted from JSON when null,
+  /// so older placements read unchanged and no schema bump is needed.
+  final String? group;
+
   bool get isPointLike => spanX == 1 && spanY == 1;
 
   /// Half-open on both axes: a desklet at col 2 with spanX 2 covers 2 and 3,
@@ -2247,6 +2385,8 @@ class Desklet {
     int? spanX,
     int? spanY,
     Map<String, Object?>? config,
+    String? group,
+    bool clearGroup = false,
   }) =>
       Desklet(
         id: id,
@@ -2257,6 +2397,7 @@ class Desklet {
         spanX: spanX ?? this.spanX,
         spanY: spanY ?? this.spanY,
         config: config ?? this.config,
+        group: clearGroup ? null : (group ?? this.group),
       );
 
   Map<String, dynamic> toJson() => {
@@ -2271,6 +2412,7 @@ class Desklet {
         // `"config": {}` on every one of them bloats a file that is read on
         // every theme resolve.
         if (config.isNotEmpty) 'config': config,
+        if (group != null) 'group': group,
       };
 
   /// Tolerant by design. A missing span or position reads as the safe minimum
@@ -2287,6 +2429,7 @@ class Desklet {
         spanY: (j['spanY'] as num?)?.toInt() ?? 1,
         config: ((j['config'] as Map?) ?? const {})
             .map((k, v) => MapEntry(k as String, v as Object?)),
+        group: j['group'] as String?,
       );
 
   @override
@@ -2300,6 +2443,7 @@ class Desklet {
           other.row == row &&
           other.spanX == spanX &&
           other.spanY == spanY &&
+          other.group == group &&
           const MapEquality<String, Object?>().equals(other.config, config);
 
   @override
@@ -2311,6 +2455,7 @@ class Desklet {
         row,
         spanX,
         spanY,
+        group,
         const MapEquality<String, Object?>().hash(config),
       );
 }

@@ -2,6 +2,8 @@ package com.mindhunter.g_launcher.icons
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.util.LruCache
 import com.mindhunter.g_launcher.apps.AppRepository
 import com.mindhunter.g_launcher.apps.ComponentKey
@@ -41,6 +43,11 @@ class IconCache(
 ) {
 
     private companion object {
+        /** The values [setOverrides] understands. Mirrored in Dart's app_identity.dart. */
+        const val OVERRIDE_APP = "app"
+        const val OVERRIDE_PACK = "pack:"
+        const val OVERRIDE_IMAGE = "image:"
+
         /**
          * ~1/8 of the heap, the conventional Android split. A 144px ARGB_8888
          * icon is ~83KB raw, but we cache PNG bytes (~8-15KB), so this holds
@@ -130,6 +137,20 @@ class IconCache(
     private var systemIconPack: String? = null
 
     /**
+     * Single-app icon choices, by component key. PHASE G2b. See
+     * [setOverrides] for the values and [renderOverride] for how each draws.
+     */
+    @Volatile
+    private var overrides: Map<String, String> = emptyMap()
+
+    /**
+     * A resolver per pack that some override names, loaded once. Separate
+     * from [iconPacks], which is the ONE pack chosen for every app: one app
+     * borrowing a drawing from another pack must not swap the whole drawer.
+     */
+    private val overridePacks = HashMap<String, IconPackResolver>()
+
+    /**
      * Memory is dropped; disk is NOT. Switching back to a theme you have used
      * before then costs a disk read rather than 200 re-renders.
      *
@@ -192,6 +213,31 @@ class IconCache(
         systemIconPack = packageName
         memory.evictAll()
     }
+
+    /**
+     * Replace the single-app choices. Same early return and the same
+     * load-before-flip order as [setSystemIconPack], for the same reasons: this
+     * is pushed on every prefs emit, and a request racing the flip must never
+     * key a bitmap against a pack that is not loaded yet.
+     */
+    fun setOverrides(next: Map<String, String>) {
+        if (next == overrides) return
+
+        synchronized(overridePacks) {
+            for (pkg in next.values.mapNotNull(::packOf).toSet()) {
+                if (pkg !in overridePacks) {
+                    overridePacks[pkg] = IconPackResolver(appContext).also { it.load(pkg) }
+                }
+            }
+        }
+        overrides = next
+        // Every bitmap in memory was filed under the old choice for its app.
+        // Disk needs nothing: the choice is in [cacheKey].
+        memory.evictAll()
+    }
+
+    private fun packOf(choice: String): String? =
+        if (choice.startsWith(OVERRIDE_PACK)) choice.removePrefix(OVERRIDE_PACK) else null
 
     /** Installed packs, for the picker. Queries the package manager; not hot. */
     fun installedIconPacks(): List<InstalledIconPack> = IconPackDiscovery.list(appContext)
@@ -488,7 +534,15 @@ class IconCache(
         //
         // A distro can still override a site's icon: `renderWebApp` falls
         // through to the normal chain when the system has no bitmap for it.
-        val bitmap = renderWebApp(componentKey, sizePx)
+        // ── THE PERSON'S OWN CHOICE FOR THIS ONE APP COMES FIRST (G2b) ─────
+        //
+        // Above the web-app branch and the four layers, because it is the most
+        // specific statement there is: not "these icons", but "this icon, for
+        // this app". A choice that cannot draw (a pack since uninstalled, a
+        // photo since deleted) falls through to the normal chain rather than
+        // leaving a hole.
+        val bitmap = renderOverride(componentKey, sizePx)
+            ?: renderWebApp(componentKey, sizePx)
             ?: renderIconPack(componentKey, sizePx)
             ?: renderHero(componentKey, sizePx)
             ?: renderBrand(componentKey, sizePx)
@@ -673,6 +727,53 @@ class IconCache(
         return renderer.renderHero(drawable, style, sizePx, true)
     }
 
+    /**
+     * The single-app choice, drawn, or null to let the normal chain answer.
+     *
+     *   app          the generator tier on its own: the app's own artwork
+     *   pack:<pkg>   that pack's drawing, unmasked, as [renderIconPack] does
+     *   image:<path> the photo, decoded near [sizePx] and masked into the
+     *                theme's shape, so a photo reads as an icon of this distro
+     */
+    private fun renderOverride(componentKey: String, sizePx: Int): Bitmap? {
+        val choice = overrides[componentKey] ?: return null
+        return when {
+            choice == OVERRIDE_APP -> renderGenerated(componentKey, sizePx)
+            choice.startsWith(OVERRIDE_PACK) -> {
+                val resolver = synchronized(overridePacks) {
+                    overridePacks[choice.removePrefix(OVERRIDE_PACK)]
+                } ?: return null
+                val drawable = resolver.resolve(componentKey) ?: return null
+                renderer.renderHero(drawable, style, sizePx, false)
+            }
+            choice.startsWith(OVERRIDE_IMAGE) -> {
+                val bitmap = decodeNear(File(choice.removePrefix(OVERRIDE_IMAGE)), sizePx)
+                    ?: return null
+                renderer.renderHero(BitmapDrawable(appContext.resources, bitmap), style, sizePx, true)
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * Decode [file] at the smallest power-of-two sample that still covers
+     * [sizePx], so a 12 MP photo costs an icon's worth of memory, not a
+     * screen's. Null when the file is gone or is not an image.
+     */
+    private fun decodeNear(file: File, sizePx: Int): Bitmap? {
+        if (!file.isFile) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        val shorter = minOf(bounds.outWidth, bounds.outHeight)
+        if (shorter <= 0) return null
+        var sample = 1
+        while (shorter / (sample * 2) >= sizePx) sample *= 2
+        return BitmapFactory.decodeFile(
+            file.path,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        )
+    }
+
     private fun renderGenerated(componentKey: String, sizePx: Int): Bitmap? {
         val icon = extractor.extract(componentKey) ?: return null
         return renderer.render(icon, style, sizePx)
@@ -692,8 +793,10 @@ class IconCache(
         // Leaving it out would be the classic version of this bug — the setting
         // appears to work for apps nobody has scrolled past yet, and every app
         // already in the cache keeps its old icon forever.
+        // The single-app choice is in the key for the same reason: changing it
+        // must stop the old bitmap being found, and only for that one app.
         val raw = "$componentKey|$token|$themeId|$sizePx|${style.fingerprint()}" +
-            "|${systemIconPack ?: "-"}"
+            "|${systemIconPack ?: "-"}|${overrides[componentKey] ?: "-"}"
         val digest = MessageDigest.getInstance("SHA-1").digest(raw.toByteArray())
         return digest.joinToString("") { "%02x".format(it) }
     }

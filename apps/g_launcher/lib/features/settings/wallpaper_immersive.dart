@@ -584,6 +584,14 @@ class _WallpaperGrid extends StatelessWidget {
           }
           onOpen(i);
         },
+        // A hold hides the picture from this tab. In Edit the hold belongs
+        // to dragging, and a hidden one comes back with a tap there.
+        onLongPress: !editing && hide != null && !isHidden
+            ? () {
+                HapticFeedback.mediumImpact();
+                hide(src, true);
+              }
+            : null,
         child: face,
       ),
     );
@@ -790,7 +798,8 @@ class _CollectionsGrid extends StatelessWidget {
                 fit: StackFit.expand,
                 children: [
                   _Mosaic(paths: col.paths, empty: c.surfaceAlt, ink: c.textMuted),
-                  if (rotationSource == 'collection:${col.id}')
+                  if (rotationSource == RotationSource.collections ||
+                      rotationSource == RotationSource.collection(col.id))
                     Positioned(
                       top: 8,
                       right: 8,
@@ -900,72 +909,123 @@ class _LiveGrid extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = ChromeScope.of(context).colors;
     final active = ref.watch(motionActiveProvider).value ?? false;
+    final lockSet = ref.watch(lockMotionProvider).value ?? false;
 
-    return LayoutBuilder(builder: (context, box) {
-      final cell = _phoneCells(box.maxWidth);
-      return Wrap(
-        spacing: 8,
-        runSpacing: 8,
-        children: [
-          if (active)
-            SizedBox(
-              width: cell.w,
-              height: cell.h,
-              child: Semantics(
-                selected: true,
-                label: context.t('settings.live'),
-                child: DecoratedBox(
-                  position: DecorationPosition.foreground,
-                  decoration: ShapeDecoration(
-                    shape: kit.shape(kit.tileRadius, kit.ring),
-                  ),
-                  child: Material(
-                    color: c.surfaceAlt,
-                    shape: kit.shape(kit.tileRadius),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Center(
-                          child: Icon(
-                            Icons.play_circle_outline,
-                            size: 36,
-                            color: c.text,
-                          ),
-                        ),
-                        Positioned(
-                          left: 8,
-                          bottom: 8,
-                          child: Container(
-                            width: 26,
-                            height: 26,
-                            decoration: BoxDecoration(
-                              color: kit.accent,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.motion_photos_on_outlined,
-                              size: 16,
-                              color: kit.onAccent,
-                            ),
-                          ),
-                        ),
-                      ],
+    Widget liveCell({
+      required IconData icon,
+      required String label,
+      required IconData mark,
+      VoidCallback? onTap,
+      VoidCallback? onRemove,
+    }) {
+      final cell = Semantics(
+        button: onTap != null,
+        selected: true,
+        label: label,
+        excludeSemantics: true,
+        child: DecoratedBox(
+          position: DecorationPosition.foreground,
+          decoration: ShapeDecoration(shape: kit.shape(kit.tileRadius, kit.ring)),
+          child: Material(
+            color: c.surfaceAlt,
+            shape: kit.shape(kit.tileRadius),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onTap,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(child: Icon(icon, size: 36, color: c.text)),
+                  Positioned(
+                    left: 8,
+                    bottom: 8,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: kit.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(mark, size: 16, color: kit.onAccent),
                     ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      if (onRemove == null) return cell;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          cell,
+          Positioned(
+            top: 0,
+            right: 0,
+            child: SizedBox(
+              width: 48,
+              height: 48,
+              child: Center(
+                child: SizedBox(
+                  width: 34,
+                  height: 34,
+                  child: _KitIcon(
+                    kit: kit,
+                    icon: Icons.close,
+                    label: context.t('desklets.remove'),
+                    onTap: onRemove,
                   ),
                 ),
               ),
             ),
-          SizedBox(
-            width: cell.w,
-            height: cell.h,
-            child: _AddCell(
-              kit: kit,
-              icon: active ? Icons.swap_horiz : Icons.video_call_outlined,
-              label: context.t(active ? 'settings.replace' : 'settings.addAVideo'),
-              onTap: onPick,
-            ),
           ),
+        ],
+      );
+    }
+
+    return LayoutBuilder(builder: (context, box) {
+      final cell = _phoneCells(box.maxWidth);
+      SizedBox sized(Widget child) =>
+          SizedBox(width: cell.w, height: cell.h, child: child);
+
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          // ─── HOME, THEN LOCK ────────────────────────────────────────────
+          //
+          // The home video is the live wallpaper itself. A second video for
+          // the lock screen is offered only once one is running, because the
+          // service that plays it is the same one: it switches to the lock
+          // video while the phone is locked.
+          if (active)
+            sized(liveCell(
+              icon: Icons.play_circle_outline,
+              label: context.t('settings.live'),
+              mark: Icons.home_outlined,
+            )),
+          if (active && lockSet)
+            sized(liveCell(
+              icon: Icons.play_circle_outline,
+              label: context.t('wallpaper.lock'),
+              mark: Icons.lock_outline,
+              onTap: () => pickLockMotion(context, ref),
+              onRemove: () => clearLockMotion(ref),
+            )),
+          sized(_AddCell(
+            kit: kit,
+            icon: active ? Icons.swap_horiz : Icons.video_call_outlined,
+            label: context.t(active ? 'settings.replace' : 'settings.addAVideo'),
+            onTap: onPick,
+          )),
+          if (active && !lockSet)
+            sized(_AddCell(
+              kit: kit,
+              icon: Icons.lock_outline,
+              label: context.t('wallpaper.lockVideo'),
+              onTap: () => pickLockMotion(context, ref),
+            )),
         ],
       );
     });

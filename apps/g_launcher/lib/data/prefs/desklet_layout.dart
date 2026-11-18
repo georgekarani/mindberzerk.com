@@ -432,7 +432,11 @@ class DeskletLayout {
   ) {
     final d = byId(p, id);
     if (d == null) return p;
-    return _replace(p, d.copyWith(config: {...d.config, ...patch}));
+    // A null in the patch CLEARS that key rather than storing a null, so
+    // "follow the distro" and "100%" leave no trace and inherit any future
+    // default.
+    final next = {...d.config, ...patch}..removeWhere((_, v) => v == null);
+    return _replace(p, d.copyWith(config: next));
   }
 
   /// Reorder on the PANE surface, where list order is the layout.
@@ -661,7 +665,7 @@ class DeskletLayout {
           if (x.id == id)
             // Same object, same config, same widgetId. Only its position
             // changes, which is what keeps a hosted widget alive through this.
-            x.copyWith(page: stackedPage, col: 0, row: 0)
+            x.copyWith(page: stackedPage, col: 0, row: 0, clearGroup: true)
           else
             x,
         Desklet(
@@ -672,6 +676,9 @@ class DeskletLayout {
           row: d.row,
           spanX: d.spanX,
           spanY: d.spanY,
+          // The stack stands where the member stood, so it moves with the
+          // member's group the way the member did.
+          group: d.group,
           config: {
             'members': [id]
           },
@@ -702,7 +709,7 @@ class DeskletLayout {
         desklets: [
           for (final x in p.desklets)
             if (x.id == memberId)
-              x.copyWith(page: stackedPage, col: 0, row: 0)
+              x.copyWith(page: stackedPage, col: 0, row: 0, clearGroup: true)
             else
               x,
         ],
@@ -886,6 +893,261 @@ class DeskletLayout {
         : p.copyWith(desklets: out);
   }
 
+  // ─── GROUPS, ALIGN AND DISTRIBUTE (PHASE 3c) ───────────────────────────────
+  //
+  // Every operation here moves several desklets in ONE write and is
+  // all-or-nothing: if any target leaves the grid or overlaps something, the
+  // whole arrangement is refused and `p` comes back unchanged (by identity),
+  // the same refusal signal [move] gives. Half an alignment is worse than
+  // none, because it leaves the person to work out which tiles moved.
+
+  /// The ids that move with [id]: its group on its page, or just [id].
+  ///
+  /// Page-scoped because a stacked member is parked on a hidden page and must
+  /// not be dragged around by its former neighbours.
+  static Set<String> groupOf(LauncherPrefs p, String id) {
+    final d = byId(p, id);
+    if (d == null) return const {};
+    final g = d.group;
+    if (g == null) return {id};
+    return {
+      for (final o in p.desklets)
+        if (o.group == g && o.page == d.page) o.id,
+    };
+  }
+
+  /// Moves every desklet in [to] to its cell, on its own page, at once.
+  ///
+  /// Each target must lie inside the grid and overlap neither another target
+  /// nor any desklet outside the set. Tiles that swap places are legal here,
+  /// which one [move] at a time could never allow.
+  static LauncherPrefs placeMany(
+    LauncherPrefs p,
+    Map<String, ({int col, int row})> to, {
+    required int cols,
+    required int rows,
+  }) {
+    if (to.isEmpty) return p;
+    final moved = <String, Desklet>{};
+    for (final e in to.entries) {
+      final d = byId(p, e.key);
+      if (d == null) return p;
+      final next = d.copyWith(col: e.value.col, row: e.value.row);
+      if (next.col < 0 ||
+          next.row < 0 ||
+          next.right > cols ||
+          next.bottom > rows) {
+        return p;
+      }
+      moved[d.id] = next;
+    }
+
+    final list = moved.values.toList();
+    for (var i = 0; i < list.length; i++) {
+      for (var j = i + 1; j < list.length; j++) {
+        if (list[i].overlaps(list[j])) return p;
+      }
+      for (final o in p.desklets) {
+        if (moved.containsKey(o.id)) continue;
+        if (list[i].overlaps(o)) return p;
+      }
+    }
+
+    var changed = false;
+    final out = <Desklet>[];
+    for (final d in p.desklets) {
+      final next = moved[d.id];
+      if (next != null && next != d) {
+        changed = true;
+        out.add(next);
+      } else {
+        out.add(d);
+      }
+    }
+    return changed ? p.copyWith(desklets: out) : p;
+  }
+
+  /// Moves [id] and everything grouped with it by the same offset.
+  static LauncherPrefs moveGroup(
+    LauncherPrefs p, {
+    required String id,
+    required int dCol,
+    required int dRow,
+    required int cols,
+    required int rows,
+  }) {
+    final to = <String, ({int col, int row})>{};
+    for (final m in groupOf(p, id)) {
+      final d = byId(p, m);
+      if (d != null) to[m] = (col: d.col + dCol, row: d.row + dRow);
+    }
+    return placeMany(p, to, cols: cols, rows: rows);
+  }
+
+  /// Puts [ids] in one group, named [groupId]. Fewer than two is not a group,
+  /// so it is refused. A group a member leaves behind with one tile in it is
+  /// dissolved.
+  static LauncherPrefs group(
+    LauncherPrefs p,
+    Set<String> ids, {
+    required String groupId,
+  }) {
+    final present = {
+      for (final d in p.desklets)
+        if (ids.contains(d.id)) d.id,
+    };
+    if (present.length < 2) return p;
+    return _dissolveSingles(p.copyWith(
+      desklets: [
+        for (final d in p.desklets)
+          if (present.contains(d.id)) d.copyWith(group: groupId) else d,
+      ],
+    ));
+  }
+
+  /// Takes [ids] out of their groups. A group left with one member is
+  /// dissolved too, since a group of one is just a tile with a flag on it.
+  static LauncherPrefs ungroup(LauncherPrefs p, Set<String> ids) {
+    if (!p.desklets.any((d) => ids.contains(d.id) && d.group != null)) {
+      return p;
+    }
+    return _dissolveSingles(p.copyWith(
+      desklets: [
+        for (final d in p.desklets)
+          if (ids.contains(d.id)) d.copyWith(clearGroup: true) else d,
+      ],
+    ));
+  }
+
+  /// Lines [ids] up against their shared bounding box.
+  static LauncherPrefs align(
+    LauncherPrefs p,
+    Set<String> ids,
+    DeskletAlign how, {
+    required int cols,
+    required int rows,
+  }) {
+    final items = [
+      for (final d in p.desklets)
+        if (ids.contains(d.id)) d,
+    ];
+    if (items.length < 2) return p;
+
+    var left = items.first.col, right = items.first.right;
+    var top = items.first.row, bottom = items.first.bottom;
+    for (final d in items) {
+      if (d.col < left) left = d.col;
+      if (d.right > right) right = d.right;
+      if (d.row < top) top = d.row;
+      if (d.bottom > bottom) bottom = d.bottom;
+    }
+
+    // Centres by integer halving of the box, so the rounding is the same for
+    // every tile and two equal spans always land on the same cell.
+    ({int col, int row}) target(Desklet d) => switch (how) {
+          DeskletAlign.left => (col: left, row: d.row),
+          DeskletAlign.right => (col: right - d.spanX, row: d.row),
+          DeskletAlign.centerX => (
+              col: (left + right - d.spanX) ~/ 2,
+              row: d.row,
+            ),
+          DeskletAlign.top => (col: d.col, row: top),
+          DeskletAlign.bottom => (col: d.col, row: bottom - d.spanY),
+          DeskletAlign.middle => (
+              col: d.col,
+              row: (top + bottom - d.spanY) ~/ 2,
+            ),
+        };
+
+    return placeMany(
+      p,
+      {for (final d in items) d.id: target(d)},
+      cols: cols,
+      rows: rows,
+    );
+  }
+
+  /// Spaces [ids] evenly across ([horizontal]) or down the page. The first
+  /// and last tiles stay put, as every design tool does it.
+  ///
+  /// Equal GAPS when the tiles fit between the ends; when they overlap along
+  /// that axis there is no gap to share, so their starts are spaced evenly
+  /// instead. Needs three tiles: two have nothing between them to space.
+  static LauncherPrefs distribute(
+    LauncherPrefs p,
+    Set<String> ids, {
+    required bool horizontal,
+    required int cols,
+    required int rows,
+  }) {
+    final items = [
+      for (final d in p.desklets)
+        if (ids.contains(d.id)) d,
+    ];
+    if (items.length < 3) return p;
+
+    int start(Desklet d) => horizontal ? d.col : d.row;
+    int span(Desklet d) => horizontal ? d.spanX : d.spanY;
+    items.sort((a, b) => start(a).compareTo(start(b)));
+
+    final first = items.first, last = items.last;
+    final n = items.length;
+    var middle = 0;
+    for (var i = 1; i < n - 1; i++) {
+      middle += span(items[i]);
+    }
+    final free = start(last) - (start(first) + span(first)) - middle;
+
+    final at = <String, int>{};
+    if (free >= 0) {
+      // Equal gaps, the remainder handed out from the start so every tile
+      // still lands on a whole cell.
+      final gaps = n - 1;
+      var cursor = start(first) + span(first);
+      for (var i = 1; i < n - 1; i++) {
+        cursor += free ~/ gaps + (i <= free % gaps ? 1 : 0);
+        at[items[i].id] = cursor;
+        cursor += span(items[i]);
+      }
+    } else {
+      final run = start(last) - start(first);
+      for (var i = 1; i < n - 1; i++) {
+        at[items[i].id] = start(first) + (run * i / (n - 1)).round();
+      }
+    }
+
+    return placeMany(
+      p,
+      {
+        for (final d in items)
+          d.id: horizontal
+              ? (col: at[d.id] ?? d.col, row: d.row)
+              : (col: d.col, row: at[d.id] ?? d.row),
+      },
+      cols: cols,
+      rows: rows,
+    );
+  }
+
+  /// Clears the group of any member that is now alone in it.
+  static LauncherPrefs _dissolveSingles(LauncherPrefs p) {
+    final counts = <String, int>{};
+    for (final d in p.desklets) {
+      final g = d.group;
+      if (g != null) counts[g] = (counts[g] ?? 0) + 1;
+    }
+    if (!counts.values.any((c) => c < 2)) return p;
+    return p.copyWith(
+      desklets: [
+        for (final d in p.desklets)
+          if (d.group != null && counts[d.group]! < 2)
+            d.copyWith(clearGroup: true)
+          else
+            d,
+      ],
+    );
+  }
+
   // ─── INTERNAL ──────────────────────────────────────────────────────────────
 
   static LauncherPrefs _replace(LauncherPrefs p, Desklet next) => p.copyWith(
@@ -925,3 +1187,7 @@ class _DeskletListEq {
     return true;
   }
 }
+
+/// How [DeskletLayout.align] lines tiles up. Each names the edge or centre
+/// line the tiles share afterwards.
+enum DeskletAlign { left, centerX, right, top, middle, bottom }

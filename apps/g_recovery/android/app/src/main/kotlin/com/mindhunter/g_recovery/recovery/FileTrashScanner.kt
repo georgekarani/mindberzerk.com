@@ -21,14 +21,14 @@ internal class FileTrashScanner {
     private val root: File get() = Environment.getExternalStorageDirectory()
 
     /** Shallow count for the pre-scan. Does not recurse. */
-    fun countThumbnails(map: TrashMap): Pair<Int, Long> {
+    fun countThumbnails(map: TrashMap, accept: (File) -> Boolean): Pair<Int, Long> {
         var items = 0
         var bytes = 0L
         for (path in map.thumbnailPaths) {
             val dir = File(root, path)
             if (!dir.isDirectory) continue
             dir.listFiles()?.forEach { file ->
-                if (file.isFile && file.length() > 0) {
+                if (file.isFile && file.length() > 0 && accept(file)) {
                     items++
                     bytes += file.length()
                 }
@@ -43,6 +43,8 @@ internal class FileTrashScanner {
         sourceId: String,
         fidelityOverride: String?,
         isCancelled: () -> Boolean,
+        // Which files count. Thumbnails pass an orphan check; everything else counts.
+        accept: (File) -> Boolean = { true },
         onProgress: (scanned: Int, total: Int) -> Unit,
     ) {
         val dirs = entries.flatMap { entry ->
@@ -59,7 +61,7 @@ internal class FileTrashScanner {
             walk(dir) { file ->
                 if (isCancelled()) return@walk false
                 scanned++
-                if (file.length() > 0 && !file.isHidden0()) {
+                if (file.length() > 0 && !file.isHidden0() && accept(file)) {
                     index.put(
                         sourceId,
                         RecoveryIndex.Record.Loose(

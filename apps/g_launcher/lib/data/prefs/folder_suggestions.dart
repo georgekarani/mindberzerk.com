@@ -323,6 +323,15 @@ class FolderSuggestions {
           id: newFolderId(),
           name: suggestion.name,
           members: members,
+          // Games and Social keep filing new installs (folder_behaviour.dart).
+          // A publisher block stays as accepted: a new Google app is not
+          // obviously one the user wants swept in.
+          auto: switch (suggestion.kind) {
+            SuggestionKind.games => 'games',
+            SuggestionKind.social => 'social',
+            SuggestionKind.publisher => null,
+          },
+          autoSeen: members,
         ),
       ],
     );

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'backup_store.dart';
 import 'prefs_backup.dart';
 import 'prefs_repository.dart';
+import 'setup_state.dart';
 import 'wallpaper_collections.dart';
 
 /// When the launcher backs itself up without being asked.
@@ -189,6 +190,12 @@ class BackupScheduleNotifier extends AsyncNotifier<BackupSchedule> {
     try {
       final schedule = await _snapshot();
       if (!force && !schedule.isDue) return false;
+
+      // Not before setup is finished. A fresh install's settings are the
+      // defaults, and backing them up is how a 340-byte file ended up newest
+      // in the folder, ahead of the real backup it was about to be restored
+      // from.
+      if (!await ref.read(setupCompletedProvider.future)) return false;
 
       // ─── FINGERPRINTED BEFORE ENCODED ──────────────────────────────
       //

@@ -13,6 +13,7 @@ import android.content.pm.LauncherApps
 import android.util.Log
 import android.graphics.Rect
 import android.os.Build
+import android.os.Bundle
 import android.os.Process
 import android.os.UserHandle
 import android.os.UserManager
@@ -131,7 +132,12 @@ class AppRepository(context: Context) {
 
     // ---- launching -------------------------------------------------------
 
-    fun launch(componentKey: String, bounds: Rect?) {
+    /**
+     * [options] carries the distro's launch animation (see [LaunchStyle]);
+     * null leaves the system's own zoom from [bounds], which is what every
+     * launch did before PHASE 6.
+     */
+    fun launch(componentKey: String, bounds: Rect?, options: Bundle? = null) {
         // Web apps first: their keys parse cleanly as components but name no
         // activity, so falling through to startMainActivity would be a start
         // on something that is not there.
@@ -159,13 +165,13 @@ class AppRepository(context: Context) {
         // `getLaunchIntentForPackage` resolves the CURRENT one, so the tap
         // works instead of doing nothing.
         try {
-            launcherApps.startMainActivity(component, user, bounds, null)
+            launcherApps.startMainActivity(component, user, bounds, options)
         } catch (e: SecurityException) {
-            if (!launchByPackage(key.packageName, user, bounds)) {
+            if (!launchByPackage(key.packageName, user, bounds, options)) {
                 Log.w(TAG, "launch denied for $componentKey: $e")
             }
         } catch (e: ActivityNotFoundException) {
-            if (!launchByPackage(key.packageName, user, bounds)) {
+            if (!launchByPackage(key.packageName, user, bounds, options)) {
                 Log.w(TAG, "launch target gone for $componentKey: $e")
             }
         }
@@ -183,6 +189,7 @@ class AppRepository(context: Context) {
         packageName: String,
         user: UserHandle,
         bounds: Rect?,
+        style: Bundle? = null,
     ): Boolean {
         if (user != Process.myUserHandle()) return false
 
@@ -190,14 +197,16 @@ class AppRepository(context: Context) {
             ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        val options = bounds?.let {
+        // The distro's style when there is one, else the zoom from the icon.
+        val options = style ?: bounds?.let {
             ActivityOptions.makeScaleUpAnimation(null, it.left, it.top, it.width(), it.height())
+                .toBundle()
         }
         return try {
             // `options` may be null; startActivity accepts that and animates
             // with the system default, which is the same thing a launch with
             // no source rect already does.
-            appContext.startActivity(intent, options?.toBundle())
+            appContext.startActivity(intent, options)
             true
         } catch (e: Exception) {
             Log.w(TAG, "package launch failed for $packageName: $e")

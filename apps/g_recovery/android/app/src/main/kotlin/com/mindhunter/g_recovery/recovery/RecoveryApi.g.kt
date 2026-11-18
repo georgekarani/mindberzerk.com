@@ -673,7 +673,24 @@ data class RecoverySummary (
    * showing that as a total would be the fake count every competitor opens
    * with.
    */
-  val partial: Boolean
+  val partial: Boolean,
+  /**
+   * Counts by what happened, appended after [partial] for the same encoding
+   * reason as the per-kind counts.
+   *
+   * Only [deletedItems] is "recoverable now". Statuses were never deleted,
+   * previews are low-resolution copies whose originals are gone, and app media
+   * is still inside the chat app. Folding any of them into one total is the
+   * overclaim the app exists to avoid.
+   */
+  val deletedItems: Long,
+  val deletedBytes: Long,
+  val statusItems: Long,
+  val statusBytes: Long,
+  val previewItems: Long,
+  val previewBytes: Long,
+  val appMediaItems: Long,
+  val appMediaBytes: Long
 )
  {
   companion object {
@@ -688,7 +705,15 @@ data class RecoverySummary (
       val documentCount = pigeonVar_list[7] as Long
       val otherCount = pigeonVar_list[8] as Long
       val partial = pigeonVar_list[9] as Boolean
-      return RecoverySummary(sources, totalItems, totalBytes, expiringSoonItems, imageCount, videoCount, audioCount, documentCount, otherCount, partial)
+      val deletedItems = pigeonVar_list[10] as Long
+      val deletedBytes = pigeonVar_list[11] as Long
+      val statusItems = pigeonVar_list[12] as Long
+      val statusBytes = pigeonVar_list[13] as Long
+      val previewItems = pigeonVar_list[14] as Long
+      val previewBytes = pigeonVar_list[15] as Long
+      val appMediaItems = pigeonVar_list[16] as Long
+      val appMediaBytes = pigeonVar_list[17] as Long
+      return RecoverySummary(sources, totalItems, totalBytes, expiringSoonItems, imageCount, videoCount, audioCount, documentCount, otherCount, partial, deletedItems, deletedBytes, statusItems, statusBytes, previewItems, previewBytes, appMediaItems, appMediaBytes)
     }
   }
   fun toList(): List<Any?> {
@@ -703,6 +728,14 @@ data class RecoverySummary (
       documentCount,
       otherCount,
       partial,
+      deletedItems,
+      deletedBytes,
+      statusItems,
+      statusBytes,
+      previewItems,
+      previewBytes,
+      appMediaItems,
+      appMediaBytes,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -713,7 +746,7 @@ data class RecoverySummary (
       return true
     }
     val other = other as RecoverySummary
-    return RecoveryApiPigeonUtils.deepEquals(this.sources, other.sources) && RecoveryApiPigeonUtils.deepEquals(this.totalItems, other.totalItems) && RecoveryApiPigeonUtils.deepEquals(this.totalBytes, other.totalBytes) && RecoveryApiPigeonUtils.deepEquals(this.expiringSoonItems, other.expiringSoonItems) && RecoveryApiPigeonUtils.deepEquals(this.imageCount, other.imageCount) && RecoveryApiPigeonUtils.deepEquals(this.videoCount, other.videoCount) && RecoveryApiPigeonUtils.deepEquals(this.audioCount, other.audioCount) && RecoveryApiPigeonUtils.deepEquals(this.documentCount, other.documentCount) && RecoveryApiPigeonUtils.deepEquals(this.otherCount, other.otherCount) && RecoveryApiPigeonUtils.deepEquals(this.partial, other.partial)
+    return RecoveryApiPigeonUtils.deepEquals(this.sources, other.sources) && RecoveryApiPigeonUtils.deepEquals(this.totalItems, other.totalItems) && RecoveryApiPigeonUtils.deepEquals(this.totalBytes, other.totalBytes) && RecoveryApiPigeonUtils.deepEquals(this.expiringSoonItems, other.expiringSoonItems) && RecoveryApiPigeonUtils.deepEquals(this.imageCount, other.imageCount) && RecoveryApiPigeonUtils.deepEquals(this.videoCount, other.videoCount) && RecoveryApiPigeonUtils.deepEquals(this.audioCount, other.audioCount) && RecoveryApiPigeonUtils.deepEquals(this.documentCount, other.documentCount) && RecoveryApiPigeonUtils.deepEquals(this.otherCount, other.otherCount) && RecoveryApiPigeonUtils.deepEquals(this.partial, other.partial) && RecoveryApiPigeonUtils.deepEquals(this.deletedItems, other.deletedItems) && RecoveryApiPigeonUtils.deepEquals(this.deletedBytes, other.deletedBytes) && RecoveryApiPigeonUtils.deepEquals(this.statusItems, other.statusItems) && RecoveryApiPigeonUtils.deepEquals(this.statusBytes, other.statusBytes) && RecoveryApiPigeonUtils.deepEquals(this.previewItems, other.previewItems) && RecoveryApiPigeonUtils.deepEquals(this.previewBytes, other.previewBytes) && RecoveryApiPigeonUtils.deepEquals(this.appMediaItems, other.appMediaItems) && RecoveryApiPigeonUtils.deepEquals(this.appMediaBytes, other.appMediaBytes)
   }
 
   override fun hashCode(): Int {
@@ -728,10 +761,18 @@ data class RecoverySummary (
     result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.documentCount)
     result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.otherCount)
     result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.partial)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.deletedItems)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.deletedBytes)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.statusItems)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.statusBytes)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.previewItems)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.previewBytes)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.appMediaItems)
+    result = 31 * result + RecoveryApiPigeonUtils.deepHash(this.appMediaBytes)
     return result
   }
   override fun toString(): String {
-    return "RecoverySummary(sources=$sources, totalItems=$totalItems, totalBytes=$totalBytes, expiringSoonItems=$expiringSoonItems, imageCount=$imageCount, videoCount=$videoCount, audioCount=$audioCount, documentCount=$documentCount, otherCount=$otherCount, partial=$partial)"
+    return "RecoverySummary(sources=$sources, totalItems=$totalItems, totalBytes=$totalBytes, expiringSoonItems=$expiringSoonItems, imageCount=$imageCount, videoCount=$videoCount, audioCount=$audioCount, documentCount=$documentCount, otherCount=$otherCount, partial=$partial, deletedItems=$deletedItems, deletedBytes=$deletedBytes, statusItems=$statusItems, statusBytes=$statusBytes, previewItems=$previewItems, previewBytes=$previewBytes, appMediaItems=$appMediaItems, appMediaBytes=$appMediaBytes)"
   }
 }
 

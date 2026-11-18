@@ -8,10 +8,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../data/prefs/drawer_layout.dart';
+import '../../data/prefs/folder_behaviour.dart';
 import '../../data/prefs/hidden_apps.dart';
 import '../../data/prefs/home_layout.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/app_repository.dart';
+import '../../data/usage/usage_repository.dart';
 import '../../design/liquid_glass.dart';
 import '../../design/branded_message.dart';
 import '../../design/components/components.dart';
@@ -333,6 +335,43 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
   /// [DrawerFolderStore.editable] copies it onto the materialised folder. So a
   /// user who opens the picker on Internet, changes nothing and backs out is
   /// left exactly where they started rather than with a plain folder.
+  /// Custom, A to Z or Most used, as a themed sheet. [scoped] for the reason
+  /// [_chooseGlyph] gives.
+  Future<void> _chooseSort(
+    BuildContext scoped,
+    EffectiveTheme theme,
+    FolderSnapshot live,
+  ) async {
+    final picked = await ThemedSheet.show<List<String?>>(
+      scoped,
+      title: scoped.t('drawer.sortBy'),
+      builder: (ctx) {
+        final c = ChromeScope.of(ctx).colors;
+        Widget option(String label, String? value) => ThemedListRow(
+              title: label,
+              trailing: live.sort == value
+                  ? Icon(Icons.check, size: 20, color: c.accent)
+                  : null,
+              // Wrapped, because null (custom) is a real answer and a bare
+              // null pop means the sheet was dismissed.
+              onTap: () => Navigator.of(ctx).pop([value]),
+            );
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            option(ctx.t('drawer.sortCustom'), FolderSort.custom),
+            option(ctx.t('drawer.sortAlphabetical'), FolderSort.az),
+            option(ctx.t('drawer.sortMostUsed'), FolderSort.mostUsed),
+            const SizedBox(height: 8),
+          ],
+        );
+      },
+    );
+    if (picked == null || !mounted) return;
+    final id = await _editable(live);
+    await widget.store.setSort(ref, theme, id, picked.first);
+  }
+
   Future<void> _chooseGlyph(
     BuildContext scoped,
     EffectiveTheme theme,
@@ -417,6 +456,16 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
     final perPage = math.max(1, cols * rows);
     final pageCount = math.max(1, (live.members.length / perPage).ceil());
 
+    // The folder's chosen order (custom, A to Z, most used). Stored order is
+    // untouched; this is display only, and a drag freezes it (folder_store).
+    final shown = sortFolderMembers(
+      live.members,
+      live.sort,
+      live.sort == FolderSort.mostUsed
+          ? ref.watch(frequentAppsProvider)
+          : const <String>[],
+    );
+
     // The unnamed folder reads as a placeholder, exactly like an empty text
     // field: the name is still "Folder" in storage, but showing it in full ink
     // implies someone chose it. Muted ink says "this is waiting for you".
@@ -497,6 +546,7 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
                     theme: theme,
                     glyph: live.glyph,
                     onIcon: (inner) => _chooseGlyph(inner, theme, live),
+                    onSort: (inner) => _chooseSort(inner, theme, live),
                     onAdd: () => _addApps(theme, live),
                     onUngroup: () {
                       // ─── ASK BEFORE PROMISING ──────────────────────────
@@ -531,7 +581,7 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
                   _Panel(
                     theme: theme,
                     store: widget.store,
-                    members: live.members,
+                    members: shown,
                     folderId: _id,
                     // Closed over `live` HERE, where it is in scope. The panel
                     // and the tiles hold plain data and no ref, so the
@@ -551,7 +601,7 @@ class _FolderOverlayState extends ConsumerState<_FolderOverlay> {
                     locateIndex: () {
                       final target = ref.watch(locateTargetProvider);
                       if (target == null) return -1;
-                      return live.members
+                      return shown
                           .indexWhere((m) => m.componentKey == target);
                     }(),
                   ),
@@ -783,6 +833,7 @@ class _Title extends StatelessWidget {
 class _Actions extends StatelessWidget {
   const _Actions({
     required this.theme,
+    required this.onSort,
     required this.onAdd,
     required this.onUngroup,
     required this.onIcon,
@@ -803,6 +854,9 @@ class _Actions extends StatelessWidget {
   /// the scope, so its context resolves correctly, and passing it down is the
   /// smallest way to say so.
   final void Function(BuildContext) onIcon;
+
+  /// The order picker. Takes a context for the same reason [onIcon] does.
+  final void Function(BuildContext) onSort;
 
   /// Drawn INSIDE its own button, so the control shows the current answer
   /// rather than a generic paintbrush. A settings row that displays its value
@@ -840,6 +894,15 @@ class _Actions extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(width: 18),
+          Builder(
+            builder: (inner) => _GlyphButton(
+              theme: theme,
+              icon: Icons.sort,
+              semantic: context.t('drawer.sortBy'),
+              onTap: () => onSort(inner),
+            ),
+          ),
           const SizedBox(width: 18),
           _GlyphButton(
             theme: theme,

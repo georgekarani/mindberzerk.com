@@ -19,6 +19,7 @@
   },
   "layout": {
     "dock": "off",
+    "launchAnimation": "none",
     "topBar": false,
     "grid": {
       "rows": 5,

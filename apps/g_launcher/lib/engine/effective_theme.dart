@@ -21,7 +21,9 @@ import '../data/repositories/app_repository.dart';
 // dock is showing, and that count is the dock's own answer rather than a
 // second copy of it. Pure Dart, no Flutter imports, no cycle.
 import '../features/dock/dock_metrics.dart' show DockMetrics;
+import '../i18n/i18n.dart';
 import '../platform/launcher_api.g.dart' as api;
+import '../system/wallpaper_accent.dart';
 import '../system/wallpaper_source.dart';
 // `DeskletKinds` for the pane-only test on the starter below. The layout import
 // above carries placements; this one carries the catalogue of what a placement
@@ -77,6 +79,7 @@ class EffectiveTheme {
     required this.dockHover,
     required this.dockPress,
     required this.dockEntrance,
+    required this.launchAnimation,
     required this.dockReveal,
     required this.iconSizeDp,
     required this.labelLines,
@@ -84,6 +87,7 @@ class EffectiveTheme {
     required this.iconScale,
     required this.icons,
     required this.dark,
+    this.wallpaperColors = const [],
   });
 
   final ThemeSpec spec;
@@ -96,6 +100,10 @@ class EffectiveTheme {
   /// so `==` can see it: see the note on the operator below, which is the whole
   /// reason this is a field.
   final bool dark;
+
+  /// The system wallpaper's main colours, most prominent first, for the
+  /// Wallpaper accent. Empty when unknown. PHASE 6.
+  final List<Color> wallpaperColors;
 
   final DockSide dock;
   final bool topBar;
@@ -269,6 +277,7 @@ class EffectiveTheme {
   final String dockHover;
   final String dockPress;
   final String dockEntrance;
+  final String launchAnimation;
 
   /// When the dock exists: 'always' | 'apps'. Read by `gnome_shell` and by
   /// `capabilities.dart`. See [ThemeLayout.dockReveal].
@@ -344,6 +353,9 @@ class EffectiveTheme {
   /// Whether a Search button sits above the dock. See
   /// [ThemeLayout.homeSearch].
   bool get homeSearchPill => _layoutNow.homeSearch == 'pill';
+
+  /// The GNOME shell's workspace dots. On unless the user turned them off.
+  bool get workspaceDots => prefs.workspaceDots ?? true;
 
   /// Whether home folders are glass squares. See [ThemeLayout.folderStyle].
   bool get folderGlass => _layoutNow.folderStyle == 'glass';
@@ -481,9 +493,22 @@ class EffectiveTheme {
   /// the same object it always did and nothing downstream can tell light mode
   /// exists.
   ThemePalette get palette {
-    final base = dark ? spec.palette : (spec.paletteLight ?? spec.palette);
-    final chosen = accent;
+    final base = _basePalette;
+    final chosen = _accentOn(base);
     return chosen == null ? base : base.withAccent(chosen);
+  }
+
+  /// The distro's own palette for the current brightness, before any accent.
+  ThemePalette get _basePalette =>
+      dark ? spec.palette : (spec.paletteLight ?? spec.palette);
+
+  /// The accent id in force: the person's pick, else the wallpaper when the
+  /// distro defaults to it (`ThemeSpec.accentFromWallpaper`), else null for
+  /// the distro's own. PHASE 6.
+  String? get accentChoice {
+    final id = prefs.accentId?.trim();
+    if (id != null && id.isNotEmpty) return id;
+    return spec.accentFromWallpaper ? wallpaperAccentId : null;
   }
 
   /// The accent the user picked, or null to leave the palette's own alone.
@@ -502,14 +527,47 @@ class EffectiveTheme {
   /// user who chose `dragon` on a version that had it must not have their
   /// stored choice rewritten by a version that does not. Returning null leaves
   /// the distro's own accent on screen while the id sits untouched in prefs, so
-  /// reinstating the colour later reinstates their choice.
-  Color? get accent {
-    final id = prefs.accentId?.trim();
-    if (id == null || id.isEmpty) return null;
+  /// reinstating the colour later reinstates their choice. The same holds for
+  /// the wallpaper: a wallpaper with no usable colour leaves the distro's own.
+  Color? get accent => _accentOn(_basePalette);
+
+  Color? _accentOn(ThemePalette base) {
+    final id = accentChoice;
+    if (id == null) return null;
+    if (id == wallpaperAccentId) {
+      return wallpaperAccentFor(wallpaperColors, base.bar);
+    }
     for (final a in spec.accents) {
       if (a.id == id) return a.value;
     }
     return null;
+  }
+
+  /// The swatches a picker offers: the wallpaper's, when it has a usable
+  /// colour, then the distro's own. PHASE 6.
+  ///
+  /// So every distro offers at least the wallpaper, including the ones that
+  /// author no accents at all, and a picker that used to hide on them now
+  /// shows one swatch.
+  List<ThemeAccent> get offeredAccents {
+    final fromWallpaper = wallpaperAccentFor(wallpaperColors, _basePalette.bar);
+    return [
+      if (fromWallpaper != null)
+        ThemeAccent(
+          id: wallpaperAccentId,
+          name: tr('settings.wallpaperAccent'),
+          value: fromWallpaper,
+        ),
+      ...spec.accents,
+    ];
+  }
+
+  static bool _sameColors(List<Color> a, List<Color> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// The families actually on screen: the distro's, unless the user said
@@ -645,6 +703,7 @@ class EffectiveTheme {
     ThemeSpec spec,
     LauncherPrefs prefs, {
     bool systemDark = true,
+    List<Color> wallpaperColors = const [],
   }) {
     final dark = resolveDark(spec, prefs, systemDark: systemDark);
     // Layout scalars (dock, grid, sizes, labels) live in LayoutResolver, the
@@ -659,6 +718,7 @@ class EffectiveTheme {
       spec: spec,
       prefs: prefs,
       dark: dark,
+      wallpaperColors: wallpaperColors,
       dock: layout.dock,
       topBar: layout.topBar,
       statusBar: layout.statusBar,
@@ -690,6 +750,7 @@ class EffectiveTheme {
       dockHover: layout.dockHover,
       dockPress: layout.dockPress,
       dockEntrance: layout.dockEntrance,
+      launchAnimation: layout.launchAnimation,
       dockReveal: layout.dockReveal,
       iconSizeDp: layout.iconSizeDp,
       labelLines: layout.labelLines,
@@ -882,6 +943,12 @@ class EffectiveTheme {
           // Android's dark mode would repaint nothing at all until something
           // unrelated happened to invalidate the tree.
           other.dark == dark &&
+          // ── AND THE WALLPAPER'S COLOURS, FOR THE SAME REASON ──────────
+          //
+          // A new wallpaper changes the Wallpaper accent with no prefs write,
+          // exactly as a brightness flip changes the palette. Left out, every
+          // family keyed on this theme would keep the old accent.
+          _sameColors(other.wallpaperColors, wallpaperColors) &&
           other.dock == dock &&
           other.topBar == topBar &&
           other.statusBar == statusBar &&
@@ -920,6 +987,7 @@ class EffectiveTheme {
   /// getting a theme that compares unequal but hashes the same.
   @override
   int get hashCode => Object.hashAll([
+        Object.hashAll(wallpaperColors),
         spec.id,
         prefs,
         dark,
@@ -1023,7 +1091,18 @@ final effectiveThemeProvider = FutureProvider<EffectiveTheme>((ref) async {
   // the user's thumb rather than on next launch.
   final systemDark = ref.watch(systemDarkProvider);
 
-  final effective = EffectiveTheme.resolve(spec, prefs, systemDark: systemDark);
+  // Watched, so a new wallpaper re-tints the Wallpaper accent without a
+  // restart. Empty while it loads, which leaves the distro's own accent for
+  // that first frame rather than holding the whole theme back. PHASE 6.
+  final wallpaperColors =
+      ref.watch(wallpaperColorsProvider).asData?.value ?? const <Color>[];
+
+  final effective = EffectiveTheme.resolve(
+    spec,
+    prefs,
+    systemDark: systemDark,
+    wallpaperColors: wallpaperColors,
+  );
 
   final api_ = ref.read(launcherHostApiProvider);
 
@@ -1046,6 +1125,21 @@ final effectiveThemeProvider = FutureProvider<EffectiveTheme>((ref) async {
   // repaint its palette. The icons arrive when they arrive; the theme is
   // instant.
   unawaited(api_.setIconPack(prefs.systemIconPack));
+
+  // ── SINGLE-APP ICON CHOICES (G2b) ───────────────────────────────────────
+  //
+  // AWAITED, unlike the pack above, because an icon asked for before native
+  // holds the map would be drawn without the choice and remembered by Dart
+  // under the key that names it. Cheap: native returns at once when the map
+  // is unchanged, which is every emit but the one after an edit.
+  await api_.setIconOverrides(prefs.iconOverrides);
+
+  // ── HOW APPS OPEN (PHASE 6) ─────────────────────────────────────────────
+  //
+  // Pushed like the icon pack, so `launchApp` keeps its signature and every
+  // launch site gets the distro's style without passing it. A volatile field
+  // set natively; nothing to wait for.
+  unawaited(api_.setLaunchStyle(effective.launchAnimation));
 
   // ── WHOSE WALLPAPER IS ON THE SCREEN ────────────────────────
   //
@@ -1215,7 +1309,15 @@ final effectiveThemeProvider = FutureProvider<EffectiveTheme>((ref) async {
         // on every launch.
         final applied = await push('home');
         if (applied && (prefs.wallpaperLock ?? false)) await push('lock');
-        if (applied) await store.write(wallpaperAppliedForKey, appliedToken);
+        if (applied) {
+          await store.write(wallpaperAppliedForKey, appliedToken);
+          // The seeded picture has new colours for the Wallpaper accent.
+          // Deferred by the helper, so this provider is not re-entered from
+          // inside its own build. PHASE 6.
+          refreshWallpaperColorsSoon(
+            () => ref.invalidate(wallpaperColorsProvider),
+          );
+        }
       }
     }
     // Nothing to apply, and the key is deliberately NOT written. A theme that

@@ -537,44 +537,54 @@ class _LookToast extends StatelessWidget {
             ],
           ),
         ),
-      SettingsLook.grouped => Container(
-          constraints: const BoxConstraints(minHeight: 40),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          decoration: BoxDecoration(
-            color: const Color(0xF21C1C1E),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 16,
-                height: 16,
-                decoration: BoxDecoration(
-                  color: message.tone == MessageTone.neutral
-                      ? const Color(0xFF34C759)
-                      : accent,
-                  shape: BoxShape.circle,
+      // ─── THE WHOLE BANNER IS THE ACTION ─────────────────────────────
+      //
+      // The action used to be a bare GestureDetector around its word, so the
+      // target was the glyphs alone, about 20dp tall, and a thumb landing a
+      // little high missed it. iOS answers a tap anywhere on a banner with the
+      // banner's action, so this does too; a toast with no action ignores
+      // the tap and leaves dismissal to its timer.
+      SettingsLook.grouped => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: label == null ? null : act,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xF21C1C1E),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 16,
+                  height: 16,
+                  decoration: BoxDecoration(
+                    color: message.tone == MessageTone.neutral
+                        ? const Color(0xFF34C759)
+                        : accent,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: line(text(weight: FontWeight.w600, color: Colors.white)),
-              ),
-              if (label != null) ...[
-                const SizedBox(width: 10),
-                GestureDetector(
-                  onTap: act,
-                  child: Text(
+                const SizedBox(width: 8),
+                Flexible(
+                  child: line(
+                    text(weight: FontWeight.w600, color: Colors.white),
+                  ),
+                ),
+                if (label != null) ...[
+                  const SizedBox(width: 10),
+                  Text(
                     label,
                     style: text(
                       weight: FontWeight.w600,
                       color: const Color(0xFF0A84FF),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       SettingsLook.cinnamon || SettingsLook.dialog => Container(
@@ -614,10 +624,13 @@ class _LookToast extends StatelessWidget {
                     const SizedBox(height: 2),
                     line(text(size: 13)),
                     if (label != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: GestureDetector(
-                          onTap: act,
+                      // Padded inside the detector, so the target is a
+                      // row a thumb can hit rather than the word alone.
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: act,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 6, bottom: 6),
                           child: Text(
                             label,
                             style: text(

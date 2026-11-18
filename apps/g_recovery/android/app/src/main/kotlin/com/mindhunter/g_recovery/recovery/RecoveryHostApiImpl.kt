@@ -43,6 +43,7 @@ internal class RecoveryHostApiImpl(context: Context) : RecoveryHostApi {
     private val liveSearcher = LiveFileSearcher(app)
     private val thumbnailer = Thumbnailer(app)
     private val fileScanner = FileTrashScanner()
+    private val orphans = OrphanThumbnails(app)
     private val restorer = Restorer(app)
 
     private var trashMap: TrashMap = TrashMap.empty
@@ -108,7 +109,7 @@ internal class RecoveryHostApiImpl(context: Context) : RecoveryHostApi {
         worker.execute {
             val granted = access.isGranted()
             val media = if (granted) mediaScanner.count() else MediaTrashScanner.Tally()
-            val thumbnails = fileScanner.countThumbnails(trashMap)
+            val thumbnails = fileScanner.countThumbnails(trashMap, orphans.filter(granted))
 
             val sources = listOf(
                 RecoverySource(
@@ -158,15 +159,23 @@ internal class RecoveryHostApiImpl(context: Context) : RecoveryHostApi {
                     videoCount = media.videos.toLong(),
                     audioCount = media.audio.toLong(),
                     documentCount = media.documents.toLong(),
-                    // Thumbnails are folded in here rather than into images.
-                    // They ARE images, but a tile reading "141 photos" that is
-                    // mostly 512 px previews would be the exact overclaim this
-                    // app refuses to make. Home surfaces them as their own row.
-                    otherCount = (media.other + thumbnails.first).toLong(),
+                    // Previews are never folded into a kind. They have their own
+                    // count below, so "141 photos" always means 141 originals.
+                    otherCount = media.other.toLong(),
                     // The flag that stops the pre-scan from lying. Before the
                     // grant these numbers are a floor, not a total, and the UI
                     // has to say so rather than presenting them as the answer.
                     partial = !granted,
+                    // The prescan reads only the system trash and the thumbnail
+                    // cache. Statuses and app media are known after a full scan.
+                    deletedItems = media.items.toLong(),
+                    deletedBytes = media.bytes,
+                    statusItems = 0,
+                    statusBytes = 0,
+                    previewItems = thumbnails.first.toLong(),
+                    previewBytes = thumbnails.second,
+                    appMediaItems = 0,
+                    appMediaBytes = 0,
                 ),
             )
         }

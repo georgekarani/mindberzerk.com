@@ -82,7 +82,6 @@ List<Widget> applicationsSection(
           const ['opacity', 'drawer', 'transparency', 'apps'],
           OpacityRow(
             label: context.t('settings.drawerOpacity'),
-            sub: context.t('settings.drawerOpacitySub'),
             value: theme.drawerOpacity,
             following: theme.prefs.drawerOpacity == null,
             onChanged: (v) =>
@@ -735,7 +734,6 @@ List<Widget> applicationsSection(
             icon: Icons.folder_outlined,
             accent: true,
             title: context.t('settings.appsAndFolders'),
-            subtitle: context.t('settings.gridShapeAndSuggested'),
             trailing: ChipValue(
               preview: DevicePreview(
                 palette: theme.palette,

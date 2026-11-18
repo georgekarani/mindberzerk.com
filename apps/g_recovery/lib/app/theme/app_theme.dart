@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:g_design/g_design.dart';
 
 import 'accent.dart';
 import 'tokens.dart';
@@ -47,7 +48,7 @@ ThemeData buildGTheme(GTokens t) {
     useMaterial3: true,
     brightness: t.brightness,
     colorScheme: scheme,
-    extensions: <ThemeExtension<dynamic>>[t],
+    extensions: <ThemeExtension<dynamic>>[t, gDesignTheme(t)],
     scaffoldBackgroundColor: t.ink,
     canvasColor: t.ink,
     dividerColor: t.line,
@@ -79,9 +80,43 @@ SystemUiOverlayStyle gSystemOverlay(GTokens t) {
     statusBarColor: const Color(0x00000000),
     statusBarIconBrightness: iconBrightness,
     statusBarBrightness: t.brightness,
-    systemNavigationBarColor: t.panel,
+    // Transparent, so content runs under the gesture area and the floating
+    // nav is the only thing at the bottom edge. Contrast enforcement off, or
+    // Android paints its own scrim back over the content.
+    systemNavigationBarColor: const Color(0x00000000),
     systemNavigationBarIconBrightness: iconBrightness,
-    systemNavigationBarDividerColor: t.line,
+    systemNavigationBarDividerColor: const Color(0x00000000),
+    systemNavigationBarContrastEnforced: false,
+    systemStatusBarContrastEnforced: false,
+  );
+}
+
+/// G Recovery's palette and type, handed to the shared g_design widgets.
+///
+/// Built from the same tokens as everything else, so the accent the user picked
+/// and the light or dark mode carry into the floating chrome and sheets.
+GDesignTheme gDesignTheme(GTokens t) {
+  final bool dark = t.brightness == Brightness.dark;
+  return GDesignTheme(
+    brightness: t.brightness,
+    ground: t.ink,
+    glass: t.panel.withValues(alpha: 0.72),
+    glassBorder: dark ? const Color(0x14FFFFFF) : const Color(0x0F101820),
+    sheet: t.panel,
+    raised: t.panelAlt,
+    hairline: t.line,
+    text: t.text,
+    muted: t.muted,
+    accent: t.accentText,
+    onAccent: t.onAccent,
+    accentSoft: t.accentSoft,
+    danger: t.danger,
+    onDanger: t.onAccent,
+    success: t.success,
+    warning: t.warning,
+    scrim: t.scrim,
+    sans: GType.body,
+    mono: GType.monoNumber,
   );
 }
 

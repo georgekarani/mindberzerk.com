@@ -95,6 +95,7 @@ abstract final class RiceCode {
     'dockHover',
     'dockPress',
     'dockEntrance',
+    'launchAnimation',
     'dockLayout',
     'topBar',
     'topBarSide',

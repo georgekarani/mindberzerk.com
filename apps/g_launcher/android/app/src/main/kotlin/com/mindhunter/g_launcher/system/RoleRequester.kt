@@ -1,9 +1,11 @@
 package com.mindhunter.g_launcher.system
 
+import android.app.role.RoleManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 
 /**
@@ -26,6 +28,17 @@ class RoleRequester(context: Context) {
      * we are not the default until the user says so.
      */
     fun isDefaultLauncher(): Boolean {
+        // Android 10+: ask the role system directly. Resolving the HOME intent
+        // answered yes on an API 37 emulator while Pixel Launcher held the
+        // role, so setup said "Home opens your new desktop" and Home did not.
+        // Only REQUESTING the role through RoleManager is avoided (see the
+        // class doc); asking who holds it is a plain query OEMs do not touch.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roles = appContext.getSystemService(RoleManager::class.java)
+            if (roles != null && roles.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                return roles.isRoleHeld(RoleManager.ROLE_HOME)
+            }
+        }
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
         val resolved = packageManager.resolveActivity(
             intent,

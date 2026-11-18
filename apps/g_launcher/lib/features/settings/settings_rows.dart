@@ -196,14 +196,23 @@ class SettingsGroup extends StatelessWidget {
   /// scope suffix (the page is already the distro's page), the per-group
   /// Reset (one reset per page, in the app bar), and rows the distro cannot
   /// do, which are hidden rather than greyed with a reason under them.
+  /// Whether [r] shows for [q]: the group's own label or the row's terms
+  /// match, and the row is not one that would do nothing.
+  bool _shows(FilterRow r, String q) =>
+      (SearchText.contains(label, q) || r.matches(q)) &&
+      !isInertSettingsRow(r.child);
+
+  /// How many rows this group shows for [q]. The same rule the group filters
+  /// by, so a caller asking "would Settings find anything?" gets the answer
+  /// the screen would draw. PHASE 5.
+  int matchCount(String q) => rows.where((r) => _shows(r, q)).length;
+
   Widget _immersive(BuildContext context, SettingsLook look) {
     final d = ChromeScope.of(context);
     final c = d.colors;
-    final labelHit = SearchText.contains(label, query);
     final visible = <Widget>[
       for (final r in rows)
-        if ((labelHit || r.matches(query)) && !isInertSettingsRow(r.child))
-          r.child,
+        if (_shows(r, query)) r.child,
     ];
     if (visible.isEmpty) return const SizedBox.shrink();
 
@@ -546,7 +555,7 @@ class SettingsRow extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
               ],
-              Icon(Icons.chevron_right, size: 18, color: c.textMuted),
+              disclosure(context, SettingsSkin.of(context)),
             ],
           )
         : trailing;
@@ -828,6 +837,9 @@ class IconCircle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SettingsSkin.of(context);
+    if (ChromeScope.of(context).family == ChromeFamily.pocket) {
+      return _IosGlyph(icon: icon, accent: accent ? s.acc : null);
+    }
     return Container(
       width: 36,
       height: 36,
@@ -837,6 +849,62 @@ class IconCircle extends StatelessWidget {
       ),
       alignment: Alignment.center,
       child: Icon(icon, size: 18, color: accent ? s.acc : s.mut),
+    );
+  }
+}
+
+/// The iOS Settings row icon: a white glyph on a filled, continuously rounded
+/// square, each subject in its own system colour.
+class _IosGlyph extends StatelessWidget {
+  const _IosGlyph({required this.icon, this.accent});
+
+  final IconData icon;
+  final Color? accent;
+
+  // theme-exempt: iOS system colours, chosen by subject as Settings does.
+  static const _blue = Color(0xFF0A84FF);
+  static const _green = Color(0xFF30D158);
+  static const _grey = Color(0xFF8E8E93);
+  static const _indigo = Color(0xFF5E5CE6);
+  static const _orange = Color(0xFFFF9F0A);
+  static const _pink = Color(0xFFFF375F);
+  static const _purple = Color(0xFFBF5AF2);
+  static const _red = Color(0xFFFF453A);
+  static const _teal = Color(0xFF40C8E0);
+
+  static final Map<int, Color> _bySubject = {
+    Icons.wifi.codePoint: _blue,
+    Icons.battery_charging_full_outlined.codePoint: _green,
+    Icons.storage_outlined.codePoint: _grey,
+    Icons.memory_outlined.codePoint: _grey,
+    Icons.palette_outlined.codePoint: _blue,
+    Icons.layers_outlined.codePoint: _indigo,
+    Icons.apps_outlined.codePoint: _purple,
+    Icons.gesture_outlined.codePoint: _pink,
+    Icons.desktop_windows_outlined.codePoint: _teal,
+    Icons.bug_report_outlined.codePoint: _red,
+    Icons.info_outline.codePoint: _grey,
+    Icons.settings_backup_restore.codePoint: _grey,
+  };
+
+  static const _cycle = [_blue, _orange, _indigo, _green, _pink, _teal];
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = accent ??
+        _bySubject[icon.codePoint] ??
+        _cycle[icon.codePoint % _cycle.length];
+    return Container(
+      width: 30,
+      height: 30,
+      decoration: ShapeDecoration(
+        color: fill,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(7),
+        ),
+      ),
+      alignment: Alignment.center,
+      child: Icon(icon, size: 18, color: const Color(0xFFFFFFFF)),
     );
   }
 }
@@ -864,20 +932,26 @@ class ValueLabel extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 6),
-        Icon(Icons.chevron_right, size: 18, color: s.mut),
+        disclosure(context, s),
       ],
     );
   }
 }
 
+/// The row's "opens a page" mark. iOS draws a small, thin chevron in the
+/// tertiary grey; every other family keeps the Material one.
+Widget disclosure(BuildContext context, SettingsSkin s, {double size = 18}) =>
+    ChromeScope.of(context).family == ChromeFamily.pocket
+        ? Icon(Icons.arrow_forward_ios_rounded,
+            size: size * 0.75, color: s.mut.withValues(alpha: 0.6))
+        : Icon(Icons.chevron_right, size: size, color: s.mut);
+
 class Chevron extends StatelessWidget {
   const Chevron({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final s = SettingsSkin.of(context);
-    return Icon(Icons.chevron_right, size: 18, color: s.mut);
-  }
+  Widget build(BuildContext context) =>
+      disclosure(context, SettingsSkin.of(context));
 }
 
 /// The `System` pill + external-link glyph for rows that leave the app.
@@ -1302,7 +1376,7 @@ class ValueChevron extends StatelessWidget {
           Text(text!, style: TextStyle(color: s.mut, fontSize: 13)),
           const SizedBox(width: 8),
         ],
-        Icon(Icons.chevron_right, size: 20, color: s.mut),
+        disclosure(context, s, size: 20),
       ],
     );
   }

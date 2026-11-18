@@ -6,6 +6,8 @@ import '../engine/effective_theme.dart';
 // PanelSpec, PanelModule and TopBarSide: the bar is built from the distro's
 // authored panel now, not from a list in this file.
 import '../engine/theme_spec.dart';
+import '../features/desklets/desklet_edit_bar.dart';
+import '../features/desklets/desklet_edit.dart';
 import '../features/drawer/drawer_state.dart';
 import '../features/drawer/shell_drawer.dart';
 import '../features/gestures/gesture_layer.dart';
@@ -127,6 +129,11 @@ class _TilingShellState extends ConsumerState<TilingShell> {
         // else, and that contract moved to home_screen. The rofi-shaped
         // presentation comes from ShellDrawer, not from the wrapper.
         if (activitiesOpen) Positioned.fill(child: ShellDrawer(theme: theme)),
+        // The floating edit pill. Every way into edit mode needs a visible way
+        // out, and this shell had none. Renders nothing unless editing, and
+        // stays away while the panel's own sheet is the editor.
+        if (!activitiesOpen && !ref.watch(deskletEditProvider).editingPanel)
+          DeskletEditBar(theme: theme),
       ],
     );
   }

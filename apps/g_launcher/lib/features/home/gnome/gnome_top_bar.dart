@@ -210,13 +210,16 @@ class GnomeTopBar extends ConsumerWidget {
     final widget = panelModuleWidget(ref, item, host);
     if (item.kind != PanelModule.tasks) return widget;
     final run = _launcherRun(stacked);
-    return Flexible(
-      child: ConstrainedBox(
-        constraints: stacked
-            ? BoxConstraints(maxHeight: run)
-            : BoxConstraints(maxWidth: run),
-        child: widget,
-      ),
+    // NOT Flexible. A Flexible beside the bar's Spacer split the free width
+    // with it, half each, so the strip got half the bar whatever its cap: the
+    // fourth app was cut and the rest of the panel stood empty. The strip now
+    // hugs its icons (it shrink-wraps), capped at four, and the Spacer takes
+    // only what is genuinely left.
+    return ConstrainedBox(
+      constraints: stacked
+          ? BoxConstraints(maxHeight: run)
+          : BoxConstraints(maxWidth: run),
+      child: widget,
     );
   }
 
@@ -224,10 +227,14 @@ class GnomeTopBar extends ConsumerWidget {
   /// follows the bar's thickness (see `panelIconSize`). A fixed run sized for
   /// 30dp icons would show two and a half once the icons grew.
   double _launcherRun(bool stacked) {
-    final thickness = stacked
-        ? _verticalWidth
-        : _horizontalHeight(panel.side == TopBarSide.bottom);
-    return 4 * (panelIconSize(thickness) + panelIconGap);
+    // Sized for four icons at the LARGEST panel icon, not at the size guessed
+    // from this bar's thickness. That guess fell back to GNOME's top-bar
+    // height on a bottom taskbar with no authored height, while the strip
+    // measured the real, taller bar and drew bigger icons: Kali's fourth app
+    // was cut in half with empty panel after it. Too generous costs a little
+    // slack after the fourth icon; too small cuts one. The Flexible around
+    // this still shrinks it on a crowded bar.
+    return 4 * (maxPanelIcon + panelIconGap);
   }
 
   Widget _gnomeModule(

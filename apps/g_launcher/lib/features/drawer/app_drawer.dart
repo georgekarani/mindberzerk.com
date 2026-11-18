@@ -24,6 +24,8 @@ import '../../platform/launcher_api.g.dart';
 import '../dock/dock_insets.dart';
 import '../home/workspaces/workspace_controller.dart';
 import '../search/search_page.dart';
+import '../command/command_rows.dart';
+import '../search/unified_search.dart';
 import 'app_icon.dart';
 import 'app_shortcuts.dart';
 import 'az_rail.dart';
@@ -768,8 +770,8 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
             //
             // `tileAt` already closes over the filtered `items`, so every result
             // is an ordinary drawer tile with its ordinary long-press menu.
-            body = items.isEmpty
-                ? Expanded(child: _NoMatches(theme: theme))
+            final grid = items.isEmpty
+                ? null
                 : _plainGrid(
                     items: items,
                     columns: columns,
@@ -779,6 +781,56 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
                     // drawer; with the bar at the top, the bar is what clears it.
                     topGap: 0.0,
                     tileAt: tileAt,
+                  );
+
+            // Shortcuts, Android settings and G Launcher settings under the
+            // app results, as the Activities overview lists other providers
+            // under its app row. Capped so a long list never squeezes the
+            // apps out; the whole space when no app matched. PHASE 5.
+            final extras = SingleChildScrollView(
+              child: UnifiedExtraRows(
+                theme: theme,
+                query: _query,
+                style: CommandRowStyle(
+                  text: theme.palette.onDark,
+                  muted: theme.palette.onDark.withValues(alpha: 0.6),
+                  accent: theme.palette.accent,
+                  fontFamily: theme.typography.display,
+                  monoFamily: theme.typography.mono,
+                  scale: theme.textScale,
+                ),
+                fillQuery: (v) {
+                  _searchController.text = v;
+                  setState(() => _query = v);
+                },
+                onClose: () => closeApps(ref),
+              ),
+            );
+
+            body = grid == null
+                ? Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        extras,
+                        Expanded(child: _NoMatches(theme: theme)),
+                      ],
+                    ),
+                  )
+                : Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // _plainGrid is an Expanded of its own.
+                        grid,
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: constraints.maxHeight * 0.4,
+                          ),
+                          child: extras,
+                        ),
+                      ],
+                    ),
                   );
           } else if (theme.libraryGrouped) {
             body = Expanded(
@@ -1402,11 +1454,11 @@ class _TileLabel extends StatelessWidget {
         fontSize: fontSize,
         textScaler: MediaQuery.textScalerOf(context).scale(1),
       ),
-      child: Text(
+      // FitLabel, as the home grid uses: a plain Text broke a long one-word
+      // name mid-letters ("KenyaHomesHu" / "b") or ended it in an ellipsis.
+      child: FitLabel(
         text,
         maxLines: labelLines,
-        overflow: TextOverflow.ellipsis,
-        textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: fontSize,
           // Explicit, and it has to match labelBlockFor's multiplier exactly.

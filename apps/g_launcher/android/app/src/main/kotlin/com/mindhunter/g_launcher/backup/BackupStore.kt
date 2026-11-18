@@ -373,7 +373,16 @@ class BackupStore(context: Context) {
             // A file left by an earlier install is invisible here, and the
             // insert below then gets a numbered name, which the listing and
             // the newest-first sort both still handle.
-            val existing = findAuto(path, fileName)
+            // ─── NO MORE "(1)", "(2)", "(3)" ───────────────────────────────
+            //
+            // After a reinstall the old latest file belongs to the previous
+            // install and is invisible here, so the insert below comes back
+            // as "glauncher-backup (1).glbak". That part cannot be helped.
+            // What could: every later backup did the same lookup by the exact
+            // name, missed again, and inserted (2), (3), and so on, one per
+            // backup. Now the numbered copy this install owns is found by
+            // prefix and overwritten, so there is at most one of it.
+            val existing = findAuto(path, fileName) ?: findOwnLatestCopy(path)
             if (existing != null) {
                 val ok = runCatching {
                     resolver.openOutputStream(existing, "wt")?.use { it.write(bytes) } != null
@@ -407,6 +416,24 @@ class BackupStore(context: Context) {
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
+    /**
+     * A numbered latest copy this install made, such as
+     * "glauncher-backup (1).glbak", or null. The query only returns rows this
+     * app owns, which is exactly the set it may overwrite.
+     */
+    private fun findOwnLatestCopy(path: String): Uri? = runCatching {
+        val collection = autoCollection()
+        resolver.query(
+            collection,
+            arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME),
+            "${MediaStore.MediaColumns.RELATIVE_PATH}=? AND ${MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+            arrayOf(path, "glauncher-backup (%).glbak"),
+            "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
+        )?.use { c ->
+            if (c.moveToFirst()) ContentUris.withAppendedId(collection, c.getLong(0)) else null
+        }
+    }.getOrNull()
+
     private fun findAuto(path: String, name: String): Uri? = runCatching {
         val collection = autoCollection()
         resolver.query(

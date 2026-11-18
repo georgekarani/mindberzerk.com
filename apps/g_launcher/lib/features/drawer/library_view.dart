@@ -5,12 +5,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../data/search/search_text.dart';
 import '../../design/branded_message.dart';
+import '../../design/components/anchored_menu.dart';
 import '../../design/liquid_glass.dart';
 import '../../engine/effective_theme.dart';
 import '../../i18n/i18n.dart';
 import '../../platform/launcher_api.g.dart';
 import '../dock/dock_insets.dart';
 import '../home/workspaces/workspace_controller.dart';
+import '../command/command_rows.dart';
+import '../search/unified_search.dart';
 import 'app_icon.dart';
 import 'drawer_actions.dart';
 import 'drawer_items.dart';
@@ -273,6 +276,36 @@ class _LibraryViewState extends ConsumerState<LibraryView>
     ];
   }
 
+  /// The launcher's own entries the query names. They live in the library's
+  /// grid, so a search that could not find them sent anyone typing "settings"
+  /// to Android's Settings with no way to G Launcher's. Empty with no query,
+  /// where the full A to Z list is apps only.
+  List<(DrawerItem, String, IconData)> _matchingEntries() {
+    final q = _query.trim();
+    if (q.isEmpty) return const [];
+    final all = <(DrawerItem, String, IconData)>[
+      (
+        const LauncherSettingsItem(),
+        tr('drawer.gLauncherSettings'),
+        Icons.settings_outlined,
+      ),
+      (
+        TerminalDrawerItem(terminalLabelFor(widget.theme)),
+        terminalLabelFor(widget.theme),
+        Icons.terminal,
+      ),
+      (
+        const DeviceSettingsItem(),
+        tr('drawer.deviceSettings'),
+        Icons.tune,
+      ),
+    ];
+    return [
+      for (final e in all)
+        if (SearchText.contains(e.$2, q)) e,
+    ];
+  }
+
   void _enterEdit() {
     if (_editing) return;
     HapticFeedback.mediumImpact();
@@ -393,7 +426,31 @@ class _LibraryViewState extends ConsumerState<LibraryView>
                   // chrome that moves more than the content does.
                   Expanded(
                       child: _AzList(
-                          theme: widget.theme, apps: _matches(_allApps())))
+                          theme: widget.theme,
+                          apps: _matches(_allApps()),
+                          entries: _matchingEntries(),
+                          // Spotlight's other answers after the apps: sums
+                          // and sites, shortcuts, settings. PHASE 5.
+                          trailing: _query.trim().isEmpty
+                              ? null
+                              : UnifiedExtraRows(
+                                  theme: widget.theme,
+                                  query: _query,
+                                  style: CommandRowStyle(
+                                    text: widget.theme.palette.onDark,
+                                    muted: widget.theme.palette.onDark
+                                        .withValues(alpha: 0.6),
+                                    accent: widget.theme.palette.accent,
+                                    fontFamily: widget.theme.typography.display,
+                                    monoFamily: widget.theme.typography.mono,
+                                    scale: widget.theme.textScale,
+                                  ),
+                                  fillQuery: (v) {
+                                    _controller.text = v;
+                                    setState(() => _query = v);
+                                  },
+                                  onClose: () => closeApps(ref),
+                                )))
                 else
                   Expanded(
                     child: GestureDetector(
@@ -570,22 +627,18 @@ class _Cell extends ConsumerWidget {
       // and have to render, or they vanish from the drawer entirely the moment
       // a distro turns the library on. Drawn as a themed glyph rather than an
       // app icon, matching what `_ActionTile` does in the pager.
-      // ─── THESE TWO TAPS ARE NOT WIRED YET, AND SAY SO ─────────────────
-      //
-      // `_ActionTile` in the pager owns the routes to Settings and Terminal and
-      // I have not read how it pushes them. Guessing a route name here would
-      // compile and then fail at the tap, which is worse than a tile that
-      // closes the drawer: at least closing is a defined thing to have
-      // happened. Both are one line once `_ActionTile.onTap` is read.
+      // Through `activateDrawerItem`, the same switch every other drawer
+      // uses. These two only closed the library before, so on Pocket the
+      // launcher's own settings had no way in from the App Library at all.
       LauncherSettingsItem() => (
           _GlyphTile(theme: theme, icon: Icons.settings_outlined, size: size),
           tr('drawer.gLauncherSettings'),
-          () => Navigator.of(context).maybePop(),
+          () => activateDrawerItem(context, ref, theme, item),
         ),
       TerminalDrawerItem() => (
           _GlyphTile(theme: theme, icon: Icons.terminal, size: size),
           'Terminal',
-          () => Navigator.of(context).maybePop(),
+          () => activateDrawerItem(context, ref, theme, item),
         ),
       DeviceSettingsItem() => (
           _GlyphTile(theme: theme, icon: Icons.tune, size: size),
@@ -814,16 +867,27 @@ class _SearchField extends StatelessWidget {
 /// a heading that appears and vanishes between two letters moves more than the
 /// rows do.
 class _AzList extends ConsumerWidget {
-  const _AzList({required this.theme, required this.apps});
+  const _AzList({
+    required this.theme,
+    required this.apps,
+    this.entries = const [],
+    this.trailing,
+  });
 
   final EffectiveTheme theme;
   final List<AppEntry> apps;
+
+  /// Shown after the apps while searching: the unified extras. PHASE 5.
+  final Widget? trailing;
+
+  /// Launcher entries the query matched, listed above the apps.
+  final List<(DrawerItem, String, IconData)> entries;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final palette = theme.palette;
 
-    if (apps.isEmpty) {
+    if (apps.isEmpty && entries.isEmpty && trailing == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -863,35 +927,81 @@ class _AzList extends ConsumerWidget {
             drawerDockInsets(theme).bottom +
             MediaQuery.viewPaddingOf(context).bottom,
       ),
-      itemCount: apps.length,
+      itemCount: entries.length + apps.length + (trailing == null ? 0 : 1),
       itemBuilder: (context, i) {
-        final entry = apps[i];
-        return GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          // Through the shared helper, so a launch from here records usage the
-          // same way one from a shelf does. Two launch paths that disagree
-          // about that would make the frequency ranking depend on which screen
-          // you happened to open the app from.
-          onTap: () => launchDrawerApp(ref, entry),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              children: [
-                AppIcon(entry: entry, size: 34),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    entry.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontFamily: theme.typography.display,
-                      fontSize: 14 * theme.textScale,
-                      color: palette.onDark,
+        if (i == entries.length + apps.length) return trailing!;
+        if (i < entries.length) {
+          final (item, label, icon) = entries[i];
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => activateDrawerItem(context, ref, theme, item),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 34,
+                    height: 34,
+                    child: Icon(icon, size: 24, color: palette.onDark),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        fontFamily: theme.typography.display,
+                        fontSize: 16 * theme.textScale,
+                        color: palette.onDark,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            ),
+          );
+        }
+        final entry = apps[i - entries.length];
+        // A Builder so the menu anchors to THIS row rather than the list.
+        return Builder(
+          builder: (rowContext) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            // Through the shared helper, so a launch from here records usage the
+            // same way one from a shelf does. Two launch paths that disagree
+            // about that would make the frequency ranking depend on which screen
+            // you happened to open the app from.
+            onTap: () => launchDrawerApp(ref, entry),
+            // The app's own menu. Without this a hold fell through to the home
+            // screen behind the library and set its icons shaking instead.
+            onLongPress: () {
+              HapticFeedback.mediumImpact();
+              showDrawerAppMenu(
+                rowContext,
+                ref,
+                theme,
+                entry,
+                anchor: AnchoredMenu.anchorOf(rowContext),
+              );
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  AppIcon(entry: entry, size: 34),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      entry.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontFamily: theme.typography.display,
+                        fontSize: 14 * theme.textScale,
+                        color: palette.onDark,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         );

@@ -15,7 +15,8 @@ import '../../../design/device_preview.dart';
 import '../../../design/setting_previews.dart';
 import '../../../engine/capabilities.dart';
 import '../../../engine/effective_theme.dart';
-import '../../../engine/theme_spec.dart' show DockSide, PanelModule, TopBarSide;
+import '../../../engine/theme_spec.dart'
+    show DockSide, PanelModule, ShellKind, TopBarSide;
 import '../../dock/dock_animations.dart';
 import '../../home/workspaces/workspace_controller.dart';
 import '../../panel/modules/panel_cosmic_modules.dart' show setTiledHome;
@@ -238,7 +239,6 @@ List<Widget> desktopSection(
             icon: Icons.apps_outlined,
             accent: true,
             title: context.t('settings.activitiesButton'),
-            subtitle: context.t('settings.whereTheAppGrid'),
             trailing: Seg(
               enabled: true,
               value: theme.prefs.dockGridButton ?? 'end', // Ubuntu default
@@ -253,6 +253,18 @@ List<Widget> desktopSection(
           ),
         ),
       ],
+    ),
+
+    // ── Motion ─────────────────────────────────────────────────────
+    //
+    // How apps open gets a group of its own, not a place among the dock's
+    // motions: every distro launches apps, including the ones with no dock,
+    // which show no Dock group at all. PHASE 6.
+    SettingsGroup(
+      key: const ValueKey('desk.motion'),
+      label: context.t('settings.motion'),
+      query: q,
+      rows: [_launchRow(context, ref, theme)],
     ),
 
     // ── Top bar or panel ───────────────────────────────────────────
@@ -354,7 +366,6 @@ List<Widget> desktopSection(
               icon: Icons.space_dashboard_outlined,
               accent: true,
               title: context.t('settings.panel'),
-              subtitle: context.t('settings.panelSub'),
               trailing: const Icon(Icons.chevron_right, size: 18),
               onTap: () => showPanelEditor(context, theme),
             ),
@@ -464,7 +475,6 @@ List<Widget> desktopSection(
             SettingsToggleRow(
               icon: Icons.space_dashboard_outlined,
               title: context.t('settings.tiledHome'),
-              subtitle: context.t('settings.tiledHomeSub'),
               value: theme.homeLayout == 'tiled',
               onChanged: (v) => setTiledHome(ref, theme, tiled: v),
             ),
@@ -536,9 +546,71 @@ List<Widget> desktopSection(
                     ),
           ),
         ),
+        // ─── THE DOTS ARE GNOME'S OWN, SO ONLY GNOME OFFERS THEM ─────────
+        //
+        // Plasma, tiling and the terminal show workspaces in a panel module,
+        // and Pocket shows a Search pill, so none of them draws dots to turn
+        // off. Hidden, not greyed, under GNOME 46's pill as well: the pill
+        // already replaces the dots there.
+        if (theme.shell == ShellKind.gnome &&
+            theme.hasWorkspaces.available &&
+            !(theme.activitiesPill && theme.topBar))
+          FilterRow(
+            const [
+              'workspace indicator',
+              'page indicator',
+              'dots',
+              'page dots',
+              'workspaces',
+            ],
+            SettingsToggleRow(
+              icon: Icons.more_vert,
+              title: context.t('settings.workspaceIndicator'),
+              subtitle: context.t('settings.workspaceIndicatorSub'),
+              value: theme.workspaceDots,
+              onChanged: (v) =>
+                  notifier.edit((p) => p.copyWith(workspaceDots: v)),
+            ),
+          ),
+        // ─── ONE LOCK FOR EVERY DISTRO ───────────────────────────────────
+        //
+        // Global, like the hidden set, so it reads the same on every desktop.
+        // See layout_lock.dart for what it holds still and what it leaves.
+        FilterRow(
+          const ['lock', 'lock layout', 'lock home', 'freeze', 'arrange'],
+          SettingsToggleRow(
+            icon: (theme.prefs.layoutLocked ?? false)
+                ? Icons.lock_outline
+                : Icons.lock_open_outlined,
+            accent: true,
+            title: context.t('settings.lockLayout'),
+            subtitle: context.t('settings.lockLayoutSub'),
+            value: theme.prefs.layoutLocked ?? false,
+            onChanged: (v) =>
+                notifier.edit((p) => p.copyWith(layoutLocked: v)),
+          ),
+        ),
       ],
     ),
   ];
+}
+
+/// How apps open from this distro. PHASE 6.
+FilterRow _launchRow(BuildContext context, WidgetRef ref, EffectiveTheme theme) {
+  final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
+  return _animationRow(
+    context: context,
+    ref: ref,
+    theme: theme,
+    axis: 'launchAnimation',
+    icon: Icons.open_in_new,
+    modes: launchAnimationModes,
+    value: theme.launchAnimation,
+    terms: const ['launch', 'open', 'app', 'animation', 'zoom', 'motion'],
+    write: (v) => notifier.edit((p) => p.copyWith(launchAnimation: v)),
+    follow: theme.prefs.launchAnimation == null,
+    clear: () => notifier.edit((p) => p.clearing(launchAnimation: true)),
+  );
 }
 
 /// The three dock-animation rows, flat on the legacy page and in search,
@@ -589,6 +661,7 @@ List<FilterRow> _motionRows(
       follow: theme.prefs.dockEntrance == null,
       clear: () => notifier.edit((p) => p.clearing(dockEntrance: true)),
     ),
+
   ];
 }
 

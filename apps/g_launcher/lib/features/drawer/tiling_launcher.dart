@@ -7,6 +7,7 @@ import '../../design/components/anchored_menu.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
 import '../command/command_rows.dart';
+import '../search/unified_search.dart';
 import '../home/workspaces/workspace_controller.dart';
 import '../palette/fuzzy.dart';
 import '../palette/palette_controller.dart';
@@ -269,13 +270,12 @@ class _TilingLauncherState extends ConsumerState<TilingLauncher> {
                       // match" line would contradict it.
                       child: query.isEmpty
                           ? _AllList(theme: theme, items: items, mono: mono)
-                          : results.isEmpty
-                              ? const SizedBox.shrink()
-                              : _Results(
-                                  theme: theme,
-                                  results: results,
-                                  mono: mono,
-                                ),
+                          : _Results(
+                              theme: theme,
+                              results: results,
+                              mono: mono,
+                              query: query,
+                            ),
                     ),
                     _Hint(
                       theme: theme,
@@ -803,27 +803,32 @@ class _Results extends ConsumerWidget {
     required this.theme,
     required this.results,
     required this.mono,
+    required this.query,
   });
 
   final EffectiveTheme theme;
   final List<Ranked<AppEntry>> results;
   final String mono;
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (results.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 22),
-        child: Text(
-          context.t('drawer.noMatches'),
-          style: TextStyle(
-            fontFamily: mono,
-            fontSize: 12.5,
-            color: theme.palette.onDark.withValues(alpha: 0.45),
-          ),
-        ),
-      );
-    }
+    // rofi's other modi after the apps, in the prompt's own mono. With no app
+    // matches this is the whole list: the command block above has already
+    // answered, so a "no match" line would contradict it. PHASE 5.
+    final extras = UnifiedExtraRows(
+      theme: theme,
+      query: query,
+      commands: false,
+      style: CommandRowStyle(
+        text: theme.palette.onDark,
+        muted: theme.palette.onDark.withValues(alpha: 0.5),
+        accent: theme.palette.accent,
+        fontFamily: mono,
+        monoFamily: mono,
+      ),
+      onClose: () => closeApps(ref),
+    );
 
     // Ten is plenty. If the right app isn't in the top ten, the answer is
     // another keystroke, not more scrolling.
@@ -832,8 +837,9 @@ class _Results extends ConsumerWidget {
     return ListView.builder(
       shrinkWrap: true,
       padding: const EdgeInsets.symmetric(vertical: 4),
-      itemCount: shown.length,
+      itemCount: shown.length + 1,
       itemBuilder: (context, i) {
+        if (i == shown.length) return extras;
         final ranked = shown[i];
         final entry = ranked.item;
         final isTop = i == 0;
@@ -1085,7 +1091,9 @@ class _Hint extends StatelessWidget {
         ),
       ),
       child: Text(
-        context.t('drawer.countRunsTopMatch', {'count': count.toString()}),
+        // Just the count, as rofi shows it. Enter running the top match is
+        // what the highlighted row already says.
+        count.toString(),
         style: TextStyle(fontFamily: mono, fontSize: 11, color: ink),
       ),
     );

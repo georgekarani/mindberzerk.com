@@ -91,7 +91,36 @@
       { "kind": "ok", "text": "Reached target Graphical Interface" }
     ]
   },
-  "splash": { "style": "dots", "durationMs": 1100 },
+  "splash": {
+    "style": "dots",
+    "durationMs": 1200,
+    "background": {
+      "radial": [
+        "#FF3B0F2C",
+        "#FF2C001E",
+        "#FF12000C"
+      ],
+      "center": [
+        0.5,
+        0.4
+      ]
+    },
+    "logoSize": 112,
+    "gap": 36,
+    "indicator": {
+      "kind": "dots",
+      "count": 5,
+      "color": "#FFFFFFFF",
+      "thickness": 8
+    },
+    "wordmark": {
+      "text": "ubuntu",
+      "suffix": "24.04",
+      "size": 22,
+      "weight": 300,
+      "spacing": 0
+    }
+  },
   "desklets": {
     "offers": ["clock", "monitor", "fastfetch", "network", "storage", "battery", "notes", "search"],
     "starter": [

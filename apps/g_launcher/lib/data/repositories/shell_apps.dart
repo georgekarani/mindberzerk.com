@@ -50,10 +50,19 @@ final shellAppsProvider =
   // `HiddenApps.admits` and is the same on every search surface — a hidden app
   // is never ranked, and is admitted only when the query is its whole name.
   // See `hidden_apps.dart` for why that strictness is the feature.
+  // ── ANDROID SETTINGS IS ALREADY HERE, AS "DEVICE SETTINGS" ─────────────────
+  // Every drawer pins `DeviceSettingsItem` beside the launcher's own settings,
+  // and it opens the same screen. Listing the Settings app as well put three
+  // gears in a row at the top of a drawer and a second gear in docks that
+  // already end in one. Search still finds it: `launcherItemsMatching` answers
+  // "settings" with the pinned entry.
   final hidden = theme.prefs.hiddenApps;
-  final visible = hidden.isEmpty
-      ? apps
-      : apps.where((a) => !hidden.contains(a.componentKey)).toList();
+  final visible = [
+    for (final a in apps)
+      if (a.packageName != kSettingsPackage &&
+          (hidden.isEmpty || !hidden.contains(a.componentKey)))
+        a,
+  ];
 
   final sorted = [...visible]..sort(
       (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),

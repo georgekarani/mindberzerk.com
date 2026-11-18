@@ -65,14 +65,34 @@ import android.widget.FrameLayout
  */
 object WidgetStage {
 
-    /** One placed widget, in dp, in GLOBAL screen coordinates. */
+    /**
+     * One placed widget, in dp, in GLOBAL screen coordinates, plus its look.
+     *
+     * [scale] is content scale: the widget lays out in its tile divided by
+     * it and is drawn scaled back up, so 1.2 shows the same widget 20% larger
+     * in the same tile. [radius] rounds its corners (0 leaves them as the app
+     * drew them) and [background] is an ARGB backing drawn behind it (alpha 0
+     * draws nothing). Both are applied here because the stage sits BEHIND
+     * Flutter: anything Flutter painted would cover the widget, not back it.
+     */
     data class Placement(
         val widgetId: Int,
         val x: Double,
         val y: Double,
         val w: Double,
         val h: Double,
+        val scale: Double = 1.0,
+        val radius: Double = 0.0,
+        val background: Int = 0,
     )
+
+    /**
+     * The look last applied to each VIEW, so an unchanged one is not redone.
+     * Keyed by the view rather than the widget id, so a view rebuilt after a
+     * configuration change always gets its look applied, and weak, so a
+     * released view takes its entry with it.
+     */
+    private val looks = java.util.WeakHashMap<AppWidgetHostView, Triple<Double, Double, Int>>()
 
     private var stage: FrameLayout? = null
     private var controller: WidgetHostController? = null
@@ -352,10 +372,17 @@ object WidgetStage {
         for (p in placements) {
             present += p.widgetId
 
-            val wPx = (p.w * density).toInt().coerceAtLeast(1)
-            val hPx = (p.h * density).toInt().coerceAtLeast(1)
+            // The widget's own box: the tile divided by the content scale. It
+            // lays out there and [applyLook] scales it back up to the tile.
+            val innerW = p.w / p.scale
+            val innerH = p.h / p.scale
+            val wPx = (innerW * density).toInt().coerceAtLeast(1)
+            val hPx = (innerH * density).toInt().coerceAtLeast(1)
             val xPx = (p.x * density).toInt()
             val yPx = (p.y * density).toInt()
+            // The tile on screen, for touches.
+            val outerW = (p.w * density).toInt().coerceAtLeast(1)
+            val outerH = (p.h * density).toInt().coerceAtLeast(1)
 
             var view = views[p.widgetId]
             if (view == null) {
@@ -364,7 +391,7 @@ object WidgetStage {
                 // layout variant. A size arriving after it is too late, and
                 // Spotify keeps the cramped bar it inflated. `createView`
                 // applies the size synchronously before that first apply.
-                view = host.createView(p.widgetId, p.w.toInt(), p.h.toInt())
+                view = host.createView(p.widgetId, innerW.toInt(), innerH.toInt())
                 if (view == null) {
                     // Not "this widget is broken", usually. The id is bound and
                     // the manager has not caught up. Flagged for the retry
@@ -393,15 +420,23 @@ object WidgetStage {
             // sync would have every widget on the desktop rebuilding its
             // RemoteViews each time anything moved.
             if (sizeChanged) {
-                host.updateSize(p.widgetId, p.w.toInt(), p.h.toInt(), p.w.toInt(), p.h.toInt())
+                host.updateSize(
+                    p.widgetId,
+                    innerW.toInt(),
+                    innerH.toInt(),
+                    innerW.toInt(),
+                    innerH.toInt(),
+                )
             }
+
+            applyLook(view, p)
 
             if (visible) {
                 hitRects[p.widgetId] = android.graphics.RectF(
                     xPx.toFloat(),
                     yPx.toFloat(),
-                    (xPx + wPx).toFloat(),
-                    (yPx + hPx).toFloat(),
+                    (xPx + outerW).toFloat(),
+                    (yPx + outerH).toFloat(),
                 )
             }
         }
@@ -595,5 +630,50 @@ object WidgetStage {
         pressRunnable?.let { stage?.removeCallbacks(it) }
         pressRunnable = null
         pressId = null
+    }
+
+    /**
+     * Content scale, corners and backing for one hosted widget.
+     *
+     * Scaled from the top-left, so the view's margins still place its corner
+     * where Flutter's tile starts. Touches follow the scale on their own: a
+     * ViewGroup maps each event through its child's transform before the
+     * child sees it. Radius and backing are in the VIEW's coordinates, which
+     * are scaled, hence the division: a 12dp corner stays 12dp on screen.
+     */
+    private fun applyLook(view: AppWidgetHostView, p: Placement) {
+        val look = Triple(p.scale, p.radius, p.background)
+        if (looks[view] == look) return
+        looks[view] = look
+
+        val s = p.scale.toFloat()
+        view.pivotX = 0f
+        view.pivotY = 0f
+        view.scaleX = s
+        view.scaleY = s
+
+        val radiusPx = (p.radius * view.resources.displayMetrics.density / p.scale).toFloat()
+
+        view.background = if ((p.background ushr 24) != 0) {
+            android.graphics.drawable.GradientDrawable().apply {
+                setColor(p.background)
+                cornerRadius = radiusPx
+            }
+        } else {
+            null
+        }
+
+        if (radiusPx > 0f) {
+            view.outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(v: View, outline: android.graphics.Outline) {
+                    outline.setRoundRect(0, 0, v.width, v.height, radiusPx)
+                }
+            }
+            view.clipToOutline = true
+        } else {
+            view.outlineProvider = android.view.ViewOutlineProvider.BACKGROUND
+            view.clipToOutline = false
+        }
+        view.invalidateOutline()
     }
 }

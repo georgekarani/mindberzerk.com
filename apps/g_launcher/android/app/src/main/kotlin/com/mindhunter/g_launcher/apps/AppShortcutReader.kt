@@ -119,6 +119,72 @@ class AppShortcutReader(context: Context) {
         }
     }
 
+    /** One search result: a shortcut and the activity that owns it. */
+    data class FoundShortcut(
+        val componentKey: String,
+        val id: String,
+        val label: String,
+        val disabled: Boolean,
+    )
+
+    /**
+     * Shortcuts from every app, every profile, whose label contains [query].
+     *
+     * ─── ONE CALL PER PROFILE, NOT ONE PER APP ─────────────────────────────
+     *
+     * A [LauncherApps.ShortcutQuery] with no package asks for every app's
+     * shortcuts at once, so a search costs one binder call per user profile
+     * (usually one, two with a work profile) instead of one per installed app.
+     *
+     * Matching is case-insensitive and on the short label only, the same text
+     * the per-app row shows. Results keep the platform's order and stop at
+     * [limit]. Every failure is an empty list, as in [shortcutsFor].
+     */
+    fun search(query: String, limit: Int): List<FoundShortcut> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return emptyList()
+        val needle = query.trim().lowercase()
+        if (needle.isEmpty() || limit <= 0) return emptyList()
+
+        val out = ArrayList<FoundShortcut>()
+        for (user in userManager.userProfiles) {
+            val serial = userManager.getSerialNumberForUser(user)
+            val shortcuts = try {
+                val q = LauncherApps.ShortcutQuery().setQueryFlags(
+                    LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                        LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                        LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED
+                )
+                launcherApps.getShortcuts(q, user).orEmpty()
+            } catch (e: SecurityException) {
+                Log.i(TAG, "shortcut search denied: $e")
+                return out
+            } catch (e: Exception) {
+                Log.w(TAG, "shortcut search failed: $e")
+                continue
+            }
+
+            for (info in shortcuts) {
+                val label = info.shortLabel?.toString()?.trim().orEmpty()
+                if (label.isEmpty() || !label.lowercase().contains(needle)) continue
+                // The activity the shortcut belongs to; an app with no
+                // activity on it cannot be shown or launched from a result.
+                val activity = info.activity ?: continue
+                out += FoundShortcut(
+                    componentKey = ComponentKey(
+                        packageName = activity.packageName,
+                        className = activity.className,
+                        userSerial = serial,
+                    ).encode(),
+                    id = info.id,
+                    label = label,
+                    disabled = !info.isEnabled,
+                )
+                if (out.size >= limit) return out
+            }
+        }
+        return out
+    }
+
     /**
      * Start one, animating out of [bounds].
      *

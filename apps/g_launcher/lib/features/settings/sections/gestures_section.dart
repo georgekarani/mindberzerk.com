@@ -13,6 +13,7 @@ import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../../data/prefs/prefs_repository.dart';
 import '../../../data/repositories/app_repository.dart';
+import '../../../data/search/search_text.dart';
 import '../../../design/components/components.dart';
 import '../../../engine/effective_theme.dart';
 import '../../gestures/accessibility_disclosure.dart';
@@ -145,7 +146,14 @@ void _showGestureSheet(
 }
 
 class _GestureServiceCard extends ConsumerWidget {
-  const _GestureServiceCard();
+  const _GestureServiceCard({this.query = ''});
+
+  /// The settings search, when this is built for it. The card is its own
+  /// group, so it has to filter itself: it showed for every search, "debug"
+  /// included, because nothing told it what was being searched for.
+  final String query;
+
+  static const _terms = ['accessibility', 'shade', 'recents', 'lock'];
 
   /// The full explanation, kept OUT of the card.
   ///
@@ -168,6 +176,12 @@ class _GestureServiceCard extends ConsumerWidget {
     if (ref.watch(gestureServiceEnabledProvider).value != false) {
       return const SizedBox.shrink();
     }
+    final q = query.trim().toLowerCase();
+    if (q.isNotEmpty &&
+        !const FilterRow(_terms, SizedBox()).matches(q) &&
+        !SearchText.contains(context.t('settings.shadeQuickSettingsRecents'), q)) {
+      return const SizedBox.shrink();
+    }
 
     // On a section page the card is one row: what it unlocks, why (behind
     // the info button, which keeps the disclosure one tap away), and the
@@ -177,7 +191,7 @@ class _GestureServiceCard extends ConsumerWidget {
         label: '',
         rows: [
           FilterRow(
-            const ['accessibility', 'shade', 'recents', 'lock'],
+            _terms,
             SettingsRow(
               icon: Icons.accessibility_new,
               title: context.t('settings.shadeQuickSettingsRecents'),
@@ -312,7 +326,7 @@ List<Widget> gesturesSection(
 
   return [
     // ── Gestures ───────────────────────────────────────────────────
-    const _GestureServiceCard(),
+    _GestureServiceCard(query: q),
     SettingsGroup(
       key: const ValueKey('gest.gestures'),
       label: context.t('settings.gestures'),

@@ -1,33 +1,26 @@
 import 'package:device_probe/device_probe.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/shell.dart';
 import '../../app/theme/tokens.dart';
 import '../../bridge/recovery_api.g.dart';
+import '../../core/format.dart';
 import '../../core/i18n/g_strings.dart';
-import '../../ui/g_app_bar.dart';
 import '../../ui/g_button.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_logo_mark.dart';
-import '../../ui/g_search_field.dart';
-// GOverline lives here alongside GStat.
-import '../../ui/g_stat.dart';
 import '../device/state/identity_providers.dart';
+import '../recovery/category_page.dart';
 import '../recovery/state/recovery_providers.dart';
 import '../search/search_page.dart';
-import 'widgets/attention_strip.dart';
-import 'widgets/category_grid.dart';
-import 'widgets/hero_card.dart';
-import 'widgets/home_extras.dart';
-import 'widgets/vpn_card.dart';
+import 'widgets/home_mosaic.dart';
+import 'widgets/home_sheet.dart';
 
-/// The real home screen. Replaces the Phase 1 design system gallery.
+/// Home, in the immersive layout.
 ///
-/// Order is deliberate: search, then the one big number, then six tiles, then
-/// live device stats. Search is at the top because the most common thing a
-/// person knows about a lost file is its name, and burying that in a menu is
-/// what every app in this category does.
+/// The user's own deleted photos fill the screen, one measured figure sits
+/// over them with one action, and everything else lives in the sheet. The
+/// phone still names itself in the header, because this app is about this
+/// handset and what it is holding.
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
 
@@ -35,135 +28,279 @@ class HomePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final DeviceIdentity? identity = ref.watch(deviceIdentityProvider).value;
 
-    return GPageBody(
-      children: <Widget>[
-        // ─── THE PHONE NAMES ITSELF ─────────────────────────────────────────
-        //
-        // It said "This device" over a greeting. A recovery app is about THIS
-        // handset and what it is holding, and the time of day is something the
-        // user already knew.
-        //
-        // deviceTitle and deviceCaption were written for exactly this, and
-        // their own header says so. Nothing had ever called them.
-        GAppBar(
-          title: deviceTitle(identity),
-          subtitle: deviceCaption(identity),
-          leading: const GLogoMark(),
-          actions: <Widget>[
-            GIconButton(
-              icon: Icons.refresh_rounded,
-              onTap: () => ref.invalidate(prescanProvider),
-            ),
-          ],
-        ),
+    // A background scan that has just finished changes every count here, so
+    // the prescan is asked again the moment it stops.
+    ref.listen<AsyncValue<BackgroundScanState?>>(backgroundScanProvider, (
+      AsyncValue<BackgroundScanState?>? was,
+      AsyncValue<BackgroundScanState?> now,
+    ) {
+      final bool wasRunning = was?.value?.running ?? false;
+      final bool isRunning = now.value?.running ?? false;
+      if (wasRunning && !isRunning) ref.invalidate(prescanProvider);
+    });
 
-        GSearchField(
-          hint: context.s('Search files, photos, messages'),
-          leading: '/',
-          onTap: () => Navigator.of(context).push(SearchPage.route()),
-        ),
-        const SizedBox(height: GSpace.md - 1),
-
-        const HeroCard(),
-        const SizedBox(height: GSpace.md - 1),
-
-        const _AccessPrompt(),
-
-        // Only what is currently true, expiring first, and nothing at all when
-        // nothing is. It never starts a scan to fill itself in.
-        const AttentionStrip(),
-
-        GOverline('What can come back'),
-        const SizedBox(height: GSpace.sm + 1),
-        const CategoryGrid(),
-
-        // ─── TWO SECTIONS, TWO VERBS ────────────────────────────────────────
-        //
-        // The mosaic answers what has been deleted and can be restored. This
-        // answers what is still here and could take less room. A seventh tile
-        // inside the grid would make the grid mean two things and would be the
-        // only tile whose tap does not open a list of deleted files.
-        // G VPN, between what can come back and making room: the moment a
-        // phone is about to upload recovered files is when public Wi-Fi
-        // matters. Hidden entirely after "Not now" while G VPN is missing.
-        const SizedBox(height: GSpace.lg),
-        VpnCard(header: GOverline('On this network')),
-
-        const SizedBox(height: GSpace.lg),
-        GOverline('Make room without deleting'),
-        const SizedBox(height: GSpace.sm + 1),
-        const CompressRow(),
-
-        const SizedBox(height: GSpace.sm),
-        const PillarStats(),
-
-        // ─── THE LEARN LINK IS GONE, AND THAT IS NOT AN OVERSIGHT ───────────
-        //
-        // GInfoNote was deleted when Learn moved under Browse files, so this
-        // row now points at a file that does not exist. Restoring it would mean
-        // restoring the widget too, for a link to a chapter that already has a
-        // home of its own.
-        //
-        // The one thing it did that nothing else does is admit, on the main
-        // screen, that some files cannot be recovered. That belongs back here
-        // eventually, and it belongs as a sentence rather than as a link.
-      ],
-    );
-  }
-}
-
-/// Shown only while the permission is missing.
-///
-/// Not a permanent banner. Once the grant lands this disappears entirely rather
-/// than turning into a green "all good" row that occupies space forever.
-class _AccessPrompt extends ConsumerWidget {
-  const _AccessPrompt();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final RecoveryAccess? access = ref.watch(recoveryAccessProvider).value;
-    if (access == null || access.allFilesAccess) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.md - 1),
-      child: GCard(
-        tint: t.warning,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              context.s('Turn on file access'),
-              style: GType.heading.copyWith(color: t.text),
-            ),
-            const SizedBox(height: GSpace.sm - 2),
-            Text(
-              context.s(
-                'Android hides other apps deleted files until you do. Every count above is a floor until then.',
-              ),
-              style: GType.bodySmall.copyWith(color: t.muted),
-            ),
-            const SizedBox(height: GSpace.md),
-            GButton(
-              label: context.s('Open settings'),
-              onPressed: () async {
-                await ref.read(recoveryBridgeProvider).requestAllFilesAccess();
-                ref.invalidate(recoveryAccessProvider);
-                ref.invalidate(prescanProvider);
-              },
-            ),
-          ],
-        ),
+    return ImmersiveScaffold(
+      background: const HomeMosaic(),
+      body: const _HeroLayer(),
+      primary: const _PrimaryAction(),
+      sheet: ContentSheet(
+        builder: (BuildContext context, ScrollController scroll) =>
+            HomeSheet(scroll: scroll),
+      ),
+      header: FloatHeader(
+        title: deviceTitle(identity),
+        actions: <Widget>[
+          FloatIconButton(
+            icon: Icons.refresh_rounded,
+            semanticLabel: context.s('Check again'),
+            onTap: () => ref.invalidate(prescanProvider),
+          ),
+          FloatIconButton(
+            icon: Icons.search_rounded,
+            semanticLabel: context.s('Search files, photos, messages'),
+            onTap: () => Navigator.of(context).push(SearchPage.route()),
+          ),
+        ],
       ),
     );
   }
 }
 
-// ─── _DeviceStrip IS GONE ────────────────────────────────────────────────────
-//
-// Battery, free memory, temperature and swap sat at the bottom of a screen
-// about deleted files: four numbers nobody came for, from a sampler that is
-// paused unless the Device tab is showing, so they were usually stale as well.
-//
-// PillarStats replaces it with three that point somewhere instead of trying to
-// be the somewhere.
+/// What the hero and the primary action are showing.
+enum _Mode {
+  /// The prescan has not answered yet.
+  loading,
+
+  /// A full scan is walking the phone.
+  running,
+
+  /// Nothing was counted because file access is off.
+  blind,
+
+  /// Nothing in the bins, and no full scan has run.
+  empty,
+
+  /// Nothing in the bins after a full scan.
+  clear,
+
+  /// There is something to bring back.
+  ready,
+}
+
+/// One read of every provider the hero depends on, so the figure and the
+/// button can never disagree about which state the screen is in.
+@immutable
+class _HomeView {
+  const _HomeView({required this.mode, this.summary, this.scan});
+
+  factory _HomeView.read(WidgetRef ref) {
+    final RecoverySummary? summary = ref.watch(prescanProvider).value;
+    final bool scanned = ref.watch(scanControllerProvider).value != null;
+    final BackgroundScanState? scan = ref.watch(backgroundScanProvider).value;
+
+    final _Mode mode;
+    if (scan?.running ?? false) {
+      mode = _Mode.running;
+    } else if (summary == null) {
+      mode = _Mode.loading;
+    } else if (summary.deletedItems == 0 && summary.partial) {
+      mode = _Mode.blind;
+    } else if (summary.deletedItems == 0) {
+      mode = scanned ? _Mode.clear : _Mode.empty;
+    } else {
+      mode = _Mode.ready;
+    }
+    return _HomeView(mode: mode, summary: summary, scan: scan);
+  }
+
+  final _Mode mode;
+  final RecoverySummary? summary;
+  final BackgroundScanState? scan;
+}
+
+/// The figure, its caption and any facts that need attention, stacked just
+/// above the primary action.
+class _HeroLayer extends ConsumerWidget {
+  const _HeroLayer();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
+    final _HomeView view = _HomeView.read(ref);
+    final RecoverySummary? summary = view.summary;
+    final BackgroundScanState? scan = view.scan;
+
+    final String label = view.mode == _Mode.running
+        ? context.s('Checking this phone')
+        : context.s('Recoverable now');
+
+    final String? value = switch (view.mode) {
+      _Mode.running => GFormat.count(scan!.found),
+      _Mode.loading || _Mode.blind => null,
+      _Mode.empty || _Mode.clear => GFormat.count(0),
+      _Mode.ready => GFormat.count(summary!.deletedItems),
+    };
+
+    final String caption = switch (view.mode) {
+      _Mode.running => _progressLine(context, scan!),
+      _Mode.loading => context.s('Checking your device'),
+      _Mode.blind => context.s('Not checked yet. File access is off.'),
+      _Mode.empty => context.s(
+        'Nothing in the trash. A full scan looks further.',
+      ),
+      _Mode.clear => context.s('Nothing waiting. Your trash is clear.'),
+      _Mode.ready => context.s1(
+        '{} can come back',
+        GFormat.bytes(summary!.deletedBytes),
+      ),
+    };
+
+    final int expiring = summary?.expiringSoonItems ?? 0;
+    final bool floor =
+        summary != null && summary.partial && view.mode == _Mode.ready;
+
+    final List<Widget> facts = <Widget>[
+      if (view.mode == _Mode.ready && expiring > 0)
+        FloatChip(
+          label: context.s1(
+            '{} expire within 48 hours',
+            GFormat.count(expiring),
+          ),
+          tone: t.danger,
+          onTap: () => Navigator.of(context).push(
+            CategoryPage.route(
+              title: context.s('Expiring'),
+              sourceIds: kAllSourceIds,
+            ),
+          ),
+        ),
+      // Counted without file access, so the figure is the least there is,
+      // not the total. Said on the figure, where the number is read.
+      if (floor)
+        FloatChip(label: context.s('Floor, not a total'), tone: t.warning),
+    ];
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints box) {
+        // Sheet peek, then the primary action, then this block.
+        final double bottom =
+            box.maxHeight * GDesign.sheetPeek +
+            GDesign.space16 +
+            GDesign.buttonHeight +
+            GDesign.space24;
+
+        return Stack(
+          children: <Widget>[
+            Positioned(
+              left: GDesign.gutter,
+              right: GDesign.gutter,
+              bottom: bottom,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  HeroFigure(
+                    label: label,
+                    value: value,
+                    caption: caption,
+                    tone: view.mode == _Mode.running ? g.accent : null,
+                  ),
+                  if (view.mode == _Mode.running &&
+                      (scan?.total ?? 0) > 0) ...<Widget>[
+                    const SizedBox(height: GDesign.space12),
+                    LinearProgressIndicator(
+                      value: (scan!.scanned / scan.total).clamp(0.0, 1.0),
+                      minHeight: 4,
+                      borderRadius: BorderRadius.circular(2),
+                      color: g.accent,
+                      backgroundColor: g.hairline,
+                    ),
+                  ],
+                  if (facts.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: GDesign.space8),
+                    Wrap(spacing: GDesign.space8, children: facts),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Where the scan is and how far through it, on one line.
+  static String _progressLine(BuildContext context, BackgroundScanState scan) {
+    final String where = switch (scan.sourceId) {
+      'media_trash' => context.s('Trash folders'),
+      'app_trash' => context.s('App leftovers'),
+      'thumbnails' => context.s('Thumbnail cache'),
+      _ => context.s('Looking'),
+    };
+    if (scan.total <= 0) return where;
+    return '$where  ${GFormat.count(scan.scanned)} / '
+        '${GFormat.count(scan.total)}';
+  }
+}
+
+/// The screen's one action. Nothing at all when there is nothing to do.
+class _PrimaryAction extends ConsumerWidget {
+  const _PrimaryAction();
+
+  /// 17 + 18 + 17 makes the 52 dp button the canvas draws.
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: GSpace.lg,
+    vertical: 17,
+  );
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final _HomeView view = _HomeView.read(ref);
+
+    switch (view.mode) {
+      case _Mode.loading:
+      case _Mode.clear:
+        return const SizedBox.shrink();
+      case _Mode.running:
+        return GButton(
+          label: context.s('Stop'),
+          kind: GButtonKind.ghost,
+          padding: _padding,
+          onPressed: () async {
+            await ref.read(recoveryBridgeProvider).cancelScan();
+            ref.invalidate(backgroundScanProvider);
+          },
+        );
+      case _Mode.blind:
+        return GButton(
+          label: context.s('Turn on file access'),
+          icon: Icons.folder_open_rounded,
+          padding: _padding,
+          onPressed: () async {
+            await ref.read(recoveryBridgeProvider).requestAllFilesAccess();
+            ref.invalidate(recoveryAccessProvider);
+            ref.invalidate(prescanProvider);
+          },
+        );
+      case _Mode.empty:
+        return GButton(
+          label: context.s('Scan this phone'),
+          icon: Icons.search_rounded,
+          padding: _padding,
+          onPressed: () async {
+            await ref.read(recoveryBridgeProvider).startBackgroundScan();
+            ref.invalidate(backgroundScanProvider);
+          },
+        );
+      case _Mode.ready:
+        return GButton(
+          label: context.s('Review and restore'),
+          padding: _padding,
+          onPressed: () => Navigator.of(
+            context,
+          ).push(CategoryPage.route(title: context.s('Everything'))),
+        );
+    }
+  }
+}

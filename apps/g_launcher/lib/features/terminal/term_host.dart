@@ -214,6 +214,11 @@ abstract class TermHost {
 
   Future<void> openAppSettings(TermApp app);
 
+  /// Opens the launcher's own editor for [app]: its name, icon and
+  /// notification count. The same sheet every other distro opens from its app
+  /// menu, which the terminal has no long-press to reach.
+  Future<TermOutcome> editApp(TermApp app);
+
   // ── ~ ───────────────────────────────────────────────────────────────
   /// Whether a folder has been granted yet.
   bool get filesGranted;

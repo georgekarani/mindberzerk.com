@@ -59,6 +59,25 @@
       "$comment": "How Settings, setup, sheets and toasts are laid out: boxed is GNOME Settings, cinnamon is Cinnamon System Settings, form is KDE System Settings, dialog is the Xfce Settings Manager, grouped is iOS Settings, config is a config file. Omit to derive it: a cinnamon drawer gives cinnamon, else the chrome family (adwaita boxed, breeze form, xfce dialog, wm config, aqua and pocket grouped), else the shell."
     },
 
+    "accents": {
+      "type": "array",
+      "$comment": "Named accent swatches offered in Settings and quick settings. The id `wallpaper` is reserved for the colour taken from the wallpaper and is dropped if authored.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$", "not": { "const": "wallpaper" } },
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": "string", "pattern": "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$" }
+        }
+      }
+    },
+    "accentFromWallpaper": {
+      "type": "boolean",
+      "$comment": "When true, a user who has not picked an accent gets one taken from the wallpaper, made readable on the bar colour. Every distro offers the Wallpaper swatch either way; this only sets the default. Needs Android 8.1 or later; older devices keep palette.accent."
+    },
+
     "palette": { "$ref": "#/$defs/palette" },
     "paletteLight": {
       "allOf": [{ "$ref": "#/$defs/palette" }],
@@ -227,6 +246,10 @@
           "minimum": 0.7,
           "maximum": 1.4,
           "$comment": "CLAMPED to this range by IconSizing.parseScale at runtime. Enforced here so an author is told rather than silently corrected."
+        },
+        "launchAnimation": {
+          "enum": ["zoom", "reveal", "fade", "slide", "none"],
+          "$comment": "How an app opens from this distro. zoom is the system scale-up from the icon, reveal a circular clip from the icon, fade a cross-fade, slide a short rise, none an instant cut. Omit for zoom. The user's own choice in Settings wins over this."
         }
       }
     },
@@ -362,7 +385,8 @@
             "fun.egg",
             "launcher.layout",
             "shell.alias",
-            "apps.open"
+            "apps.open",
+            "apps.edit"
           ],
           "$comment": "The wire names of CommandAction. ENUMERATED HERE and asserted against the enum by terminal_spec_test, the same arrangement kindId has: the runtime keeps an unknown id and simply fails to bind it, so without this list a typo would vanish silently. ADDING AN ACTION MEANS UPDATING THIS LIST AND THAT TEST."
         },

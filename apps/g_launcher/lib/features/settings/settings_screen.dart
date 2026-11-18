@@ -32,6 +32,7 @@
 /// gesture card and the badge rows.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
@@ -48,6 +49,7 @@ import '../themes/themes_screen.dart';
 import 'device_pages.dart';
 import 'sections/appearance_section.dart';
 import 'sections/apps_section.dart';
+import 'sections/debug_section.dart';
 import 'sections/desktop_section.dart';
 import 'sections/gestures_section.dart';
 import 'sections/system_section.dart';
@@ -84,10 +86,41 @@ import 'settings_sheets.dart';
 /// (Absorbed from the retired `features/settings/README.md`, whose row list had
 /// already gone stale — it still said "Home grid", renamed to "Desktop grid" in
 /// Phase A.)
+/// How many settings rows a search for [q] shows. PHASE 5.
+///
+/// Built from the SAME five sections the screen mounts when a query is typed,
+/// counted with the same rule [SettingsGroup] filters by, so the unified
+/// search can offer "Search settings for …" only when the page it opens will
+/// have something on it. A second list of settings here would drift from the
+/// screen; this cannot.
+int settingsMatchCount(
+  BuildContext context,
+  WidgetRef ref,
+  EffectiveTheme theme,
+  String q,
+) {
+  final query = q.trim();
+  if (query.isEmpty) return 0;
+  final workspaces = ref.read(workspaceCountProvider);
+  final groups = [
+    ...appearanceSection(context, ref, theme, workspaces, query),
+    ...desktopSection(context, ref, theme, workspaces, query),
+    ...applicationsSection(context, ref, theme, workspaces, query),
+    ...gesturesSection(context, ref, theme, workspaces, query),
+    ...systemSection(context, ref, theme, workspaces, query),
+  ].whereType<SettingsGroup>();
+  return groups.fold(0, (n, g) => n + g.matchCount(query));
+}
+
 class SettingsScreen extends ConsumerStatefulWidget {
-  const SettingsScreen({super.key, required this.theme});
+  const SettingsScreen({super.key, required this.theme, this.initialQuery});
 
   final EffectiveTheme theme;
+
+  /// Text to open with in the search field, already filtering. Set by the
+  /// unified search's "Search settings for …" row, so a query typed in any
+  /// distro's search lands on the matching settings rows. PHASE 5.
+  final String? initialQuery;
 
   @override
   ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
@@ -112,6 +145,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialQuery?.trim() ?? '';
+    if (initial.isNotEmpty) {
+      _searchCtrl.text = initial;
+      _query = initial;
+    }
     Future.microtask(() {
       if (!mounted) return;
       ref.read(appUpdateProvider.notifier).checkIfStale();
@@ -212,6 +250,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ...gesturesSection(context, ref, theme, workspaces, q),
             ...systemSection(context, ref, theme, workspaces, q),
           ] else ...[
+            // At the TOP in debug builds: the landing scrolls, and a test pass
+            // starts here. A release build has no such group at all.
+            if (kDebugMode)
+              SettingsGroup(
+                label: context.t('debug.title'),
+                rows: [
+                  FilterRow(
+                    const ['debug', 'unlock', 'test'],
+                    SettingsRow(
+                      icon: Icons.bug_report_outlined,
+                      accent: true,
+                      title: context.t('debug.title'),
+                      trailing: const Chevron(),
+                      onTap: () => _openSection(
+                          context, tr('debug.title'), debugSection),
+                    ),
+                  ),
+                ],
+              ),
             // ── THE DISTRO ────────────────────────────────────────────────
             //
             // Its own group, above everything. It is the setting that changes
@@ -229,7 +286,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: Icons.desktop_windows_outlined,
                     accent: true,
                     title: context.t('settings.changeDesktop'),
-                    subtitle: context.t('settings.settingsBelowAreStored'),
                     trailing: const Chevron(),
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(

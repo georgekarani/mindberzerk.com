@@ -229,6 +229,35 @@ class ChromeColors {
   /// gets quieter the more wallpaper you want is actively wrong.
   ///
   /// A no-op at 1.0, so the default path allocates nothing new.
+  /// iOS grouped greys, for the Pocket family.
+  ///
+  /// The derived chrome tints every surface with the wallpaper's hue, which is
+  /// right for a Linux desktop and reads as "an Android app" on an iPhone
+  /// skin. iOS Settings is a pure grouped background (black, or F2F2F7) with
+  /// cards one step above it and secondary text in the system grey. Only the
+  /// neutrals change; accent, status colours and tint stay the distro's.
+  ChromeColors asIosGrouped() {
+    final dark = text.computeLuminance() > 0.5;
+    // theme-exempt: iOS system grouped colours, the Pocket family's chrome.
+    return ChromeColors(
+      bg: dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
+      bar: dark ? const Color(0xFF000000) : const Color(0xFFF2F2F7),
+      surface: dark ? const Color(0xFF1C1C1E) : const Color(0xFFFFFFFF),
+      surfaceAlt: dark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA),
+      text: dark ? const Color(0xFFFFFFFF) : const Color(0xFF000000),
+      textMuted: dark ? const Color(0xFF8E8E93) : const Color(0xFF8A8A8E),
+      textFaint: dark ? const Color(0xFF636366) : const Color(0xFFAEAEB2),
+      line: dark ? const Color(0xFF38383A) : const Color(0xFFC6C6C8),
+      lineStrong: dark ? const Color(0xFF48484A) : const Color(0xFFAEAEB2),
+      accent: accent,
+      onAccent: onAccent,
+      ok: ok,
+      warn: warn,
+      danger: danger,
+      tint: tint,
+    );
+  }
+
   ChromeColors withOpacity(double opacity) {
     if (opacity >= 1.0) return this;
     Color f(Color c) => c.withValues(alpha: c.a * opacity);
@@ -623,7 +652,11 @@ class ChromeData {
     double panelTint = 0.72,
     double panelRadius = 16,
   }) {
-    final colors = ChromeColors.fromPalette(palette).withOpacity(opacity);
+    final derived = ChromeColors.fromPalette(palette);
+    final colors = (family == ChromeFamily.pocket
+            ? derived.asIosGrouped()
+            : derived)
+        .withOpacity(opacity);
     return ChromeData(
       colors: colors,
       opacity: opacity,

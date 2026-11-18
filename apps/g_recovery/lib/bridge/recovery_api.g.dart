@@ -620,6 +620,14 @@ class RecoverySummary {
     required this.documentCount,
     required this.otherCount,
     required this.partial,
+    required this.deletedItems,
+    required this.deletedBytes,
+    required this.statusItems,
+    required this.statusBytes,
+    required this.previewItems,
+    required this.previewBytes,
+    required this.appMediaItems,
+    required this.appMediaBytes,
   });
 
   List<RecoverySource> sources;
@@ -659,6 +667,29 @@ class RecoverySummary {
   /// with.
   bool partial;
 
+  /// Counts by what happened, appended after [partial] for the same encoding
+  /// reason as the per-kind counts.
+  ///
+  /// Only [deletedItems] is "recoverable now". Statuses were never deleted,
+  /// previews are low-resolution copies whose originals are gone, and app media
+  /// is still inside the chat app. Folding any of them into one total is the
+  /// overclaim the app exists to avoid.
+  int deletedItems;
+
+  int deletedBytes;
+
+  int statusItems;
+
+  int statusBytes;
+
+  int previewItems;
+
+  int previewBytes;
+
+  int appMediaItems;
+
+  int appMediaBytes;
+
   List<Object?> _toList() {
     return <Object?>[
       sources,
@@ -671,6 +702,14 @@ class RecoverySummary {
       documentCount,
       otherCount,
       partial,
+      deletedItems,
+      deletedBytes,
+      statusItems,
+      statusBytes,
+      previewItems,
+      previewBytes,
+      appMediaItems,
+      appMediaBytes,
     ];
   }
 
@@ -691,6 +730,14 @@ class RecoverySummary {
       documentCount: result[7]! as int,
       otherCount: result[8]! as int,
       partial: result[9]! as bool,
+      deletedItems: result[10]! as int,
+      deletedBytes: result[11]! as int,
+      statusItems: result[12]! as int,
+      statusBytes: result[13]! as int,
+      previewItems: result[14]! as int,
+      previewBytes: result[15]! as int,
+      appMediaItems: result[16]! as int,
+      appMediaBytes: result[17]! as int,
     );
   }
 
@@ -712,7 +759,15 @@ class RecoverySummary {
         _deepEquals(audioCount, other.audioCount) &&
         _deepEquals(documentCount, other.documentCount) &&
         _deepEquals(otherCount, other.otherCount) &&
-        _deepEquals(partial, other.partial);
+        _deepEquals(partial, other.partial) &&
+        _deepEquals(deletedItems, other.deletedItems) &&
+        _deepEquals(deletedBytes, other.deletedBytes) &&
+        _deepEquals(statusItems, other.statusItems) &&
+        _deepEquals(statusBytes, other.statusBytes) &&
+        _deepEquals(previewItems, other.previewItems) &&
+        _deepEquals(previewBytes, other.previewBytes) &&
+        _deepEquals(appMediaItems, other.appMediaItems) &&
+        _deepEquals(appMediaBytes, other.appMediaBytes);
   }
 
   @override
@@ -721,7 +776,7 @@ class RecoverySummary {
 
   @override
   String toString() {
-    return 'RecoverySummary(sources: $sources, totalItems: $totalItems, totalBytes: $totalBytes, expiringSoonItems: $expiringSoonItems, imageCount: $imageCount, videoCount: $videoCount, audioCount: $audioCount, documentCount: $documentCount, otherCount: $otherCount, partial: $partial)';
+    return 'RecoverySummary(sources: $sources, totalItems: $totalItems, totalBytes: $totalBytes, expiringSoonItems: $expiringSoonItems, imageCount: $imageCount, videoCount: $videoCount, audioCount: $audioCount, documentCount: $documentCount, otherCount: $otherCount, partial: $partial, deletedItems: $deletedItems, deletedBytes: $deletedBytes, statusItems: $statusItems, statusBytes: $statusBytes, previewItems: $previewItems, previewBytes: $previewBytes, appMediaItems: $appMediaItems, appMediaBytes: $appMediaBytes)';
   }
 }
 
@@ -823,7 +878,6 @@ class BackgroundScanState {
 
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
-
   @override
   void writeValue(WriteBuffer buffer, Object? value) {
     if (value is int) {

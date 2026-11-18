@@ -64,7 +64,6 @@ class GDetailPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: ListView(
           // Zero, because the header wash has to reach both edges. The body
           // below it carries the gutter itself.
@@ -149,7 +148,6 @@ class GDetailSliverPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Expanded(

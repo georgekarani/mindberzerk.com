@@ -192,6 +192,30 @@ class _AppWidgetDeskletState extends ConsumerState<AppWidgetDesklet> {
       this,
       id,
       box.localToGlobal(Offset.zero) & box.size,
+      look: _look(),
+    );
+  }
+
+  /// The person's per-widget settings, in the form native applies.
+  ///
+  /// Read from config, not the merged skin, and defaulting to the widget as
+  /// its app drew it: a hosted widget nobody has touched must look exactly as
+  /// it did before these settings reached it. The backing is the distro's bar
+  /// colour at the chosen strength, so it matches the cards beside it.
+  StageLook _look() {
+    final c = widget.desklet.config;
+    final scale = c['scale'] is num ? (c['scale'] as num).toDouble() : 1.0;
+    final radius = c['radius'] is num ? (c['radius'] as num).toDouble() : 0.0;
+    final opacity =
+        c['opacity'] is num ? (c['opacity'] as num).toDouble() : 0.0;
+    return (
+      scalePct: (scale * 100).round().clamp(50, 200),
+      radius: radius,
+      argb: opacity <= 0
+          ? 0
+          : widget.theme.palette.bar
+              .withValues(alpha: opacity.clamp(0.0, 1.0))
+              .toARGB32(),
     );
   }
 

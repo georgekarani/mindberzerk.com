@@ -54,7 +54,9 @@ import '../../data/prefs/layout_preset.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../data/update/update_repository.dart';
+import '../../design/components/gap_column.dart';
 import '../../engine/effective_theme.dart';
+import '../../system/wallpaper_accent.dart';
 import '../../engine/theme_spec.dart';
 import '../../system/gvpn_status.dart';
 import '../../system/notification_badges.dart';
@@ -71,6 +73,7 @@ import '../panel/panel_modules.dart' show panelIsNarrow;
 import '../settings/settings_screen.dart';
 import '../settings/settings_sheets.dart' show confirmUpdateRestart;
 import 'workspaces/workspace_controller.dart';
+import '../desklets/layout_lock.dart';
 
 /// Is the Quick Settings panel open?
 final quickSettingsProvider =
@@ -160,12 +163,24 @@ class QuickSettingsPanel extends ConsumerWidget {
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: notifier.close,
-              child: ColoredBox(
-                // Light, so the desktop stays visible: the accent swatches
-                // are judged against it.
-                color: theme.palette.bgBottom.withValues(alpha: 0.4),
-                child: const SizedBox.expand(),
-              ),
+              // Light, so the desktop stays visible: the accent swatches are
+              // judged against it. EXCEPT the Aqua family (Pocket, Deepin),
+              // whose clock and tiles float bare with no panel behind them:
+              // there the desktop is blurred, as iOS's Control Center and
+              // Deepin's own do, or the clock lands on top of whatever desklet
+              // sits underneath it and neither can be read.
+              child: look.family == _Family.aqua
+                  ? BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+                      child: ColoredBox(
+                        color: theme.palette.bgBottom.withValues(alpha: 0.35),
+                        child: const SizedBox.expand(),
+                      ),
+                    )
+                  : ColoredBox(
+                      color: theme.palette.bgBottom.withValues(alpha: 0.4),
+                      child: const SizedBox.expand(),
+                    ),
             ),
           ),
           // Deepin's Control Center opens as a tall panel against the right
@@ -426,6 +441,10 @@ List<_Toggle> _toggles(BuildContext context, WidgetRef ref, EffectiveTheme t) {
           GVpn.open(referrer: 'g_launcher_panel');
         },
       ),
+    // Only where it can do something. A distro with no light palette had a
+    // permanently disabled tile here, drawn "on" at 45% opacity, which read as
+    // a rendering fault on Arch and EndeavourOS rather than as a setting.
+    if (hasLight)
     _Toggle(
       icon: t.dark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
       label: context.t('qs.appearance'),
@@ -435,13 +454,11 @@ List<_Toggle> _toggles(BuildContext context, WidgetRef ref, EffectiveTheme t) {
         _ => 'settings.badges.auto',
       }),
       active: t.dark,
-      onTap: hasLight
-          ? () {
-              tap();
-              final next = modes[(modes.indexOf(mode) + 1) % modes.length];
-              prefs.edit((p) => p.copyWith(themeMode: next));
-            }
-          : null,
+      onTap: () {
+        tap();
+        final next = modes[(modes.indexOf(mode) + 1) % modes.length];
+        prefs.edit((p) => p.copyWith(themeMode: next));
+      },
     ),
     // Xfce, GNOME, KDE on Kali; Zorin's layouts on Zorin. A tap moves to the
     // next one, the same write Appearance makes (see [applyLayoutPreset]).
@@ -479,6 +496,7 @@ class _Actions {
   Future<void> editPanel() async {
     HapticFeedback.selectionClick();
     _close();
+    if (layoutLockRefuses(_navigator.context)) return;
     _edit.enterPanel();
     await showPanelEditor(_navigator.context, theme);
     _edit.exit();
@@ -513,8 +531,10 @@ class _Sheet extends ConsumerWidget {
       // open here instead. Only the ones this distro put on its panel.
       if (narrow) _Workspaces(theme: theme, look: look),
       if (narrow) _Readouts(theme: theme, look: look),
-      if (theme.spec.accents.isNotEmpty)
-        _Swatches(theme: theme, look: look, accents: theme.spec.accents),
+      // The wallpaper's swatch first, then the distro's: so every distro
+      // offers at least one, including those that author none. PHASE 6.
+      if (theme.offeredAccents.isNotEmpty)
+        _Swatches(theme: theme, look: look, accents: theme.offeredAccents),
       _Media(look: look),
       _Notes(look: look, onLeave: close),
     ];
@@ -574,16 +594,11 @@ class _Sheet extends ConsumerWidget {
     );
   }
 
-  Widget _stack(List<Widget> children, {double gap = 12}) => Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < children.length; i++) ...[
-            if (i > 0) SizedBox(height: gap),
-            children[i],
-          ],
-        ],
-      );
+  /// Sections with a gap between them. An optional section that has nothing
+  /// to show (no workspaces, no media) takes no gap either, so a distro that
+  /// lacks it does not get a blank strip in its place.
+  Widget _stack(List<Widget> children, {double gap = 12}) =>
+      GapColumn(gap: gap, children: children);
 
   // ── GNOME: battery pill, pill toggles, then the rest. ──
   Widget _gnome(BuildContext context, WidgetRef ref, List<_Toggle> toggles,
@@ -687,8 +702,10 @@ class _Sheet extends ConsumerWidget {
   // ── Aqua: a large clock on the desktop itself, then glass modules. ──
   Widget _aqua(BuildContext context, WidgetRef ref, List<_Toggle> toggles,
       _Actions actions, List<Widget> extras) {
-    final appearance =
-        toggles.firstWhere((t) => t.label == context.t('qs.appearance'));
+    // Absent on a distro with no light palette; see the toggle list.
+    final appearance = toggles
+        .where((t) => t.label == context.t('qs.appearance'))
+        .firstOrNull;
     final rest = [for (final t in toggles) if (t != appearance) t];
 
     Widget module(Widget child, {EdgeInsets? padding}) => _Module(
@@ -741,8 +758,12 @@ class _Sheet extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: _SquareModule(look: look, toggle: appearance)),
-                  const SizedBox(height: 12),
+                  if (appearance != null) ...[
+                    Expanded(
+                      child: _SquareModule(look: look, toggle: appearance),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   Expanded(
                     child: _SquareModule(
                       look: look,
@@ -922,12 +943,13 @@ class _Grid extends StatelessWidget {
           IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
+              // A short last row SHARES the width rather than leaving holes:
+              // one tile alone (Manjaro, Pop!_OS) spans the row instead of
+              // sitting beside an empty slot.
               children: [
-                for (var c = 0; c < columns; c++) ...[
+                for (var c = 0; c < rows[r].length; c++) ...[
                   if (c > 0) SizedBox(width: gap),
-                  Expanded(
-                    child: c < rows[r].length ? rows[r][c] : const SizedBox(),
-                  ),
+                  Expanded(child: rows[r][c]),
                 ],
               ],
             ),
@@ -1442,7 +1464,7 @@ class _ClockHeader extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final now = ref.watch(clockProvider).asData?.value ?? DateTime.now();
     final time = Text(
-      formatTime(now),
+      formatClock(context, now),
       style: look.style(
         size,
         weight: look.mono ? FontWeight.w700 : FontWeight.w300,
@@ -1626,7 +1648,9 @@ class _Swatches extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final chosen = theme.prefs.accentId;
+    // The accent in force, so a distro that follows the wallpaper by default
+    // shows its Wallpaper swatch as chosen. Tapping still writes prefs.
+    final chosen = theme.accentChoice;
     final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
     final round = look.family == _Family.gnome || look.family == _Family.aqua;
     final swatch = round ? 34.0 : 30.0;
@@ -1648,7 +1672,12 @@ class _Swatches extends ConsumerWidget {
         const minGap = 10.0;
         final perRow =
             ((box.maxWidth + minGap) / (swatch + minGap)).floor().clamp(1, 99);
-        final cols = perRow.clamp(1, accents.length);
+        // BALANCED rows: as few rows as fit, then as even as they can be.
+        // Mint's ten at nine a row left one swatch alone on a second row;
+        // two rows of five read as a palette.
+        final rowCount = (accents.length / perRow).ceil().clamp(1, 99);
+        final cols =
+            (accents.length / rowCount).ceil().clamp(1, accents.length);
         final gap = cols > 1 ? (box.maxWidth - cols * swatch) / (cols - 1) : 0.0;
         return Wrap(
           spacing: (gap - 0.5).clamp(minGap, 999.0),
@@ -1686,6 +1715,11 @@ class _Swatches extends ConsumerWidget {
                             width: a.id == chosen ? 3 : 0.5,
                           ),
                         ),
+                        // The wallpaper's swatch carries a mark, or it reads
+                        // as one more fixed colour that happens to match.
+                        child: a.id == wallpaperAccentId
+                            ? WallpaperAccentMark(colour: a.value)
+                            : null,
                       ),
                     ),
                   ),
@@ -1802,9 +1836,21 @@ class _Media extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(look.say(s.title), style: look.style(15, weight: FontWeight.w700)),
+        // Capped like the clock popover's card: a long track name must not
+        // grow the card past the tiles below it. Cut at runtime only.
+        Text(
+          look.say(s.title),
+          style: look.style(15, weight: FontWeight.w700),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
         if (s.artist.isNotEmpty)
-          Text(look.say(s.artist), style: look.style(12, color: look.muted)),
+          Text(
+            look.say(s.artist),
+            style: look.style(12, color: look.muted),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
       ],
     );
 

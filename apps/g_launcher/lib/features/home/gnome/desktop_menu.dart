@@ -16,6 +16,7 @@ import '../../settings/settings_screen.dart';
 import '../../settings/wallpaper_screen.dart';
 import '../../themes/themes_screen.dart';
 import '../workspaces/workspace_controller.dart';
+import '../../desklets/layout_lock.dart';
 
 /// The desktop long-press menu — GNOME's "right-click the desktop", mobile
 /// shaped.
@@ -63,6 +64,7 @@ Future<void> showDesktopMenu(
   // the top (`PocketEditBar`), and nothing is dimmed. The menu's 38% scrim
   // over a glass home read as the whole screen clouding over.
   if (theme.phoneHome && theme.desktopIcons) {
+    if (layoutLockRefuses(context)) return;
     ref.read(deskletEditProvider.notifier).enterApps();
     return;
   }
@@ -224,7 +226,25 @@ List<DesktopAction> desktopActions({
     // mode over an empty screen. The same `desktopIcons` gate the
     // grid itself uses, asked in the one other place that offers to
     // edit it.
-    if (theme.desktopIcons)
+    // ── LOCKED, THE SAME SLOT IS THE WAY OUT ──────────────────
+    //
+    // Arrange would only be refused, so the locked desktop offers the
+    // one thing that makes it work again, in the place Arrange stood.
+    // Shown on every distro, icons or not: the lock also holds the
+    // desklets and the panel.
+    if (ref.read(layoutLockedProvider))
+      DesktopAction(
+        icon: Icons.lock_open_outlined,
+        // "Unlock", not "Unlock layout": the bar's six labels share one
+        // row, and the longer word was cut to an ellipsis on a phone.
+        label: context.t('home.unlock'),
+        onTap: () {
+          final container = ProviderScope.containerOf(context, listen: false);
+          dismiss();
+          writeLayoutLocked(container, false);
+        },
+      )
+    else if (theme.desktopIcons)
       DesktopAction(
         icon: Icons.dashboard_customize_outlined,
         label: context.t('home.arrange'),

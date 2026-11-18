@@ -138,7 +138,6 @@ List<Widget> systemSection(
           SettingsRow(
             icon: Icons.backup_outlined,
             title: context.t('settings.backup'),
-            subtitle: context.t('settings.saveYourSettingsOr'),
             trailing: const Chevron(),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => const BackupScreen()),
@@ -158,7 +157,6 @@ List<Widget> systemSection(
           SettingsRow(
             icon: Icons.refresh,
             title: context.t('settings.rebuildIconCache'),
-            subtitle: context.t('settings.ifIconsLookWrong'),
             trailing: const Chevron(),
             onTap: () async {
               await api.clearIconCache();
@@ -173,7 +171,6 @@ List<Widget> systemSection(
           SettingsRow(
             icon: Icons.settings_backup_restore,
             title: context.t('settings.restoreDefaults'),
-            subtitle: context.t('settings.oneSectionAtA'),
             trailing: const Chevron(),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
@@ -188,7 +185,6 @@ List<Widget> systemSection(
             icon: Icons.settings_backup_restore,
             title: context.t('settings.resetDistro', {'name': theme.spec.name}),
             // Per-theme, per §5.3 — resetting Ubuntu must not touch KDE.
-            subtitle: context.t('settings.layoutIconShapeAnd'),
             trailing: const Chevron(),
             onTap: () => confirmReset(context, notifier, theme),
           ),

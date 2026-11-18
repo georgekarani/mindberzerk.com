@@ -69,23 +69,34 @@ class StageBridge private constructor() : MethodChannel.MethodCallHandler {
      * channel down and leaves every widget frozen where it last was.
      */
     private fun parse(flat: List<Double>): List<WidgetStage.Placement> {
-        val out = ArrayList<WidgetStage.Placement>(flat.size / 5)
+        val out = ArrayList<WidgetStage.Placement>(flat.size / GROUP)
         var i = 0
-        while (i + 4 < flat.size) {
+        while (i + GROUP - 1 < flat.size) {
             out += WidgetStage.Placement(
                 widgetId = flat[i].toInt(),
                 x = flat[i + 1],
                 y = flat[i + 2],
                 w = flat[i + 3],
                 h = flat[i + 4],
+                // Sent as a whole percent: Dart skips a resend for any change
+                // under half a unit, which a 1.0 to 1.1 scale would be.
+                scale = (flat[i + 5] / 100.0).coerceIn(0.5, 2.0),
+                radius = flat[i + 6].coerceAtLeast(0.0),
+                // ARGB as an unsigned 32-bit value; exact in a double.
+                background = flat[i + 7].toLong().toInt(),
             )
-            i += 5
+            i += GROUP
         }
         return out
     }
 
     companion object {
         const val CHANNEL = "g_launcher/widget_stage"
+
+        /// Values per widget in a sync: id, x, y, w, h, scale percent,
+        /// corner radius in dp, background ARGB. Matches `_flatten` in
+        /// widget_stage.dart; the two change together or not at all.
+        private const val GROUP = 8
 
         /// The live channel, kept so native can TALK BACK.
         ///

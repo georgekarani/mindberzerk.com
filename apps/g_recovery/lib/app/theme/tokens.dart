@@ -207,35 +207,6 @@ class GSpace {
   static const double md = 12;
   static const double lg = 16;
   static const double xl = 24;
-
-  /// Bottom bar. 62 to 68 to 78 to 88.
-  ///
-  /// Four tabs across a phone gives each cell about a quarter of the width, so
-  /// the constraint was never horizontal. It was that a 21 dp glyph, a pill
-  /// around it and a 10.5 dp label were being asked to share 68 dp with the
-  /// system gesture inset underneath them, which left the label sitting on the
-  /// bar's own edge.
-  /// 100, up from 88.
-  ///
-  /// The bar is the only control on screen at every moment of the app's life,
-  /// and on a 6.6 inch phone held one handed it is the furthest thing from the
-  /// thumb's resting position. Height here buys target area where it is hardest
-  /// to reach.
-  ///
-  /// The gesture inset is added UNDERNEATH this by the widget, so on a phone
-  /// with a navigation bar the whole thing is taller again. That is correct: the
-  /// inset is unusable space, not padding.
-  static const double navHeight = 100;
-
-  /// Nav cell internals. Lifted out of the widget so the bar can be retuned
-  /// from one place.
-  ///
-  /// Scaled with the height rather than left behind. A 26 dp glyph in a 100 dp
-  /// bar reads as a small icon adrift in a large space, which looks like a
-  /// mistake even when the target is bigger.
-  static const double navIcon = 28;
-  static const double navPillWidth = 64;
-  static const double navPillHeight = 38;
 }
 
 class GMotion {
@@ -278,7 +249,6 @@ class GTypeSet {
     required this.bodySmall,
     required this.label,
     required this.micro,
-    required this.navLabel,
     required this.monoDisplay,
     required this.monoNumber,
     required this.monoSmall,
@@ -295,7 +265,6 @@ class GTypeSet {
   final TextStyle bodySmall;
   final TextStyle label;
   final TextStyle micro;
-  final TextStyle navLabel;
   final TextStyle monoDisplay;
   final TextStyle monoNumber;
   final TextStyle monoSmall;
@@ -323,7 +292,6 @@ class GTypeSet {
       bodySmall: s(GType._bodySmall),
       label: s(GType._label),
       micro: s(GType._micro),
-      navLabel: s(GType._navLabel),
       monoDisplay: m(GType._monoDisplay),
       monoNumber: m(GType._monoNumber),
       monoSmall: m(GType._monoSmall),
@@ -395,14 +363,6 @@ class GType {
   static const TextStyle _micro = TextStyle(
     fontSize: 10.5,
     height: 1.35,
-    fontWeight: FontWeight.w500,
-  );
-
-  /// Bottom bar label. Larger than [micro] because it is the only text in the
-  /// app a user reads at arm's length while reaching with a thumb.
-  static const TextStyle _navLabel = TextStyle(
-    fontSize: 13,
-    height: 1.2,
     fontWeight: FontWeight.w500,
   );
 
@@ -478,7 +438,6 @@ class GType {
   static TextStyle get bodySmall => _set.bodySmall;
   static TextStyle get label => _set.label;
   static TextStyle get micro => _set.micro;
-  static TextStyle get navLabel => _set.navLabel;
   static TextStyle get monoDisplay => _set.monoDisplay;
   static TextStyle get monoNumber => _set.monoNumber;
   static TextStyle get monoSmall => _set.monoSmall;

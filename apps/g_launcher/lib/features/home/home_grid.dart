@@ -32,6 +32,7 @@ import '../drawer/drawer_actions.dart';
 import '../drawer/drawer_drag.dart';
 import '../drawer/folder_overlay.dart';
 import 'workspaces/edge_paging.dart' show homeDragActiveProvider;
+import '../desklets/layout_lock.dart';
 
 /// The home workspace: apps, folders, drag-and-drop.
 ///
@@ -424,53 +425,12 @@ class _HomeGridState extends ConsumerState<HomeGrid>
 
         // ─── ONE TREE IN AND OUT OF EDIT MODE ─────────────────────────────
         //
-        // This returned the bare grid when not editing and a Stack around it
-        // when editing. On Pocket a hold now TURNS ON edit mode while the held
-        // tile is mid-drag, and swapping the parent remounted every tile and
-        // threw that drag away. The Stack is always there; only Done comes
-        // and goes. Same reasoning in [_Removable] and `_wobble` below.
-        // ─── SAY HOW TO LEAVE ────────────────────────────────────────────
-        //
-        // Tapping bare wallpaper exits, and on a full desktop there is no bare
-        // wallpaper to tap. A chip is the only thing between that and a user
-        // who is stuck, and it is what the App Library already does.
-        //
-        // Above the grid in a Stack rather than beside it in a Column, so the
-        // cells keep the geometry `GridMetrics` measured for them.
-        //
-        // Not on a phone home: Pocket's edit bar already carries Done at the
-        // top right, and a second Done under it read as two ways out.
-        return Stack(
-          children: [
-            grid,
-            if (editing && !theme.phoneHome)
-              Positioned(
-                top: 4,
-                right: 10,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => ref.read(deskletEditProvider.notifier).exit(),
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                    decoration: BoxDecoration(
-                      color: theme.palette.onDark.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      context.t('shell.done'),
-                      style: TextStyle(
-                        fontFamily: theme.typography.display,
-                        fontSize: 13 * theme.textScale,
-                        fontWeight: FontWeight.w600,
-                        color: theme.palette.accent,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
+        // The grid is returned as is in both states. It once sat in a Stack
+        // with a Done chip that came and went; the chip is gone (every shell
+        // with a home grid carries the floating edit pill, whose Done is the
+        // way out), and with nothing toggling there is no parent to swap, so
+        // a hold that turns on edit mode mid-drag cannot remount the tiles.
+        return grid;
       },
     );
   }
@@ -780,7 +740,10 @@ class _Slot extends ConsumerWidget {
       onWillAcceptWithDetails: (d) => !(d.data.from == DragOrigin.grid &&
           d.data.page == page &&
           d.data.index == index),
-      onAcceptWithDetails: (d) => _onDrop(ref, d.data),
+      onAcceptWithDetails: (d) {
+        if (layoutLockRefuses(context)) return;
+        _onDrop(ref, d.data);
+      },
       builder: (context, candidate, _) {
         final hovering = candidate.isNotEmpty;
 

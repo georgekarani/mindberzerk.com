@@ -35,7 +35,6 @@ class LimitsPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             GSpace.gutter,

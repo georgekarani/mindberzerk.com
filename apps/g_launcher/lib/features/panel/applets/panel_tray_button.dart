@@ -33,7 +33,6 @@ import 'package:g_launcher/i18n/i18n.dart';
 import '../../../engine/theme_spec.dart' show ThemePalette;
 import '../../../system/gvpn_status.dart';
 import '../../home/quick_settings.dart';
-import 'distro_glyph.dart';
 
 class PanelTrayButton extends ConsumerWidget {
   const PanelTrayButton({
@@ -125,15 +124,14 @@ class PanelTrayButton extends ConsumerWidget {
               for (var i = 0; i < glyphs.length; i++) ...[
                 if (i > 0)
                   SizedBox(width: stacked ? 0 : 7, height: stacked ? 6 : 0),
-                if (glyphs[i] == Icons.tune)
-                  DistroGlyph(
-                    packageName: kSettingsPackage,
-                    size: _settingsSize,
-                    color: ink,
-                    fallback: Icon(Icons.tune, size: _settingsSize, color: ink),
-                  )
-                else
-                  Icon(glyphs[i], size: 16, color: ink),
+                // The compact tray is SLIDERS, never Settings' gear. It opens
+                // Quick Settings, which has its own gear for Settings, and two
+                // gears one tap apart read as one control drawn twice.
+                Icon(
+                  glyphs[i],
+                  size: glyphs[i] == Icons.tune ? _settingsSize : 16,
+                  color: ink,
+                ),
               ],
             ],
           ),

@@ -33,9 +33,11 @@ library;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/prefs/drawer_layout.dart';
+import '../../data/prefs/folder_behaviour.dart';
 import '../../data/prefs/home_layout.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/shell_apps.dart';
+import '../../data/usage/usage_repository.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
 import 'drawer_actions.dart';
@@ -54,6 +56,7 @@ class FolderSnapshot {
     required this.name,
     required this.members,
     this.glyph,
+    this.sort,
     String? label,
   }) : label = label ?? name;
 
@@ -74,6 +77,10 @@ class FolderSnapshot {
   /// would mean the overlay knowing which of the three cases it is in, which is
   /// exactly what this seam exists to stop.
   final String? glyph;
+
+  /// How the folder orders its apps. See `AppFolder.sort`; null is custom.
+  /// [members] is always the STORED order; the overlay sorts for display.
+  final String? sort;
 }
 
 /// The seam. See the library doc.
@@ -170,6 +177,30 @@ abstract class FolderStore {
   String get dissolveRefusalKey => 'drawer.ungroupNoRoom';
 
   Future<void> dissolve(WidgetRef ref, EffectiveTheme theme, String id);
+
+  /// Set how this folder orders its apps (null = custom). Both stores keep
+  /// folders in prefs, and `setFolderSort` finds the folder in either list.
+  Future<void> setSort(
+    WidgetRef ref,
+    EffectiveTheme theme,
+    String id,
+    String? sort,
+  ) =>
+      ref
+          .read(prefsProvider(theme.spec.id).notifier)
+          .edit((p) => setFolderSort(p, id, sort));
+
+  /// The order on screen, when the folder is sorted, for [freezeFolderOrder].
+  /// Null when it is already custom and there is nothing to freeze.
+  List<String>? _shownOrder(WidgetRef ref, EffectiveTheme theme, String id) {
+    final live = read(ref, theme, id);
+    if (live == null || live.sort == null) return null;
+    return [
+      for (final a in sortFolderMembers(
+          live.members, live.sort, ref.read(frequentAppsProvider)))
+        a.componentKey,
+    ];
+  }
 }
 
 /// The drawer's folders: `LauncherPrefs.drawerFolders`, plus the generated
@@ -188,6 +219,7 @@ class DrawerFolderStore extends FolderStore {
           label: i.folder.label,
           members: i.members,
           glyph: i.folder.glyph,
+          sort: i.folder.sort,
         );
       }
     }
@@ -284,16 +316,20 @@ class DrawerFolderStore extends FolderStore {
     String sourceKey,
     String targetKey, {
     required bool after,
-  }) =>
-      ref.read(prefsProvider(theme.spec.id).notifier).edit(
-            (p) => DrawerLayout.reorderMembers(
-              p,
-              id,
-              sourceKey,
-              targetKey,
-              after: after,
-            ),
-          );
+  }) {
+    // A drag in a sorted folder freezes what is on screen first. See
+    // [freezeFolderOrder].
+    final shown = _shownOrder(ref, theme, id);
+    return ref.read(prefsProvider(theme.spec.id).notifier).edit(
+          (p) => DrawerLayout.reorderMembers(
+            shown == null ? p : freezeFolderOrder(p, id, shown),
+            id,
+            sourceKey,
+            targetKey,
+            after: after,
+          ),
+        );
+  }
 
   @override
   Future<void> removeMember(
@@ -355,6 +391,7 @@ class HomeFolderStore extends FolderStore {
     return FolderSnapshot(
       name: f.name,
       glyph: f.glyph,
+      sort: f.sort,
       // whereType drops members whose app has been uninstalled but not yet
       // pruned. The drawer's provider already does this for its own folders, so
       // doing it here keeps a dead key from rendering as a blank tile on one
@@ -412,16 +449,18 @@ class HomeFolderStore extends FolderStore {
     String sourceKey,
     String targetKey, {
     required bool after,
-  }) =>
-      ref.read(prefsProvider(theme.spec.id).notifier).edit(
-            (p) => HomeLayout.reorderMembers(
-              p,
-              id,
-              sourceKey,
-              targetKey,
-              after: after,
-            ),
-          );
+  }) {
+    final shown = _shownOrder(ref, theme, id);
+    return ref.read(prefsProvider(theme.spec.id).notifier).edit(
+          (p) => HomeLayout.reorderMembers(
+            shown == null ? p : freezeFolderOrder(p, id, shown),
+            id,
+            sourceKey,
+            targetKey,
+            after: after,
+          ),
+        );
+  }
 
   @override
   Future<void> removeMember(

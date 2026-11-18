@@ -45,9 +45,16 @@ class StatusBarMode {
     _applied = visible;
 
     if (visible) {
-      // Edge to edge rather than `manual` with every overlay: the wallpaper
-      // runs under both bars, which is what the shells already lay out for by
-      // reading `viewPadding`.
+      // Show both overlays FIRST. On Android 11 and later `edgeToEdge` only
+      // sets layout flags and never calls `show(statusBars())`, so a bar this
+      // class hid earlier stayed hidden after switching to a distro that
+      // wants it, and that distro's panel had already dropped its own clock.
+      SystemChrome.setEnabledSystemUIMode(
+        SystemUiMode.manual,
+        overlays: SystemUiOverlay.values,
+      );
+      // Then edge to edge: the wallpaper runs under both bars, which is what
+      // the shells lay out for by reading `viewPadding`.
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
       return;
     }

@@ -54,28 +54,36 @@ class NotesDesklet extends ConsumerWidget {
           command: 'cat note.txt',
           // Never empty, so the frame does not vanish: an empty note still has
           // to be tappable, or there is no way to write the first word in it.
-          custom: Text(
-            text.isEmpty ? 'Tap to write' : text,
-            style: TextStyle(
-              fontFamily: skin.font == DeskletFont.mono
-                  ? theme.typography.mono
-                  : theme.typography.display,
-              fontSize: skin.num_('rowSize', 13),
-              height: 1.45,
-              color: text.isEmpty
-                  ? p.onDark.withValues(alpha: 0.45)
-                  : p.onDark.withValues(alpha: 0.92),
-              shadows: skin.surface == DeskletSurface.bare
-                  ? [
-                      Shadow(
-                        color: p.bgBottom.withValues(alpha: 0.55),
-                        blurRadius: 10,
-                        offset: const Offset(0, 2),
-                      ),
-                    ]
-                  : null,
-            ),
-          ),
+          // A faint pen says so without a sentence on the desktop.
+          custom: text.isEmpty
+              ? Align(
+                  alignment: Alignment.centerLeft,
+                  child: Icon(
+                    Icons.edit_note_rounded,
+                    size: skin.num_('rowSize', 13) * 1.8,
+                    color: p.onDark.withValues(alpha: 0.45),
+                  ),
+                )
+              : Text(
+                text,
+                style: TextStyle(
+                  fontFamily: skin.font == DeskletFont.mono
+                      ? theme.typography.mono
+                      : theme.typography.display,
+                  fontSize: skin.num_('rowSize', 13),
+                  height: 1.45,
+                  color: p.onDark.withValues(alpha: 0.92),
+                  shadows: skin.surface == DeskletSurface.bare
+                      ? [
+                          Shadow(
+                            color: p.bgBottom.withValues(alpha: 0.55),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+              ),
         ),
       ),
     );

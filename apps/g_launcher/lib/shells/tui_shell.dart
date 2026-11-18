@@ -7,6 +7,7 @@ import '../data/repositories/shell_apps.dart';
 import '../design/terminal_tokens.dart';
 import '../engine/effective_theme.dart';
 import '../features/command/command_rows.dart';
+import '../features/search/unified_search.dart';
 import '../features/desklets/desklet_surface.dart';
 import '../features/desklets/terminal_commands.dart';
 import '../features/desklets/terminal_matches.dart';
@@ -193,7 +194,15 @@ class _TuiShellState extends ConsumerState<TuiShell> {
                       const SizedBox(height: 12),
 
                       // Builtins first, the way a shell resolves them.
-                      TerminalMatches(theme: widget.theme, query: query),
+                      TerminalMatches(
+                        theme: widget.theme,
+                        query: query,
+                        onRun: (name) {
+                          _clear();
+                          TerminalCommands.run(
+                              context, ref, widget.theme, name);
+                        },
+                      ),
                       // `=`, `:` and `!` answers, in the terminal's green.
                       // Not when a builtin owns the line: `ls` is a command,
                       // not a web search for "ls".
@@ -212,6 +221,24 @@ class _TuiShellState extends ConsumerState<TuiShell> {
                           fillQuery: _fill,
                         ),
                       _Matches(results: results, demoted: commandWins),
+                      // Shortcuts and settings pages, after the apps and in
+                      // the same green. Not when a builtin owns the line, for
+                      // the reason the command block above is held back.
+                      // PHASE 5.
+                      if (!commandWins)
+                        UnifiedExtraRows(
+                          theme: widget.theme,
+                          query: query,
+                          commands: false,
+                          style: const CommandRowStyle(
+                            text: Term.green,
+                            muted: Term.muted,
+                            accent: Term.amber,
+                            fontFamily: Term.mono,
+                            monoFamily: Term.mono,
+                          ),
+                          onClose: _clear,
+                        ),
 
                       const SizedBox(height: 16),
                       const _Hint(),
@@ -481,7 +508,7 @@ class _MatchRow extends StatelessWidget {
         child: Row(
           children: [
             SizedBox(
-              width: 46,
+              width: 56,
               child: Text(
                 isTop ? 'launch' : 'app',
                 style: const TextStyle(

@@ -151,7 +151,17 @@ Color _accentOf(EffectiveTheme t, DeskletSkin s) =>
 
 /// The drop shadow that lets unboxed text survive a light wallpaper. A scrim
 /// would turn the bare surface into the card surface with extra steps.
+///
+/// TWO layers. The soft one alone (blur 10 at 55%) vanished on a bright sky:
+/// Garuda's fastfetch went grey-on-orange and its red OS line could not be
+/// read. The tight one is an outline that thin mono strokes keep on any photo;
+/// the soft one still does the lifting on a dark wallpaper.
 List<Shadow> _shadows(EffectiveTheme t) => [
+      Shadow(
+        color: t.palette.bgBottom.withValues(alpha: 0.85),
+        blurRadius: 2,
+        offset: const Offset(0, 1),
+      ),
       Shadow(
         color: t.palette.bgBottom.withValues(alpha: 0.55),
         blurRadius: 10,

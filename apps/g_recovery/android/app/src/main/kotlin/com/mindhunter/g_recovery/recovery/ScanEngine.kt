@@ -22,6 +22,7 @@ internal class ScanEngine(context: Context, private val index: RecoveryIndex) {
     private val access = Access(app)
     private val mediaScanner = MediaTrashScanner(app)
     private val fileScanner = FileTrashScanner()
+    private val orphans = OrphanThumbnails(app)
 
     /** Progress: source id, scanned, total, done. */
     internal fun interface Progress {
@@ -111,6 +112,7 @@ internal class ScanEngine(context: Context, private val index: RecoveryIndex) {
                 sourceId = SourceIds.THUMBNAILS,
                 fidelityOverride = "preview",
                 isCancelled = isCancelled,
+                accept = orphans.filter(granted),
             ) { scanned, total ->
                 progress.report(SourceIds.THUMBNAILS, scanned, total, false)
             }
@@ -139,6 +141,14 @@ internal class ScanEngine(context: Context, private val index: RecoveryIndex) {
             audioCount = index.countOfKind("audio").toLong(),
             documentCount = index.countOfKind("document").toLong(),
             otherCount = index.countOfKind("other").toLong(),
+            deletedItems = index.countOfRole(RecoveryIndex.ROLE_TRASH).toLong(),
+            deletedBytes = index.bytesOfRole(RecoveryIndex.ROLE_TRASH),
+            statusItems = index.countOfRole(RecoveryIndex.ROLE_STATUS).toLong(),
+            statusBytes = index.bytesOfRole(RecoveryIndex.ROLE_STATUS),
+            previewItems = index.countOfRole(RecoveryIndex.ROLE_CACHE).toLong(),
+            previewBytes = index.bytesOfRole(RecoveryIndex.ROLE_CACHE),
+            appMediaItems = index.countOfRole(RecoveryIndex.ROLE_MEDIA).toLong(),
+            appMediaBytes = index.bytesOfRole(RecoveryIndex.ROLE_MEDIA),
         )
     }
 

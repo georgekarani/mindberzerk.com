@@ -19,6 +19,7 @@ import 'dart:typed_data';
 import 'file_viewer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart' show showConfirmSheet;
 import 'state/storage_files.dart';
 import 'state/storage_providers.dart';
 import '../../core/i18n/g_strings.dart';
@@ -242,42 +243,17 @@ class _StorageFilesPageState extends ConsumerState<StorageFilesPage> {
   }
 
   Future<void> _confirmPermanent(List<String> ids) async {
-    final GTokens t = context.g;
-    final bool? go = await showDialog<bool>(
+    final bool go = await showConfirmSheet(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        backgroundColor: t.panel,
-        shape: RoundedRectangleBorder(borderRadius: GRadius.all(GRadius.card)),
-        title: Text(
-          'Delete ${GFormat.count(ids.length)} permanently',
-          style: GType.title.copyWith(color: t.text),
-        ),
-        content: Text(
-          context.s(
-            'These skip the trash and leave the phone for good. Nothing on this '
-            'device, including this app, can bring them back.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              context.s('Keep'),
-              style: GType.label.copyWith(color: t.muted),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              context.s('Delete'),
-              style: GType.label.copyWith(color: t.danger),
-            ),
-          ),
-        ],
+      title: 'Delete ${GFormat.count(ids.length)} permanently',
+      message: context.s(
+        'These skip the trash and leave the phone for good. Nothing on this '
+        'device, including this app, can bring them back.',
       ),
+      confirmLabel: context.s('Delete'),
+      cancelLabel: context.s('Keep'),
     );
-    if (go != true || !mounted) return;
+    if (!go || !mounted) return;
     await _remove(ids, true);
   }
 

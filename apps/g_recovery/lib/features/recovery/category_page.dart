@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart' show showConfirmSheet;
 
 import '../../app/theme/tokens.dart';
 import '../../bridge/recovery_api.g.dart';
@@ -36,12 +37,16 @@ class CategoryPage extends ConsumerStatefulWidget {
     required String title,
     String? kind,
     List<String> sourceIds = kAllSourceIds,
+    Set<String> roles = kRolesDeleted,
   }) => MaterialPageRoute<void>(
     builder: (BuildContext context) => CategoryPage(
       title: title,
-      query: RecoveryQuery(sourceIds: sourceIds, kind: kind),
+      query: RecoveryQuery(sourceIds: sourceIds, kind: kind, roles: roles),
     ),
   );
+
+  /// Media still inside a chat app can be looked at, never restored or purged.
+  bool get viewOnly => query.roles.every((String r) => r == kRoleMedia);
 
   @override
   ConsumerState<CategoryPage> createState() => _CategoryPageState();
@@ -125,7 +130,6 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Padding(
@@ -303,7 +307,7 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
                       },
                     ),
             ),
-            if (chosen.isNotEmpty)
+            if (chosen.isNotEmpty && !widget.viewOnly)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   GSpace.gutter,
@@ -503,45 +507,20 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
   /// trash, and the only copy the user had is gone for good. It had one tap and
   /// no question, which made it easier to destroy files than to recover them.
   Future<void> _confirmDelete(List<String> itemIds) async {
-    final GTokens t = context.g;
-    final bool? go = await showDialog<bool>(
+    final bool go = await showConfirmSheet(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        backgroundColor: t.panel,
-        shape: RoundedRectangleBorder(borderRadius: GRadius.all(GRadius.card)),
-        title: Text(
-          'Delete ${GFormat.count(itemIds.length)} permanently',
-          style: GType.title.copyWith(color: t.text),
-        ),
-        content: Text(
-          // States the consequence, not the mechanism. "Are you sure" asks a
+      title: 'Delete ${GFormat.count(itemIds.length)} permanently',
+      message: // States the consequence, not the mechanism. "Are you sure" asks a
           // question the user cannot answer without knowing what happens next.
           context.s(
             'These leave the trash for good. This app cannot bring them back '
             'afterwards, and neither can anything else.',
           ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              context.s('Keep'),
-              style: GType.label.copyWith(color: t.muted),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              context.s('Delete'),
-              style: GType.label.copyWith(color: t.danger),
-            ),
-          ),
-        ],
-      ),
+      confirmLabel: context.s('Delete'),
+      cancelLabel: context.s('Keep'),
     );
 
-    if (go != true || !mounted) return;
+    if (!go || !mounted) return;
     await _act(itemIds, purge: true);
   }
 
@@ -840,11 +819,12 @@ class _Grouped extends StatelessWidget {
                     // A fixed EXTENT, not a fixed column count. Three columns
                     // look right at 360 dp and absurd on a foldable, and this
                     // keeps the tile size stable across both.
-                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                      maxCrossAxisExtent: 128,
-                      crossAxisSpacing: 6,
-                      mainAxisSpacing: 6,
-                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 128,
+                          crossAxisSpacing: 6,
+                          mainAxisSpacing: 6,
+                        ),
                     delegate: SliverChildBuilderDelegate((
                       BuildContext context,
                       int index,

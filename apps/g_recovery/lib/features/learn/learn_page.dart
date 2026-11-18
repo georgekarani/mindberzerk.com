@@ -29,7 +29,6 @@ class LearnPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             GSpace.gutter,

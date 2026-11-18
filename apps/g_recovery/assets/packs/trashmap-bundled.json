@@ -1,6 +1,6 @@
 {
   "id": "trashmap",
-  "version": 2,
+  "version": 3,
   "generatedAt": "2026-08-09T00:00:00Z",
   "_note": "CANDIDATE paths, not facts. The scanner probes each one and reports only what exists and holds files, so a wrong guess costs a stat() call and nothing else. Entries carry a role: trash means deleted and recoverable, status means a file with a short natural life that was never deleted, cache means preview quality only. This is the APK seed; Phase 7B replaces it with a signed CDN pack.",
   "restoreFolder": "Pictures/G Recovery",
@@ -69,13 +69,14 @@
     },
     {
       "pkg": "org.telegram.messenger",
-      "label": "Telegram",
+      "label": "Telegram media",
       "fidelity": "full",
+      "_note": "Telegram keeps received media here while the chat still has it. Nothing in these folders was deleted, so it is shown as still in the app and is never offered for restore or purge.",
       "paths": [
         "Android/media/org.telegram.messenger/Telegram/Telegram Images",
         "Android/media/org.telegram.messenger/Telegram/Telegram Video"
       ],
-      "role": "trash"
+      "role": "media"
     },
     {
       "pkg": "org.telegram.messenger",

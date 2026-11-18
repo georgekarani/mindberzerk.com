@@ -51,6 +51,7 @@ class ResolvedLayout {
     required this.dockHover,
     required this.dockPress,
     required this.dockEntrance,
+    required this.launchAnimation,
     required this.dockReveal,
     required this.iconSizeDp,
     required this.labelLines,
@@ -214,6 +215,7 @@ class ResolvedLayout {
   final String dockHover;
   final String dockPress;
   final String dockEntrance;
+  final String launchAnimation;
 
   /// When the dock exists, RESOLVED: 'always' | 'apps'. Never null. No prefs
   /// arm; see [ThemeLayout.dockReveal].
@@ -272,6 +274,7 @@ class ResolvedLayout {
           other.dockHover == dockHover &&
           other.dockPress == dockPress &&
           other.dockEntrance == dockEntrance &&
+          other.launchAnimation == launchAnimation &&
           other.dockReveal == dockReveal &&
           other.iconSizeDp == iconSizeDp &&
           other.labelLines == labelLines &&
@@ -319,6 +322,7 @@ class ResolvedLayout {
         dockHover,
         dockPress,
         dockEntrance,
+        launchAnimation,
         dockReveal,
         iconSizeDp,
         labelLines,
@@ -433,6 +437,10 @@ abstract final class LayoutResolver {
   /// default of anything else would animate every distro on first paint on the
   /// strength of a field nobody authored.
   static const defaultDockEntrance = 'none';
+
+  /// The system's own open-from-the-icon zoom: what every launch did before
+  /// distros could choose. PHASE 6.
+  static const defaultLaunchAnimation = 'zoom';
 
   /// Part of the desktop, which is what every distro has drawn.
   static const defaultDockReveal = 'always';
@@ -905,6 +913,12 @@ abstract final class LayoutResolver {
         base.dockEntrance,
         const {'none', 'slide', 'expand', 'blur', 'stagger', 'gloss'},
         defaultDockEntrance,
+      ),
+      launchAnimation: _pick(
+        prefs.launchAnimation,
+        base.launchAnimation,
+        const {'zoom', 'reveal', 'fade', 'slide', 'none'},
+        defaultLaunchAnimation,
       ),
       dockReveal: _pick(
         null,

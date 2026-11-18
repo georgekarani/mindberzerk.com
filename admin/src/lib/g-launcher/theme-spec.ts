@@ -37,6 +37,18 @@ export type ChromeName =
   // beneath it. Named for the product, not the device.
   | 'pocket'
   | 'generic';
+/**
+ * How the launcher's Settings, setup, sheets and toasts are laid out, one per
+ * real settings app. Optional: absent, the device derives it from the drawer,
+ * chrome family and shell.
+ */
+export type SettingsLookName =
+  | 'boxed'
+  | 'cinnamon'
+  | 'form'
+  | 'dialog'
+  | 'grouped'
+  | 'config';
 export type TierName = 'free' | 'pro';
 /**
  * Which edge the dock lives on.
@@ -59,6 +71,24 @@ export const CHROMES: ChromeName[] = [
   'pocket',
   'generic',
 ];
+export const SETTINGS_LOOKS: SettingsLookName[] = [
+  'boxed',
+  'cinnamon',
+  'form',
+  'dialog',
+  'grouped',
+  'config',
+];
+/** What each look is called in the builder: the settings app it imitates. */
+export const settingsLookLabels: Record<SettingsLookName | 'auto', string> = {
+  auto: 'auto',
+  boxed: 'GNOME',
+  cinnamon: 'Cinnamon',
+  form: 'KDE',
+  dialog: 'Xfce',
+  grouped: 'iOS',
+  config: 'config file',
+};
 export const DOCKS: DockName[] = ['left', 'bottom', 'off', 'right'];
 
 /** The IconStyle fields the app reads. Kept loose where item 3 will add a form. */
@@ -236,6 +266,17 @@ export type DrawerScrollName = (typeof DRAWER_SCROLLS)[number];
  */
 export const DRAWER_GROUPINGS = ['none', 'az', 'library'] as const;
 export type DrawerGroupingName = (typeof DRAWER_GROUPINGS)[number];
+
+/**
+ * How an app opens from this distro. Mirrors `LayoutResolver`'s allowed set
+ * and `LaunchStyle.kt`: zoom is the system scale-up and the device default,
+ * so the panel emits nothing for it rather than freezing the default in.
+ */
+export const LAUNCH_ANIMATIONS = ['zoom', 'reveal', 'fade', 'slide', 'none'] as const;
+export type LaunchAnimationName = (typeof LAUNCH_ANIMATIONS)[number];
+
+/** The accent id the device reserves for the colour taken from the wallpaper. */
+export const WALLPAPER_ACCENT_ID = 'wallpaper';
 export type WorkspaceAxisName = (typeof WORKSPACE_AXES)[number];
 
 /**
@@ -438,6 +479,9 @@ export interface ThemeLayoutJson {
    *  ignore both, which needs no clamping here. */
   drawerScrollStyle?: DrawerScrollName;
   drawerGrouping?: DrawerGroupingName;
+  /** How apps open from this distro. Absent means zoom, the device default;
+   *  the user's own choice in Settings wins over either. */
+  launchAnimation?: LaunchAnimationName;
   /** What the Plasma menu's rail is made of. Absent means `tabs`. Read only by
    *  `KickoffDrawer`, so it means nothing on a non-plasma distro. */
   kickoffRail?: KickoffRailName;
@@ -522,6 +566,7 @@ export interface ThemeSpecJson {
   shell: ShellName;
   tier: TierName;
   chromeFamily?: ChromeName | null;
+  settingsLook?: SettingsLookName | null;
   palette: ThemePaletteJson;
   /**
    * The LIGHT variant, when the distro ships one.
@@ -546,6 +591,10 @@ export interface ThemeSpecJson {
    *  single `palette.accent` still drives everything else. Any other length,
    *  or a stop that is not a colour, and the device ignores the whole list. */
   accentGradient?: string[];
+  /** When true, a user who has not picked an accent gets the one the device
+   *  takes from the wallpaper. Every distro offers that swatch either way;
+   *  this only makes it the default. Emitted only when true. */
+  accentFromWallpaper?: boolean;
   /** Named layout presets, shallow-merged over `layout` on the device. Absent
    *  means this distro has one layout. See [ThemeLayoutPresetJson]. */
   layouts?: ThemeLayoutPresetJson[];
@@ -574,6 +623,11 @@ export interface ThemeSpecJson {
    *  somebody frames that wallpaper themselves, and it exists because the
    *  author knows where the subject is and the app does not. */
   wallpaperMeta?: Record<string, WallpaperMetaJson>;
+  /** Real phone screenshots for the store, in display order (home, drawer,
+   *  settings). Bare filenames shipped in the pack beside the wallpapers. The
+   *  store shows these instead of the drawn preview, which stays as the
+   *  offline fallback. */
+  screenshots?: string[];
   /** Font families the pack ships. A family named in `typography` only resolves
    *  if it is declared in pubspec, which a downloaded pack cannot do, so it
    *  carries its own files and they are registered at runtime. */
@@ -728,11 +782,11 @@ function round3(v: number): number {
 }
 
 export const THEME_SPEC_KEYS: ReadonlySet<string> = new Set([
-  'id', 'name', 'version', 'shell', 'tier', 'chromeFamily',
+  'id', 'name', 'version', 'shell', 'tier', 'chromeFamily', 'settingsLook',
   'palette', 'paletteLight', 'typography', 'layout', 'icons', 'logo',
-  'wallpapers', 'wallpaper', 'wallpaperMeta', 'fonts', 'minAppVersion',
+  'wallpapers', 'wallpaper', 'wallpaperMeta', 'screenshots', 'fonts', 'minAppVersion',
   'boot', 'splash', 'desklets', 'gestures', 'features', 'seededFromPreview',
-  'categories', 'categoryFallback', 'accents', 'accentGradient', 'layouts',
+  'categories', 'categoryFallback', 'accents', 'accentGradient', 'accentFromWallpaper', 'layouts',
   'wallpapersLight', 'terminal', 'home', 'surfaces', 'iconLooks',
 ]);
 
@@ -921,6 +975,7 @@ export function canonicalThemeJson(spec: ThemeSpecJson): string {
   out.shell = spec.shell;
   out.tier = spec.tier;
   if (spec.chromeFamily) out.chromeFamily = spec.chromeFamily;
+  if (spec.settingsLook) out.settingsLook = spec.settingsLook;
 
   out.palette = {
     bgTop: spec.palette.bgTop,
@@ -1008,6 +1063,10 @@ export function canonicalThemeJson(spec: ThemeSpecJson): string {
     ...(spec.layout.drawerGrouping
       ? { drawerGrouping: spec.layout.drawerGrouping }
       : {}),
+    // 'zoom' is the device default and emits nothing, like the drawer fields.
+    ...(spec.layout.launchAnimation && spec.layout.launchAnimation !== 'zoom'
+      ? { launchAnimation: spec.layout.launchAnimation }
+      : {}),
     ...(spec.layout.kickoffRail
       ? { kickoffRail: spec.layout.kickoffRail }
       : {}),
@@ -1089,6 +1148,9 @@ export function canonicalThemeJson(spec: ThemeSpecJson): string {
     const seen = new Set<string>();
     const rows = spec.accents
       .filter((a) => a.id?.trim() && a.value?.trim())
+      // The wallpaper's own swatch is the device's to make; an authored one
+      // under that id would be dropped on the phone, so it is dropped here.
+      .filter((a) => a.id.trim().toLowerCase() !== WALLPAPER_ACCENT_ID)
       // DEDUPED BY ID. Two entries sharing an id is not a cosmetic problem:
       // the device stops at the first match, so the second swatch is a control
       // that selects the first one's colour and can never appear chosen.
@@ -1105,6 +1167,7 @@ export function canonicalThemeJson(spec: ThemeSpecJson): string {
       }));
     if (rows.length) out.accents = rows;
   }
+  if (spec.accentFromWallpaper) out.accentFromWallpaper = true;
 
   // Written only when the device would use it: two or three real colours.
   // Anything else is dropped here so the panel never publishes a list the
@@ -1174,6 +1237,7 @@ export function canonicalThemeJson(spec: ThemeSpecJson): string {
     }
     if (Object.keys(meta).length) out.wallpaperMeta = meta;
   }
+  if (spec.screenshots && spec.screenshots.length) out.screenshots = spec.screenshots;
   if (spec.minAppVersion) out.minAppVersion = spec.minAppVersion;
   if (spec.boot != null) out.boot = spec.boot;
   if (spec.splash != null) out.splash = spec.splash;
@@ -1609,6 +1673,10 @@ export function importTheme(
 
   const tier = str(j.tier);
   const chrome = str(j.chromeFamily);
+  const settingsLook = str(j.settingsLook);
+  if (settingsLook && !SETTINGS_LOOKS.includes(settingsLook as SettingsLookName)) {
+    notes.push(`Settings look '${settingsLook}' is unknown and was dropped, so the derived look applies.`);
+  }
   if (chrome && !CHROMES.includes(chrome as ChromeName)) {
     notes.push(`Chrome family '${chrome}' is unknown and was dropped, so the shell default applies.`);
   }
@@ -1626,6 +1694,11 @@ export function importTheme(
       notes.push('Converted the old single `wallpaper.asset` shape into `wallpapers`.');
     }
   }
+
+  // String entries only, like `wallpapers`; anything else is dropped.
+  const screenshots = Array.isArray(j.screenshots)
+    ? j.screenshots.filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+    : [];
 
   const wallpaperMeta: Record<string, WallpaperMetaJson> = {};
   const metaRaw = obj(j.wallpaperMeta);
@@ -1793,6 +1866,11 @@ export function importTheme(
       )
         ? { drawerGrouping: str(layoutRaw.drawerGrouping) as DrawerGroupingName }
         : {}),
+      ...((LAUNCH_ANIMATIONS as readonly string[]).includes(
+        str(layoutRaw.launchAnimation) ?? '',
+      )
+        ? { launchAnimation: str(layoutRaw.launchAnimation) as LaunchAnimationName }
+        : {}),
       ...((KICKOFF_RAILS as readonly string[]).includes(
         str(layoutRaw.kickoffRail) ?? '',
       )
@@ -1882,11 +1960,15 @@ export function importTheme(
     },
     wallpapers,
     ...(Object.keys(wallpaperMeta).length ? { wallpaperMeta } : {}),
+    ...(screenshots.length ? { screenshots } : {}),
     minAppVersion: Math.trunc(num(j.minAppVersion) ?? 0),
   };
 
   if (chrome && CHROMES.includes(chrome as ChromeName)) {
     spec.chromeFamily = chrome as ChromeName;
+  }
+  if (settingsLook && SETTINGS_LOOKS.includes(settingsLook as SettingsLookName)) {
+    spec.settingsLook = settingsLook as SettingsLookName;
   }
 
   const typo = obj(j.typography);
@@ -1978,6 +2060,7 @@ export function importTheme(
     }
     if (rows.length) spec.accents = rows;
   }
+  if (j.accentFromWallpaper === true) spec.accentFromWallpaper = true;
   if (Array.isArray(j.accentGradient)) {
     const stops = j.accentGradient
       .map((c) => str(c)?.trim())

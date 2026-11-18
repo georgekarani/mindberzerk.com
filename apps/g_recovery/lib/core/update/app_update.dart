@@ -181,8 +181,7 @@ class GUpdateController extends Notifier<GUpdateState> {
     return GUpdateState.idle;
   }
 
-  static bool get _supported =>
-      defaultTargetPlatform == TargetPlatform.android;
+  static bool get _supported => defaultTargetPlatform == TargetPlatform.android;
 
   /// Asks Play what it has.
   ///

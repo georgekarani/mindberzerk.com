@@ -21,9 +21,8 @@ import '../../../data/cdn/pack_repository.dart';
 import '../../../data/repositories/app_repository.dart';
 import '../../../engine/effective_theme.dart';
 
-/// Android's Settings app. The same package on AOSP, Pixel, Samsung and the
-/// other large OEMs, which is why it is a constant rather than a lookup.
-const String kSettingsPackage = 'com.android.settings';
+export '../../../data/repositories/app_repository.dart' show kSettingsPackage;
+
 
 /// What a bare glyph was drawn with. [styleId] is `EffectiveTheme.iconCacheId`
 /// plus the pack generation, the same pair `AppIcon` keys on, so a pack change

@@ -67,7 +67,6 @@ class _BlurReviewPageState extends ConsumerState<BlurReviewPage> {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Padding(

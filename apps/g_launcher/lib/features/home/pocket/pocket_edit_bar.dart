@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../../../design/branded_message.dart';
 import '../../../design/liquid_glass.dart';
 import '../../../engine/effective_theme.dart';
 import '../../desklets/desklet_edit.dart';
 import '../../desklets/desklet_picker.dart';
+import '../../desklets/layout_lock.dart';
 import '../../settings/settings_screen.dart';
 import '../../settings/wallpaper_screen.dart';
 import '../workspaces/workspace_controller.dart';
@@ -104,6 +106,20 @@ class PocketEditBar extends ConsumerWidget {
                 showCustomizeSheet(pill, theme);
               },
             ),
+          // Locking is how arranging ends, so it sits beside the arranging
+          // actions. The same global switch Settings writes.
+          (
+            menu.t('settings.lockLayout'),
+            Icons.lock_outline,
+            () {
+              close();
+              final container =
+                  ProviderScope.containerOf(pill, listen: false);
+              ref.read(deskletEditProvider.notifier).exit();
+              writeLayoutLocked(container, true);
+              pill.showMessage(pill.t('home.layoutLocked'));
+            },
+          ),
           (
             menu.t('settings.wallpaper'),
             Icons.image_outlined,
@@ -266,16 +282,21 @@ class _MenuRow extends StatelessWidget {
     final onDark = theme.spec.palette.onDark;
     return InkWell(
       onTap: onTap,
-      child: SizedBox(
-        height: 48,
+      child: ConstrainedBox(
+        // A floor rather than a fixed height, so a wrapped label grows the
+        // row instead of spilling out of it.
+        constraints: const BoxConstraints(minHeight: 48),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           child: Row(
             children: [
               Expanded(
+                // Two lines, not an ellipsis: a menu row that hides the end
+                // of what it does (French runs past 40 characters) is a row
+                // nobody can trust.
                 child: Text(
                   label,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontFamily: theme.typography.display,

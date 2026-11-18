@@ -237,9 +237,11 @@ class _SetupReadyState extends ConsumerState<SetupReady> {
         SetupValueRow(
           ink: ink,
           title: ref.t('setup.ready.folders'),
-          value: chosen == 0
-              ? ref.t('setup.ready.foldersNone')
-              : ref.t('setup.ready.foldersCount', {'n': '$chosen'}),
+          value: switch (chosen) {
+            0 => ref.t('setup.ready.foldersNone'),
+            1 => ref.t('setup.ready.foldersOne'),
+            final n => ref.t('setup.ready.foldersCount', {'n': '$n'}),
+          },
           onTap: () => setState(() => _open = _Open.folders),
         ),
       ],

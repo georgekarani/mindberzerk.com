@@ -190,5 +190,7 @@ List<DeskletKind> offeredDesklets(EffectiveTheme theme) {
     ...offered,
     if (!offered.contains(DeskletKinds.conky)) DeskletKinds.conky,
     if (!offered.contains(DeskletKinds.vpn)) DeskletKinds.vpn,
+    // Music belongs to the phone too, so every theme offers it.
+    if (!offered.contains(DeskletKinds.nowPlaying)) DeskletKinds.nowPlaying,
   ];
 }

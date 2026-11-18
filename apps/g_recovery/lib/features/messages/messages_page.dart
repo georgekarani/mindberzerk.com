@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart' show showConfirmSheet;
 
 import '../../app/theme/tokens.dart';
 import '../../bridge/messages_api.g.dart';
@@ -40,7 +41,6 @@ class MessagesPage extends ConsumerWidget {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Padding(
@@ -83,43 +83,18 @@ class MessagesPage extends ConsumerWidget {
   }
 
   Future<void> _confirmClear(BuildContext context, WidgetRef ref) async {
-    final GTokens t = context.g;
-    final bool? go = await showDialog<bool>(
+    final bool go = await showConfirmSheet(
       context: context,
-      builder: (BuildContext context) => AlertDialog(
-        backgroundColor: t.panel,
-        shape: RoundedRectangleBorder(borderRadius: GRadius.all(GRadius.card)),
-        title: Text(
-          context.s('Delete the archive'),
-          style: GType.title.copyWith(color: t.text),
-        ),
-        content: Text(
-          context.s(
-            'Everything kept so far leaves this phone for good. Capture stays on, '
-            'so new messages begin a fresh archive.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(
-              context.s('Keep'),
-              style: GType.label.copyWith(color: t.muted),
-            ),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(
-              context.s('Delete'),
-              style: GType.label.copyWith(color: t.danger),
-            ),
-          ),
-        ],
+      title: context.s('Delete the archive'),
+      message: context.s(
+        'Everything kept so far leaves this phone for good. Capture stays on, '
+        'so new messages begin a fresh archive.',
       ),
+      confirmLabel: context.s('Delete'),
+      cancelLabel: context.s('Keep'),
     );
 
-    if (go != true) return;
+    if (!go) return;
     await ref.read(messagesBridgeProvider).clear();
     ref.invalidate(archivedMessagesProvider);
     ref.invalidate(messageCaptureProvider);

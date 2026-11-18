@@ -23,6 +23,8 @@ import 'drawer_items.dart';
 import 'drawer_state.dart';
 import 'folder_overlay.dart';
 import 'hidden_folder_overlay.dart';
+import '../desklets/layout_lock.dart';
+import 'app_edit_sheet.dart';
 
 /// Everything a drawer DOES, independent of how it looks.
 ///
@@ -236,6 +238,9 @@ Future<void> showDrawerAppMenu(
   final isPinned = HomeLayout.isPinned(theme.prefs, entry.componentKey);
   final host = context; // outlives the menu; safe for showMessage post-pop
 
+  // A final local, so the closure below can call it once checked.
+  final removeFromHome = onRemoveFromHome;
+
   // ONE body for Uninstall, called from either the glyph strip or the row
   // beneath it depending on whether this distro has a desktop grid. A local
   // closure rather than a top-level helper, so it keeps the notifier's real
@@ -312,17 +317,21 @@ Future<void> showDrawerAppMenu(
       // Opened from a home slot: the app is already here, so the leading glyph
       // is the way OFF the desktop rather than the way onto it. See
       // [onRemoveFromHome].
-      if (onRemoveFromHome != null)
+      if (removeFromHome != null)
         MenuAction(
           icon: Icons.remove_circle_outline,
           label: context.t(removeLabelKey),
-          onTap: onRemoveFromHome,
+          onTap: () {
+            if (layoutLockRefuses(host)) return;
+            removeFromHome();
+          },
         )
       else if (theme.desktopIcons)
         MenuAction(
           icon: Icons.add_to_home_screen,
           label: context.t(words.addToHome),
           onTap: () {
+            if (layoutLockRefuses(host)) return;
             final before = theme.prefs;
             final after = HomeLayout.addToHome(
               before,
@@ -360,14 +369,17 @@ Future<void> showDrawerAppMenu(
         MenuAction(
           icon: Icons.push_pin_outlined,
           label: context.t(words.unpin),
-          onTap: () => prefs
-              .edit((p) => HomeLayout.unpinFromDock(p, entry.componentKey)),
+          onTap: () {
+            if (layoutLockRefuses(host)) return;
+            prefs.edit((p) => HomeLayout.unpinFromDock(p, entry.componentKey));
+          },
         )
       else
         MenuAction(
           icon: Icons.push_pin,
           label: context.t(words.pin),
           onTap: () {
+            if (layoutLockRefuses(host)) return;
             // Pin against the ceiling; the dock displays what fits its current
             // side. Pinning #11 on a bottom dock isn't lost — it appears when
             // the dock is moved to the left.
@@ -504,6 +516,21 @@ Future<void> showDrawerAppMenu(
           showMoveToSheet(host, ref, theme, entry);
         },
       ),
+
+      // ─── EDIT: THE NAME AND THE COUNT, ON EVERY DISTRO (G2) ────────────
+      //
+      // A row and not a strip glyph, for the strip's own rule: three across.
+      // Work profile apps are left out, since their names are the profile's.
+      if (!entry.isWorkProfile)
+        ThemedListRow(
+          icon: Icons.edit_outlined,
+          title: context.t('appEdit.title'),
+          trailing: const Icon(Icons.chevron_right, size: 20),
+          onTap: () {
+            Navigator.pop(sheet);
+            showAppEditSheet(host, ref, theme, entry);
+          },
+        ),
 
       if (!entry.isWorkProfile && theme.desktopIcons)
         ThemedListRow(
@@ -919,6 +946,18 @@ Future<void> showMoveToSheet(
     context,
     title: host.t('drawer.moveTo'),
     isScrollControlled: true,
+    // The distro's own chrome: the drawer that opened this is not always under
+    // a ChromeScope, and without it the sheet wore the bootstrap accent.
+    chrome: ChromeData.fromPalette(
+      theme.palette,
+      typography: theme.typography,
+      textScale: theme.textScale,
+      family: theme.chromeFamily,
+      opacity: theme.surfaceOpacity,
+      panelBlur: theme.panelBlur,
+      panelTint: theme.panelTint,
+      panelRadius: theme.panelRadius,
+    ),
     builder: (sheet) {
       final c = ChromeScope.of(sheet).colors;
       final current =

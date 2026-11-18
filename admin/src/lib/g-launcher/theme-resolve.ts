@@ -602,6 +602,11 @@ export function parseTheme(value: unknown): ResolvedTheme | { error: string } {
         ...wallpapers,
         ...(logo ? [logo.light, logo.dark] : []),
         ...(splash?.logo ? [splash.logo] : []),
+        // Store screenshots ship in the pack too, so a missing one is refused
+        // at publish like a missing wallpaper rather than 404ing on the card.
+        ...(Array.isArray(j.screenshots)
+          ? j.screenshots.filter((v): v is string => typeof v === 'string')
+          : []),
       ].filter((a) => a.trim().length > 0),
     ),
   ];

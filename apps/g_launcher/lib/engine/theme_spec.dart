@@ -55,6 +55,7 @@ class ThemeSpec {
     this.categories = const [],
     this.categoryFallback,
     this.accents = const [],
+    this.accentFromWallpaper = false,
     this.accentGradient = const [],
     this.layouts = const [],
     this.surfaces,
@@ -359,6 +360,15 @@ class ThemeSpec {
   /// picker simply has no selection until one is made, which is honest.
   final List<ThemeAccent> accents;
 
+  /// Whether this distro's accent follows the wallpaper until the person
+  /// picks one. PHASE 6.
+  ///
+  /// False is every distro today: the authored accent is the product, for
+  /// the reason [accents] gives. True suits a desktop whose own identity is
+  /// adapting to the wallpaper (a Material You-style phone home). Either way
+  /// the person can choose the Wallpaper swatch or any authored one.
+  final bool accentFromWallpaper;
+
   /// The distro's signature gradient, two or three stops, or empty.
   ///
   /// Dr460nized is pink to violet to cyan, and pink alone reads as any pink
@@ -478,6 +488,8 @@ class ThemeSpec {
         // one with a working one, which is the exact asymmetry that hid the
         // `terminal` omission for the whole life of this method.
         accents: accents,
+        // CARRIED, with the accents, for the same reason.
+        accentFromWallpaper: accentFromWallpaper,
         // CARRIED, for the reason every field in this call is.
         accentGradient: accentGradient,
         layouts: layouts,
@@ -673,7 +685,11 @@ class ThemeSpec {
           .whereType<Map>()
           .map((e) => ThemeAccent.fromJson(e.cast<String, dynamic>()))
           .whereType<ThemeAccent>()
+          // `wallpaper` is the reserved id of the colour taken from the
+          // wallpaper; an authored swatch under it would shadow that one.
+          .where((a) => a.id != 'wallpaper')
           .toList(),
+      accentFromWallpaper: json['accentFromWallpaper'] == true,
       accentGradient: _gradient(json['accentGradient']),
       surfaces: ThemeSurfaces.fromJson(
         (json['surfaces'] as Map?)?.cast<String, dynamic>(),
@@ -1568,6 +1584,7 @@ class ThemeLayout {
     this.dockHover,
     this.dockPress,
     this.dockEntrance,
+    this.launchAnimation,
     this.dockReveal,
     this.workspaces,
     this.dockTray = false,
@@ -1602,10 +1619,9 @@ class ThemeLayout {
   /// few pixels above a bar carrying Activities. Nothing was drawing them
   /// twice; two bars were sharing one row.
   ///
-  /// TRUE BY DEFAULT, which is what every distro has had until now. A desktop
-  /// that wants the whole row, a Kali conky strip or Pocket's iOS status line,
-  /// authors `statusBar: false` and takes responsibility for the clock and the
-  /// charge itself.
+  /// Defaults to FALSE when one of the theme's panels authors a clock, since
+  /// that panel then draws the time and the tray itself, and TRUE otherwise.
+  /// An explicit `statusBar` in the pack always wins.
   final bool statusBar;
 
   /// Which edge the shell bar sits on.
@@ -1991,6 +2007,11 @@ class ThemeLayout {
   final String? dockPress;
   final String? dockEntrance;
 
+  /// How an app opens from this distro: 'zoom' | 'reveal' | 'fade' | 'slide' |
+  /// 'none', or null for the engine default. PHASE 6. A distro DEFAULT, like
+  /// the dock motions above: the person may choose otherwise in Settings.
+  final String? launchAnimation;
+
   /// When the dock EXISTS: 'always' | 'apps', or null for always.
   ///
   /// ─── THE FIELD THAT TELLS FEDORA FROM UBUNTU ────────────────────────────
@@ -2167,6 +2188,15 @@ class ThemeLayout {
   /// per-theme so switching themes does not wipe them. Plan §5.3.
   static ThemeLayout fromJson(Map<String, dynamic> j) {
     final grid = (j['grid'] as Map?)?.cast<String, dynamic>() ?? const {};
+    final panels = _panels(j);
+    // A panel that authors a clock is the desktop telling the time itself. Its
+    // clock and tray are dropped while Android's bar is on screen (see
+    // `panelItemsShown`), so defaulting that bar ON left GNOME, Pop!_OS, Mint
+    // and Zorin with no clock at all whenever the system bar was not drawn.
+    // Saying nothing now means: the panel owns the row if it carries a clock.
+    final panelTellsTime = panels.any(
+      (p) => p.items.any((i) => i.kind == PanelModule.clock),
+    );
     return ThemeLayout(
       dock: switch (j['dock'] as String?) {
         'bottom' => DockSide.bottom,
@@ -2180,12 +2210,11 @@ class ThemeLayout {
         _ => DockSide.left,
       },
       topBar: j['topBar'] as bool? ?? true,
-      // Absent means visible, which is what every pack published before this
-      // field existed meant by saying nothing.
-      statusBar: j['statusBar'] as bool? ?? true,
+      // Absent means visible unless a panel authors its own clock, above.
+      statusBar: j['statusBar'] as bool? ?? !panelTellsTime,
       topBarSide: TopBarSide.parse(j['topBarSide'] as String?),
       topBarStats: j['topBarStats'] as bool? ?? false,
-      panels: _panels(j),
+      panels: panels,
       // The raw key, asked here and nowhere else. `_panels` cannot answer it
       // for us: it returns the same type from both branches, which is the
       // whole problem this flag exists to fix.
@@ -2354,6 +2383,14 @@ class ThemeLayout {
         'blur' => 'blur',
         'stagger' => 'stagger',
         'gloss' => 'gloss',
+        _ => null,
+      },
+      launchAnimation: switch (j['launchAnimation'] as String?) {
+        'zoom' => 'zoom',
+        'reveal' => 'reveal',
+        'fade' => 'fade',
+        'slide' => 'slide',
+        'none' => 'none',
         _ => null,
       },
     );

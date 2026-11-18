@@ -143,7 +143,7 @@ class GlanceDesklet extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          formatTime(now),
+          formatClock(context, now),
           style: TextStyle(
             fontFamily: headFamily,
             fontSize: skin.num_('timeSize', 40),

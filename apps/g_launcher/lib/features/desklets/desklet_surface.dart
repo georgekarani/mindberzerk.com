@@ -22,18 +22,21 @@ import '../dock/dock_extent.dart' show dockRectProvider;
 // every USE of the name, never at the import that caused it. Only the
 // reserve constant is wanted here.
 import '../dock/dock_metrics.dart' show DockMetrics;
+import 'content_scale.dart';
 import 'desklet_cell.dart';
 import 'desklet_edit.dart';
 import 'desklet_editor.dart';
 import 'desklet_picker.dart';
 import 'desklet_settings.dart';
 import 'dock_avoid.dart';
+import 'drag_guides.dart';
 import 'kinds/appwidget_desklet.dart';
 import 'kinds/clock_desklet.dart';
 import 'kinds/conky_desklet.dart';
 import 'kinds/control_desklets.dart';
 import 'kinds/vpn_desklet.dart';
 import 'kinds/glance_desklet.dart';
+import 'kinds/now_playing_desklet.dart';
 import 'kinds/pane_desklets.dart';
 import 'kinds/stack_desklet.dart';
 import 'kinds/stat_desklets.dart';
@@ -76,6 +79,8 @@ Widget? buildDesklet(
     'battery' => BatteryDesklet(theme: theme, desklet: desklet, skin: skin),
     'notes' => NotesDesklet(theme: theme, desklet: desklet, skin: skin),
     'vpn' => VpnDesklet(theme: theme, desklet: desklet, skin: skin),
+    'nowplaying' =>
+      NowPlayingDesklet(theme: theme, desklet: desklet, skin: skin),
     'search' => SearchDesklet(theme: theme, desklet: desklet, skin: skin),
     // Pane-only kinds. DeskletLayout.renderable already keeps these off a
     // graphical desktop, so reaching them here means the pane asked.
@@ -99,6 +104,8 @@ Widget? buildDesklet(
 bool deskletNeedsWidth(String kind, DeskletSkin skin) =>
     kind == 'conky' ||
     kind == 'welcome' ||
+    // Its head row is an Expanded title beside the icon, on every surface.
+    kind == 'nowplaying' ||
     skin.flag('window', false) ||
     switch (skin.surface) {
       DeskletSurface.card || DeskletSurface.panel => true,
@@ -357,6 +364,17 @@ class DeskletSurfaceView extends ConsumerWidget {
                         blocked: blocked,
                       ),
                     ),
+                  // Above the grid, below the tiles, and drawn whenever a
+                  // drag is in flight: a hold at rest lifts a tile too.
+                  Positioned.fill(
+                    child: DeskletGuides(
+                      theme: theme,
+                      page: page,
+                      items: [for (final d in items) seen(d)],
+                      cellW: cellW,
+                      cellH: cellH,
+                    ),
+                  ),
                   // ─── ONE WIDGET IN BOTH STATES ────────────────────────
                   //
                   // This used to pick between `_ResizableTile` at rest and
@@ -389,7 +407,13 @@ class DeskletSurfaceView extends ConsumerWidget {
                         editing: editing,
                         child: Padding(
                           padding: const EdgeInsets.all(gutter / 2),
-                          child: _Tile(theme: theme, desklet: d),
+                          // A live tile (monitor, network, battery) redraws
+                          // every stats tick. Its own layer keeps that redraw
+                          // to the tile instead of the whole desktop, which
+                          // on a transparent TextureView is a full composite.
+                          child: RepaintBoundary(
+                            child: _Tile(theme: theme, desklet: d),
+                          ),
                         ),
                       ),
                     ),
@@ -417,9 +441,21 @@ class _Tile extends StatelessWidget {
     // provides the default and the user beats it. `mergedWith` inherits any key
     // the override does not carry, so a widget with nothing set renders exactly
     // as it did before per-widget settings existed.
-    final skin = theme.spec.desklets
+    var skin = theme.spec.desklets
         .skinFor(theme.shell, desklet.kind)
         .mergedWith(skinOverridesFor(desklet));
+
+    // ─── A BACKGROUND ON A BARE DESKTOP ─────────────────────────────────
+    //
+    // GNOME's surface is bare: text on the wallpaper, no card. The Background
+    // setting tunes a card's opacity, so on a bare distro it did nothing at
+    // all. A person who picks one is asking for a backing, so the tile is
+    // drawn on a card at that strength. Only when they chose it: the distro's
+    // bare look stays the default.
+    final backing = desklet.config['opacity'];
+    if (skin.surface == DeskletSurface.bare && backing is num && backing > 0) {
+      skin = skin.mergedWith(const DeskletSkin(surface: DeskletSurface.card));
+    }
     final child = buildDesklet(theme, desklet, skin);
     if (child == null) return const SizedBox.shrink();
 
@@ -490,6 +526,11 @@ class _Tile extends StatelessWidget {
     // window has a width, and a row inside it (Welcome's links) expands to it.
     final bounded = deskletNeedsWidth(desklet.kind, skin);
 
+    // The person's content scale. A bounded card is given the cell's width
+    // divided by it, so once ContentScale multiplies it back it fills exactly
+    // the cell, larger; see content_scale.dart.
+    final scale = contentScaleOf(desklet.config);
+
     final window = skin.flag('window', false);
     final fitted = LayoutBuilder(
       builder: (context, constraints) => Align(
@@ -509,12 +550,17 @@ class _Tile extends StatelessWidget {
           child: _floorForWindow(
             window: window,
             box: constraints,
-            child: bounded
-                ? ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                    child: child,
-                  )
-                : child,
+            child: ContentScale(
+              scale: scale,
+              child: bounded
+                  ? ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: constraints.maxWidth / scale,
+                      ),
+                      child: child,
+                    )
+                  : child,
+            ),
           ),
         ),
       ),

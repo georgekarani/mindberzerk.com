@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 import 'package:g_recovery/features/home/home_page.dart';
 
 import '../bridge/apps_bridge.dart';
@@ -14,7 +15,6 @@ import '../features/messages/state/messages_providers.dart';
 import '../features/more/more_page.dart';
 import '../features/recovery/state/recovery_providers.dart';
 import '../features/storage/storage_page.dart';
-import '../ui/g_bottom_nav.dart';
 import 'theme/tokens.dart';
 
 /// Selected tab. A notifier rather than local state so a deep link, a
@@ -65,13 +65,22 @@ const int gNavCount = 4;
 /// the only form tool/i18n/extract.py can collect: a key built from a variable
 /// cannot be found by reading the source, and the extractor rejects one rather
 /// than let it go missing silently. So the labels are translated here, where
-/// they are written, and GBottomNav renders whatever it is handed without
+/// they are written, and FloatingNav renders whatever it is handed without
 /// knowing that translation exists at all.
-List<GNavItem> gNavItems(BuildContext context) => <GNavItem>[
-  GNavItem(label: context.s('Home'), icon: Icons.auto_awesome_mosaic_outlined),
-  GNavItem(label: context.s('Storage'), icon: Icons.donut_small_outlined),
-  GNavItem(label: context.s('Device'), icon: Icons.monitor_heart_outlined),
-  GNavItem(label: context.s('More'), icon: Icons.more_horiz_rounded),
+List<FloatingNavItem> gNavItems(BuildContext context) => <FloatingNavItem>[
+  FloatingNavItem(
+    label: context.s('Home'),
+    icon: Icons.auto_awesome_mosaic_outlined,
+  ),
+  FloatingNavItem(
+    label: context.s('Storage'),
+    icon: Icons.donut_small_outlined,
+  ),
+  FloatingNavItem(
+    label: context.s('Device'),
+    icon: Icons.monitor_heart_outlined,
+  ),
+  FloatingNavItem(label: context.s('More'), icon: Icons.more_horiz_rounded),
 ];
 
 /// The shell, with one navigator per tab.
@@ -222,7 +231,9 @@ class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final int index = ref.watch(gShellTabProvider);
     final GTokens t = context.g;
-    final List<GNavItem> items = gNavItems(context);
+    final List<FloatingNavItem> items = gNavItems(context);
+    // The nav steps aside while the keyboard is up, so a form keeps the room.
+    final bool typing = MediaQuery.viewInsetsOf(context).bottom > 0;
     assert(items.length == gNavCount, 'gNavCount is out of step with the bar');
 
     _visited.add(index);
@@ -237,51 +248,61 @@ class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
         _back();
       },
       child: GMessengerInsets(
-        bottom: GSpace.navHeight,
+        bottom: GDesign.navHeight + GDesign.navInset,
         child: Scaffold(
           backgroundColor: t.ink,
+          // ─── EDGE TO EDGE ─────────────────────────────────────────────────
+          //
+          // No SafeArea here and the body runs under the floating nav. With
+          // extendBody the scaffold adds the nav's height to the body's bottom
+          // padding, so every page that respects MediaQuery padding (its own
+          // SafeArea, GPageBody, a sheet's list) still stops above the pill,
+          // while full-bleed content can draw all the way to the edge. The
+          // status bar inset is left for each page to apply, for the same
+          // reason at the top.
+          extendBody: true,
           // IndexedStack, not a swapped child: each tab keeps its scroll
-          // position, its in-flight scan state, and now its navigation stack.
+          // position, its in-flight scan state, and its navigation stack.
           //
           // Children appear on first visit rather than at launch. An unvisited
           // tab is an empty box, which costs nothing and occupies the slot so
           // the indices still line up with the bar.
-          body: SafeArea(
-            bottom: false,
-            child: IndexedStack(
-              index: index,
-              children: <Widget>[
-                for (int i = 0; i < _roots.length; i++)
-                  if (!_visited.contains(i))
-                    const SizedBox.shrink()
-                  else
-                    Navigator(
-                      key: _keys[i],
-                      onGenerateRoute: (RouteSettings settings) =>
-                          MaterialPageRoute<void>(
-                            settings: settings,
-                            builder: (BuildContext context) => _roots[i],
-                          ),
-                    ),
-              ],
-            ),
-          ),
-          bottomNavigationBar: GBottomNav(
-            items: items,
+          body: IndexedStack(
             index: index,
-            // Tapping the tab you are already on pops that tab back to its
-            // root, which is what every app with this shape does and what a
-            // person reaches for when they are lost inside a stack.
-            onSelected: (int next) {
-              if (next == index) {
-                _keys[index].currentState?.popUntil(
-                  (Route<dynamic> route) => route.isFirst,
-                );
-                return;
-              }
-              ref.read(gShellTabProvider.notifier).select(next);
-            },
+            children: <Widget>[
+              for (int i = 0; i < _roots.length; i++)
+                if (!_visited.contains(i))
+                  const SizedBox.shrink()
+                else
+                  Navigator(
+                    key: _keys[i],
+                    onGenerateRoute: (RouteSettings settings) =>
+                        MaterialPageRoute<void>(
+                          settings: settings,
+                          builder: (BuildContext context) => _roots[i],
+                        ),
+                  ),
+            ],
           ),
+          bottomNavigationBar: typing
+              ? null
+              : FloatingNav(
+                  items: items,
+                  index: index,
+                  // Tapping the tab you are already on pops that tab back to
+                  // its root, which is what every app with this shape does and
+                  // what a person reaches for when they are lost inside a
+                  // stack.
+                  onSelected: (int next) {
+                    if (next == index) {
+                      _keys[index].currentState?.popUntil(
+                        (Route<dynamic> route) => route.isFirst,
+                      );
+                      return;
+                    }
+                    ref.read(gShellTabProvider.notifier).select(next);
+                  },
+                ),
         ),
       ),
     );
@@ -297,12 +318,15 @@ class GPageBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The shell no longer wraps tabs in a SafeArea, so the list carries the
+    // status bar inset at the top and the floating nav's reserve at the bottom.
+    final EdgeInsets inset = MediaQuery.paddingOf(context);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         GSpace.gutter,
-        0,
+        inset.top,
         GSpace.gutter,
-        GSpace.xl,
+        inset.bottom + GSpace.xl,
       ),
       children: children,
     );

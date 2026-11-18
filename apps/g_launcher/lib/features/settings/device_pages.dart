@@ -588,7 +588,6 @@ class StoragePage extends ConsumerWidget {
           // Says what it does, not "our other app". The ecosystem cross-link
           // earns its place by being useful on the page it sits on: this screen
           // tells you how full the phone is and cannot do anything about it.
-          subtitle: context.t('settings.findLargeFilesDuplicates'),
           onTap: () => launchUrl(
             Uri.parse(recoveryUrl),
             // externalApplication, so it opens the Play app rather than an

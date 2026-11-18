@@ -131,7 +131,9 @@ class _MediaViewerState extends ConsumerState<MediaViewer> {
                   children: <Widget>[
                     Row(
                       children: <Widget>[
-                        if (item.role == 'status')
+                        if (item.role == 'media')
+                          GBadge.live('In the app')
+                        else if (item.role == 'status')
                           GBadge.partial('Status')
                         else if (item.fidelity == 'preview')
                           GBadge.partial('Preview only')

@@ -53,6 +53,10 @@ dependencies:
   package_info_plus: ^10.2.1
   g_family:
     path: ../../packages/g_family
+  # Immersive layout shared with G VPN and G Launcher: floating header and
+  # nav, the one raised sheet, edge-to-edge rows, the confirm sheet.
+  g_design:
+    path: ../../packages/g_design
 
 dev_dependencies:
   flutter_test:

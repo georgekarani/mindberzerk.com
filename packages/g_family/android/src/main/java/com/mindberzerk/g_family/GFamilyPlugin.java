@@ -15,6 +15,8 @@ import androidx.annotation.NonNull;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.EventChannel;
@@ -26,6 +28,12 @@ import io.flutter.plugin.common.MethodChannel;
  *
  * Every failure becomes a state ("notInstalled", "unavailable") rather than
  * an exception: the calling app always has something honest to show.
+ *
+ * Status reads run on a background thread. Querying G VPN's provider is a
+ * cross-process call, and when G VPN is not running the system has to start
+ * its process before the query returns. Done on the main thread that stalled
+ * the host app's startup and Play reported it as an input-dispatch ANR in
+ * {@code readStatus}. Results are always delivered back on the main thread.
  */
 public final class GFamilyPlugin implements FlutterPlugin, MethodChannel.MethodCallHandler, EventChannel.StreamHandler {
     private static final String GVPN = "com.mindberzerk.gvpn";
@@ -36,11 +44,14 @@ public final class GFamilyPlugin implements FlutterPlugin, MethodChannel.MethodC
     private MethodChannel calls;
     private EventChannel changes;
     private ContentObserver observer;
+    private EventChannel.EventSink sink;
+    private ExecutorService io;
     private final Handler main = new Handler(Looper.getMainLooper());
 
     @Override
     public void onAttachedToEngine(@NonNull FlutterPluginBinding binding) {
         context = binding.getApplicationContext();
+        io = Executors.newSingleThreadExecutor(r -> new Thread(r, "g_family-io"));
         calls = new MethodChannel(binding.getBinaryMessenger(), "com.mindberzerk.g_family");
         calls.setMethodCallHandler(this);
         changes = new EventChannel(binding.getBinaryMessenger(), "com.mindberzerk.g_family/changes");
@@ -52,13 +63,17 @@ public final class GFamilyPlugin implements FlutterPlugin, MethodChannel.MethodC
         onCancel(null);
         calls.setMethodCallHandler(null);
         changes.setStreamHandler(null);
+        io.shutdownNow();
     }
 
     @Override
     public void onMethodCall(@NonNull MethodCall call, @NonNull MethodChannel.Result result) {
         switch (call.method) {
             case "status":
-                result.success(readStatus());
+                io.execute(() -> {
+                    Map<String, Object> status = readStatus();
+                    main.post(() -> result.success(status));
+                });
                 break;
             case "control":
                 result.success(control(new Intent((String) call.arguments)));
@@ -139,12 +154,13 @@ public final class GFamilyPlugin implements FlutterPlugin, MethodChannel.MethodC
 
     @Override
     public void onListen(Object arguments, EventChannel.EventSink events) {
-        events.success(readStatus());
+        sink = events;
+        emitStatus(events);
         ContentResolver resolver = context.getContentResolver();
         observer = new ContentObserver(main) {
             @Override
             public void onChange(boolean selfChange) {
-                events.success(readStatus());
+                emitStatus(events);
             }
         };
         try {
@@ -154,8 +170,24 @@ public final class GFamilyPlugin implements FlutterPlugin, MethodChannel.MethodC
         }
     }
 
+    /**
+     * Reads off the main thread and emits on it, but only while {@code events} is
+     * still the live sink ({@code sink}): a read that finishes after a cancel or a re-listen
+     * must not write into a stream nobody is listening to.
+     */
+    private void emitStatus(EventChannel.EventSink events) {
+        if (io.isShutdown()) return;
+        io.execute(() -> {
+            Map<String, Object> status = readStatus();
+            main.post(() -> {
+                if (sink == events) events.success(status);
+            });
+        });
+    }
+
     @Override
     public void onCancel(Object arguments) {
+        sink = null;
         if (observer != null) {
             context.getContentResolver().unregisterContentObserver(observer);
             observer = null;

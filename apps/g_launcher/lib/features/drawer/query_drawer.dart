@@ -8,6 +8,7 @@ import '../../design/components/anchored_menu.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
 import '../command/command_rows.dart';
+import '../search/unified_search.dart';
 import '../command/search_settings.dart';
 import '../home/workspaces/workspace_controller.dart';
 import '../palette/palette_controller.dart';
@@ -228,6 +229,32 @@ class _QueryDrawerState extends ConsumerState<QueryDrawer> {
                         ordinal: i + 1,
                         selected: i == 0,
                       ),
+                  // rofi's other modi under the apps: shortcuts and the
+                  // settings pages, in the same colours. PHASE 5.
+                  //
+                  // Capped and scrolling: this box hangs from the top with
+                  // the keyboard up, and an uncapped list would run under it.
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * 0.3,
+                    ),
+                    child: SingleChildScrollView(
+                      child: UnifiedExtraRows(
+                        theme: theme,
+                        query: query,
+                        commands: false,
+                        style: CommandRowStyle(
+                          text: palette.onDark,
+                          muted: palette.onDark.withValues(alpha: 0.55),
+                          accent: palette.accent,
+                          fontFamily: theme.typography.display,
+                          monoFamily: theme.typography.mono,
+                          scale: theme.textScale,
+                        ),
+                        onClose: () => closeApps(ref),
+                      ),
+                    ),
+                  ),
                   Divider(
                     height: 1,
                     thickness: 1,

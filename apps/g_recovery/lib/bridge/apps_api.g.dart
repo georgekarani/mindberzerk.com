@@ -10,9 +10,9 @@ import 'package:flutter/services.dart';
 import 'package:meta/meta.dart' show immutable, protected, visibleForTesting;
 
 Object? _extractReplyValueOrThrow(
-    List<Object?>? replyList,
-    String channelName, {
-    required bool isNullValid,
+  List<Object?>? replyList,
+  String channelName, {
+  required bool isNullValid,
 }) {
   if (replyList == null) {
     throw PlatformException(
@@ -46,8 +46,9 @@ bool _deepEquals(Object? a, Object? b) {
   }
   if (a is List && b is List) {
     return a.length == b.length &&
-        a.indexed
-            .every(((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]));
+        a.indexed.every(
+          ((int, dynamic) item) => _deepEquals(item.$2, b[item.$1]),
+        );
   }
   if (a is Map && b is Map) {
     if (a.length != b.length) {
@@ -96,7 +97,6 @@ int _deepHash(Object? value) {
   return value.hashCode;
 }
 
-
 /// One installed app and what it occupies. Codec 129.
 class AppEntry {
   AppEntry({
@@ -144,7 +144,8 @@ class AppEntry {
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static AppEntry decode(Object result) {
     result as List<Object?>;
@@ -168,7 +169,13 @@ class AppEntry {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(packageName, other.packageName) && _deepEquals(label, other.label) && _deepEquals(appBytes, other.appBytes) && _deepEquals(dataBytes, other.dataBytes) && _deepEquals(cacheBytes, other.cacheBytes) && _deepEquals(system, other.system) && _deepEquals(lastUsedMillis, other.lastUsedMillis);
+    return _deepEquals(packageName, other.packageName) &&
+        _deepEquals(label, other.label) &&
+        _deepEquals(appBytes, other.appBytes) &&
+        _deepEquals(dataBytes, other.dataBytes) &&
+        _deepEquals(cacheBytes, other.cacheBytes) &&
+        _deepEquals(system, other.system) &&
+        _deepEquals(lastUsedMillis, other.lastUsedMillis);
   }
 
   @override
@@ -201,16 +208,12 @@ class AppsState {
   int count;
 
   List<Object?> _toList() {
-    return <Object?>[
-      usageAccess,
-      totalBytes,
-      cacheBytes,
-      count,
-    ];
+    return <Object?>[usageAccess, totalBytes, cacheBytes, count];
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static AppsState decode(Object result) {
     result as List<Object?>;
@@ -231,7 +234,10 @@ class AppsState {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(usageAccess, other.usageAccess) && _deepEquals(totalBytes, other.totalBytes) && _deepEquals(cacheBytes, other.cacheBytes) && _deepEquals(count, other.count);
+    return _deepEquals(usageAccess, other.usageAccess) &&
+        _deepEquals(totalBytes, other.totalBytes) &&
+        _deepEquals(cacheBytes, other.cacheBytes) &&
+        _deepEquals(count, other.count);
   }
 
   @override
@@ -265,15 +271,12 @@ class AppsProgress {
   bool reading;
 
   List<Object?> _toList() {
-    return <Object?>[
-      done,
-      total,
-      reading,
-    ];
+    return <Object?>[done, total, reading];
   }
 
   Object encode() {
-    return _toList();  }
+    return _toList();
+  }
 
   static AppsProgress decode(Object result) {
     result as List<Object?>;
@@ -293,7 +296,9 @@ class AppsProgress {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(done, other.done) && _deepEquals(total, other.total) && _deepEquals(reading, other.reading);
+    return _deepEquals(done, other.done) &&
+        _deepEquals(total, other.total) &&
+        _deepEquals(reading, other.reading);
   }
 
   @override
@@ -306,7 +311,6 @@ class AppsProgress {
   }
 }
 
-
 class _PigeonCodec extends StandardMessageCodec {
   const _PigeonCodec();
   @override
@@ -314,13 +318,13 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is int) {
       buffer.putUint8(4);
       buffer.putInt64(value);
-    }    else if (value is AppEntry) {
+    } else if (value is AppEntry) {
       buffer.putUint8(129);
       writeValue(buffer, value.encode());
-    }    else if (value is AppsState) {
+    } else if (value is AppsState) {
       buffer.putUint8(130);
       writeValue(buffer, value.encode());
-    }    else if (value is AppsProgress) {
+    } else if (value is AppsProgress) {
       buffer.putUint8(131);
       writeValue(buffer, value.encode());
     } else {
@@ -347,9 +351,13 @@ class AppsHostApi {
   /// Constructor for [AppsHostApi]. The [binaryMessenger] named argument is
   /// available for dependency injection. If it is left null, the default
   /// BinaryMessenger will be used which routes to the host platform.
-  AppsHostApi({BinaryMessenger? binaryMessenger, String messageChannelSuffix = ''})
-      : pigeonVar_binaryMessenger = binaryMessenger,
-        pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty ? '.$messageChannelSuffix' : '';
+  AppsHostApi({
+    BinaryMessenger? binaryMessenger,
+    String messageChannelSuffix = '',
+  }) : pigeonVar_binaryMessenger = binaryMessenger,
+       pigeonVar_messageChannelSuffix = messageChannelSuffix.isNotEmpty
+           ? '.$messageChannelSuffix'
+           : '';
   final BinaryMessenger? pigeonVar_binaryMessenger;
 
   static const MessageCodec<Object?> pigeonChannelCodec = _PigeonCodec();
@@ -357,7 +365,8 @@ class AppsHostApi {
   final String pigeonVar_messageChannelSuffix;
 
   Future<AppsState> state() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.g_recovery.AppsHostApi.state$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.g_recovery.AppsHostApi.state$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -367,17 +376,17 @@ class AppsHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as AppsState;
   }
 
   /// Opens the Usage Access settings screen.
   Future<bool> requestUsageAccess() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.g_recovery.AppsHostApi.requestUsageAccess$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.g_recovery.AppsHostApi.requestUsageAccess$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -387,11 +396,10 @@ class AppsHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as bool;
   }
 
@@ -401,7 +409,8 @@ class AppsHostApi {
   /// two hundred apps takes a few seconds, which is why the caller shows a
   /// loading state rather than blocking.
   Future<List<AppEntry>> apps() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.g_recovery.AppsHostApi.apps$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.g_recovery.AppsHostApi.apps$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -411,31 +420,32 @@ class AppsHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return (pigeonVar_replyValue! as List<Object?>).cast<AppEntry>();
   }
 
   /// The system storage screen for one app, where Clear cache actually works.
   Future<bool> openAppSettings(String packageName) async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.g_recovery.AppsHostApi.openAppSettings$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.g_recovery.AppsHostApi.openAppSettings$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
       binaryMessenger: pigeonVar_binaryMessenger,
     );
-    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[packageName]);
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[packageName],
+    );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as bool;
   }
 
@@ -444,7 +454,8 @@ class AppsHostApi {
   /// Answered off the worker thread. A progress call queued behind the read
   /// would report once, at the end, which is the one moment nobody needs it.
   Future<AppsProgress> readProgress() async {
-    final pigeonVar_channelName = 'dev.flutter.pigeon.g_recovery.AppsHostApi.readProgress$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.g_recovery.AppsHostApi.readProgress$pigeonVar_messageChannelSuffix';
     final pigeonVar_channel = BasicMessageChannel<Object?>(
       pigeonVar_channelName,
       pigeonChannelCodec,
@@ -454,11 +465,10 @@ class AppsHostApi {
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
 
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
-        pigeonVar_replyList,
-        pigeonVar_channelName,
-        isNullValid: false,
-    )
-    ;
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
     return pigeonVar_replyValue! as AppsProgress;
   }
 }

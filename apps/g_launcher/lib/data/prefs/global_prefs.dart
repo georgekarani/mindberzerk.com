@@ -79,6 +79,10 @@ class GlobalPrefs {
     this.displayFont,
     this.monoFont,
     this.hiddenApps,
+    this.layoutLocked,
+    this.appLabels,
+    this.badgeMuted,
+    this.iconOverrides,
   });
 
   // ── ICONS ─────────────────────────────────────────────────────────────────
@@ -155,6 +159,27 @@ class GlobalPrefs {
   /// up with the UNION of every distro's old set (see [withV3HiddenApps]), so
   /// nothing anyone ever hid on any distro reappears after the update.
   final Set<String>? hiddenApps;
+
+  // ── LAYOUT ────────────────────────────────────────────────────────────────
+
+  /// The home layout lock. See [LauncherPrefs.layoutLocked].
+  ///
+  /// NOT A SCHEMA BUMP, for the reason the fonts give: it has never lived per
+  /// theme, so there is no stored value to carry across and nothing a missing
+  /// top-up could lose.
+  final bool? layoutLocked;
+
+  // ── APP IDENTITY ──────────────────────────────────────────────────────────
+
+  /// Renamed apps, and apps whose count is muted. See [LauncherPrefs.appLabels]
+  /// and [LauncherPrefs.badgeMuted]. Null means none, like [hiddenApps].
+  ///
+  /// NOT A SCHEMA BUMP: neither has ever lived per theme.
+  final Map<String, String>? appLabels;
+  final Set<String>? badgeMuted;
+
+  /// Single-app icon choices. See [LauncherPrefs.iconOverrides].
+  final Map<String, String>? iconOverrides;
 
   // ── APPEARANCE ────────────────────────────────────────────────────────────
   // 'system' | 'light' | 'dark'. The most obviously global setting in the list:
@@ -254,6 +279,10 @@ class GlobalPrefs {
         displayFont: p.displayFont,
         monoFont: p.monoFont,
         hiddenApps: p.hiddenApps,
+        layoutLocked: p.layoutLocked,
+        appLabels: p.appLabels,
+        badgeMuted: p.badgeMuted,
+        iconOverrides: p.iconOverrides,
       );
 
   /// Overlay these values onto [p], replacing whatever the per-theme store held
@@ -294,6 +323,7 @@ class GlobalPrefs {
       badgeStyle: badgeStyle == null,
       displayFont: displayFont == null,
       monoFont: monoFont == null,
+      layoutLocked: layoutLocked == null,
     );
 
     return cleared.copyWith(
@@ -326,9 +356,13 @@ class GlobalPrefs {
       badgeStyle: badgeStyle,
       displayFont: displayFont,
       monoFont: monoFont,
+      layoutLocked: layoutLocked,
       // A Set has no null to clear to: absent means empty, which is also what
       // a reset to defaults (`const GlobalPrefs()`) should produce.
       hiddenApps: hiddenApps ?? const <String>{},
+      appLabels: appLabels ?? const <String, String>{},
+      badgeMuted: badgeMuted ?? const <String>{},
+      iconOverrides: iconOverrides ?? const <String, String>{},
     );
   }
 
@@ -365,6 +399,10 @@ class GlobalPrefs {
         if (badgeStyle != null) 'badgeStyle': badgeStyle,
         if (displayFont != null) 'displayFont': displayFont,
         if (monoFont != null) 'monoFont': monoFont,
+        if (layoutLocked != null) 'layoutLocked': layoutLocked,
+        if (appLabels != null) 'appLabels': appLabels,
+        if (badgeMuted != null) 'badgeMuted': badgeMuted!.toList()..sort(),
+        if (iconOverrides != null) 'iconOverrides': iconOverrides,
         // Sorted, so value equality (which compares toJson) is order free.
         if (hiddenApps != null) 'hiddenApps': hiddenApps!.toList()..sort(),
       };
@@ -400,6 +438,12 @@ class GlobalPrefs {
         displayFont: j['displayFont'] as String?,
         monoFont: j['monoFont'] as String?,
         hiddenApps: (j['hiddenApps'] as List?)?.whereType<String>().toSet(),
+        layoutLocked: j['layoutLocked'] as bool?,
+        appLabels: (j['appLabels'] as Map?)
+            ?.map((k, v) => MapEntry(k.toString(), v.toString())),
+        badgeMuted: (j['badgeMuted'] as List?)?.whereType<String>().toSet(),
+        iconOverrides: (j['iconOverrides'] as Map?)
+            ?.map((k, v) => MapEntry(k.toString(), v.toString())),
       );
 
   /// Its own version, independent of [LauncherPrefs.schemaVersion]: this bucket
@@ -462,6 +506,10 @@ class GlobalPrefs {
         badgeStyle: badgeStyle,
         displayFont: displayFont,
         monoFont: monoFont,
+        layoutLocked: layoutLocked,
+        appLabels: appLabels,
+        badgeMuted: badgeMuted,
+        iconOverrides: iconOverrides,
       );
 
   /// Fill [hiddenApps] from the union of every distro's old per-theme set.
@@ -476,6 +524,11 @@ class GlobalPrefs {
   /// the same reason as [withV3HiddenApps].
   GlobalPrefs withHiddenApps(Set<String> keys) =>
       GlobalPrefs.fromJson({...toJson(), 'hiddenApps': keys.toList()});
+
+  /// This bucket with [layoutLocked] set. Round-tripped through JSON for the
+  /// same reason as [withHiddenApps].
+  GlobalPrefs withLayoutLocked(bool locked) =>
+      GlobalPrefs.fromJson({...toJson(), 'layoutLocked': locked});
 
   /// Value equality, and it is load-bearing for the same reason it is on
   /// [LauncherPrefs]: `prefsProvider` rebuilds when this changes, and identity
@@ -517,6 +570,10 @@ class GlobalPrefs {
         displayFont,
         monoFont,
         const SetEquality<String>().hash(hiddenApps),
+        layoutLocked,
+        const MapEquality<String, String>().hash(appLabels),
+        const SetEquality<String>().hash(badgeMuted),
+        const MapEquality<String, String>().hash(iconOverrides),
       ]);
 }
 

@@ -19,6 +19,7 @@ import '../../../design/device_preview.dart';
 import '../../../design/setting_previews.dart';
 import '../../../engine/capabilities.dart';
 import '../../../engine/effective_theme.dart';
+import '../../../system/wallpaper_accent.dart';
 import '../../../engine/font_catalogue.dart';
 import '../../../engine/theme_spec.dart';
 import '../../boot/grub_prefs.dart';
@@ -84,7 +85,8 @@ List<Widget> appearanceSection(
   final monoFonts = catalogue?.monospace ?? const <FontEntry>[];
 
   final mode = theme.prefs.themeMode ?? 'system';
-  final accents = theme.spec.accents;
+  // The wallpaper's swatch first, then the distro's. PHASE 6.
+  final accents = theme.offeredAccents;
   final layouts = theme.spec.layouts;
   // The stored id, else whichever card the distro marked default, else the
   // first. Never null once a distro ships presets, so the picker always has a
@@ -201,7 +203,6 @@ List<Widget> appearanceSection(
             SettingsRow(
               icon: Icons.image_outlined,
               title: context.t('settings.wallpaper'),
-              subtitle: context.t('settings.presetsYourPhotosRotation'),
               trailing: const Chevron(),
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -236,7 +237,6 @@ List<Widget> appearanceSection(
             title: context.t('settings.verboseBoot'),
             // Off = the quick splash. On = the full [  OK  ] scroll every
             // time the shell opens, themed to this distro.
-            subtitle: context.t('settings.playTheFullLinux'),
             // null = off; the toggle reads and writes an explicit bool.
             value: theme.prefs.verboseBoot ?? false,
             onChanged: (v) => notifier.edit((p) => p.copyWith(verboseBoot: v)),
@@ -436,7 +436,6 @@ List<Widget> appearanceSection(
             // 412dp phone a paged drawer fits six rows at one line and
             // five at two. The setting stays for the people who would
             // rather read "Secure Folder" than "Secure Fold…".
-            subtitle: context.t('settings.twoLinesInsteadOf'),
             value: theme.labelLines > 1,
             onChanged: (v) =>
                 notifier.edit((p) => p.copyWith(labelLines: v ? 2 : 1)),
@@ -462,7 +461,6 @@ List<Widget> appearanceSection(
             // Off is the denser panel, not a different set of actions: the
             // strip holds three either way. See LauncherPrefs.menuActionLabels
             // for why the count does not move with the words.
-            subtitle: context.t('settings.wordsUnderTheGlyphs'),
             value: theme.menuActionLabels,
             onChanged: (v) =>
                 notifier.edit((p) => p.copyWith(menuActionLabels: v)),
@@ -505,7 +503,6 @@ List<Widget> appearanceSection(
           SettingsRow(
             icon: Icons.text_fields,
             title: context.t('settings.displayFont'),
-            subtitle: context.t('settings.labelsTitlesAndMenus'),
             trailing: ValueLabel(_fontShort(theme.prefs.displayFont)),
             onTap: () => showFontSheet(
               context,
@@ -522,7 +519,6 @@ List<Widget> appearanceSection(
           SettingsRow(
             icon: Icons.terminal,
             title: context.t('settings.monospaceFont'),
-            subtitle: context.t('settings.theTerminalAndFixed'),
             trailing: ValueLabel(_fontShort(theme.prefs.monoFont)),
             onTap: () => showFontSheet(
               context,
@@ -622,7 +618,6 @@ List<Widget> appearanceSection(
           const ['panel', 'sheet', 'opacity', 'transparency', 'glass'],
           OpacityRow(
             label: context.t('settings.panels.opacity'),
-            sub: context.t('settings.panels.opacitySub'),
             value: theme.panelOpacity,
             following: theme.prefs.panelOpacity == null,
             onChanged: (v) => notifier.edit((p) => p.copyWith(panelOpacity: v)),
@@ -638,7 +633,6 @@ List<Widget> appearanceSection(
             // The honest reason this is exposed, said plainly. Someone whose
             // launcher stutters is not going to guess that the frosted glass
             // is what costs them the frames.
-            sub: context.t('settings.panels.blurSub'),
             value: theme.panelBlur,
             min: 0,
             max: 24,
@@ -656,7 +650,6 @@ List<Widget> appearanceSection(
           PanelSlider(
             icon: Icons.palette_outlined,
             label: context.t('settings.panels.tint'),
-            sub: context.t('settings.panels.tintSub'),
             value: theme.panelTint,
             min: 0,
             max: 1,
@@ -672,7 +665,6 @@ List<Widget> appearanceSection(
           PanelSlider(
             icon: Icons.rounded_corner_outlined,
             label: context.t('settings.panels.corners'),
-            sub: context.t('settings.panels.cornersSub'),
             value: theme.panelRadius,
             min: 0,
             max: 28,
@@ -705,7 +697,6 @@ List<Widget> appearanceSection(
           SettingsRow(
             icon: Icons.ios_share,
             title: context.t('rice.title'),
-            subtitle: context.t('rice.settingSub'),
             trailing: const Chevron(),
             onTap: () => Navigator.of(context).push(
               MaterialPageRoute<void>(builder: (_) => RiceScreen(theme: theme)),
@@ -841,7 +832,7 @@ class _AccentRow extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
-    final chosen = theme.prefs.accentId;
+    final chosen = theme.accentChoice;
     final onDark = theme.palette.onDark;
 
     return Padding(
@@ -898,6 +889,9 @@ class _AccentRow extends ConsumerWidget {
                           width: a.id == chosen ? 2.5 : 0.5,
                         ),
                       ),
+                      child: a.id == wallpaperAccentId
+                          ? WallpaperAccentMark(colour: a.value)
+                          : null,
                     ),
                   ),
                 ),
@@ -931,7 +925,6 @@ List<FilterRow> _grubRows(
       SettingsToggleRow(
         icon: Icons.list_alt_outlined,
         title: context.t('grub.settingTitle'),
-        subtitle: context.t('grub.settingSub'),
         value: grub.enabled,
         onChanged: (v) => notifier.set(grub.copyWith(enabled: v)),
       ),

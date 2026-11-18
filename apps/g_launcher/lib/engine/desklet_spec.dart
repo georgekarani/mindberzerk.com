@@ -422,6 +422,26 @@ class DeskletKinds {
     defaultSpanY: 2,
   );
 
+  /// Whatever is playing, with play, pause and skip. PHASE G1.
+  ///
+  /// Needs notification access, the grant the badges already use, and asks
+  /// for it from the tile itself when it is missing. One row tall it is the
+  /// compact form: icon, track, and play or pause.
+  ///
+  /// Six wide by default, not four: a title, an artist and three 44dp buttons
+  /// need more than half a phone's width, and four squeezed the track name
+  /// down to a couple of letters.
+  static const nowPlaying = DeskletKind(
+    id: 'nowplaying',
+    labelKey: 'desklet_spec.nowPlaying',
+    minSpanX: 4,
+    minSpanY: 1,
+    maxSpanX: 10,
+    maxSpanY: 4,
+    defaultSpanX: 6,
+    defaultSpanY: 2,
+  );
+
   static const all = <DeskletKind>[
     glance,
     appWidget,
@@ -441,6 +461,7 @@ class DeskletKinds {
     appsList,
     uptime,
     vpn,
+    nowPlaying,
   ];
 
   static final Map<String, DeskletKind> _byId = {

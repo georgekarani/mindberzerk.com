@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_account/g_account.dart';
@@ -11,6 +12,7 @@ import '../../features/terminal/terminal_entitlement.dart';
 import '../../platform/pack_api.g.dart';
 import '../cdn/pack_repository.dart';
 import '../prefs/prefs_repository.dart';
+import 'debug_unlocks.dart';
 import 'pending_apply.dart';
 
 /// PHASE C3 — the app-side wiring over `g_account`.
@@ -161,11 +163,18 @@ final ownedSkusProvider = StreamProvider<Set<String>>((ref) {
   final joined = ref.watch(productSkusProvider);
   final skus = joined.isEmpty ? <String>{} : joined.split(',').toSet();
 
+  // Debug builds only: SKUs unlocked from the Debug section of Settings.
+  // Always empty in a release build (see debug_unlocks.dart), which makes
+  // [merged] the identity there and leaves the release path unchanged.
+  final debug = ref.watch(debugUnlocksProvider);
+  Set<String> merged(Set<String> owned) =>
+      debug.isEmpty ? owned : {...owned, ...debug};
+
   // Push down to native on every change, INCLUDING the empty first emit.
   // Native starts empty and never persists, so a missed push after a purchase
   // leaves someone who has paid staring at a download that refuses.
   final sub = service.owned.listen((owned) {
-    ref.read(packActionsProvider).pushEntitlements(owned);
+    ref.read(packActionsProvider).pushEntitlements(merged(owned));
   });
   ref.onDispose(sub.cancel);
 
@@ -183,7 +192,23 @@ final ownedSkusProvider = StreamProvider<Set<String>>((ref) {
   // The storefront renders from the cached catalogue meanwhile.
   unawaited(service.start(skus));
 
-  return service.owned;
+  if (debug.isEmpty) {
+    // Debug only: relocking everything must reach native now, not at Play's
+    // next answer. A release build never takes this branch's push.
+    if (kDebugMode) {
+      unawaited(ref.read(packActionsProvider).pushEntitlements(service.ownedNow));
+    }
+    return service.owned;
+  }
+
+  // A debug unlock changes nothing Play knows about, so no `owned` emit will
+  // follow it. Push and emit the merged set now; Play's later answers merge in.
+  final now = merged(service.ownedNow);
+  unawaited(ref.read(packActionsProvider).pushEntitlements(now));
+  return (() async* {
+    yield now;
+    yield* service.owned.map(merged);
+  })();
 });
 
 /// Product prices for the storefront, keyed by SKU.

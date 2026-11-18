@@ -53,12 +53,8 @@ final Provider<SearchGroups> searchGroupsProvider = Provider<SearchGroups>((
   final List<RecoverableItem> all =
       ref.watch(searchResultsProvider).value ?? const <RecoverableItem>[];
   return SearchGroups(
-    deleted: all
-        .where((RecoverableItem item) => item.sourceId != 'live_files')
-        .toList(),
-    live: all
-        .where((RecoverableItem item) => item.sourceId == 'live_files')
-        .toList(),
+    deleted: all.where((RecoverableItem item) => !_isLive(item)).toList(),
+    live: all.where(_isLive).toList(),
   );
 });
 
@@ -88,3 +84,8 @@ class RecentSearches extends Notifier<List<String>> {
 
 final NotifierProvider<RecentSearches, List<String>> recentSearchesProvider =
     NotifierProvider<RecentSearches, List<String>>(RecentSearches.new);
+
+/// Live files and media still inside a chat app were never deleted, so they
+/// are shown to open and never offered for restore or purge.
+bool _isLive(RecoverableItem item) =>
+    item.sourceId == 'live_files' || item.role == 'media';

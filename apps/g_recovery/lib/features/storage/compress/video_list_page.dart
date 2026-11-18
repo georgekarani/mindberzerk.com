@@ -97,7 +97,6 @@ class _VideoListPageState extends ConsumerState<VideoListPage> {
     return Scaffold(
       backgroundColor: t.ink,
       body: SafeArea(
-        bottom: false,
         child: Column(
           children: <Widget>[
             Padding(

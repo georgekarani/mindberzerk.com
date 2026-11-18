@@ -78,7 +78,24 @@ final stageLongPressProvider =
 /// rebuilt in a different page element within the same frame. Without it, the
 /// old State's deferred forget would delete the rect the new State had just
 /// reported, and the widget would vanish until something moved.
-typedef StageRect = ({int widgetId, Rect rect, Object owner});
+typedef StageRect = ({
+  int widgetId,
+  Rect rect,
+  Object owner,
+  StageLook look,
+});
+
+/// How native draws a hosted widget inside its rectangle. PHASE 4.
+///
+/// [scalePct] is content scale as a whole percent (100 is as the app drew
+/// it). [radius] rounds the corners in dp, 0 leaving them alone. [argb] is a
+/// backing drawn behind the widget, alpha 0 drawing nothing. Native applies
+/// all three because the stage sits behind Flutter, where nothing Flutter
+/// paints can be under the widget.
+typedef StageLook = ({int scalePct, double radius, int argb});
+
+/// A hosted widget exactly as its app drew it.
+const StageLook plainStageLook = (scalePct: 100, radius: 0, argb: 0);
 
 /// Every hosted widget currently laid out, by desklet id.
 ///
@@ -89,17 +106,24 @@ class StageRects extends Notifier<Map<String, StageRect>> {
   @override
   Map<String, StageRect> build() => const {};
 
-  void report(String deskletId, Object owner, int widgetId, Rect rect) {
+  void report(
+    String deskletId,
+    Object owner,
+    int widgetId,
+    Rect rect, {
+    StageLook look = plainStageLook,
+  }) {
     final existing = state[deskletId];
     if (existing != null &&
         existing.owner == owner &&
         existing.widgetId == widgetId &&
+        existing.look == look &&
         _close(existing.rect, rect)) {
       return;
     }
     state = {
       ...state,
-      deskletId: (widgetId: widgetId, rect: rect, owner: owner),
+      deskletId: (widgetId: widgetId, rect: rect, owner: owner, look: look),
     };
   }
 
@@ -368,6 +392,8 @@ class _WidgetStageSyncState extends ConsumerState<WidgetStageSync> {
     return const SizedBox.shrink();
   }
 
+  /// Eight values per widget, matching `StageBridge.parse`: id, x, y, w, h,
+  /// scale percent, radius, background ARGB. The two sides change together.
   static List<double> _flatten(Map<String, StageRect> rects) {
     final flat = <double>[];
     for (final r in rects.values) {
@@ -376,7 +402,10 @@ class _WidgetStageSyncState extends ConsumerState<WidgetStageSync> {
         ..add(r.rect.left)
         ..add(r.rect.top)
         ..add(r.rect.width)
-        ..add(r.rect.height);
+        ..add(r.rect.height)
+        ..add(r.look.scalePct.toDouble())
+        ..add(r.look.radius)
+        ..add(r.look.argb.toDouble());
     }
     return flat;
   }

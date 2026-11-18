@@ -34,9 +34,23 @@ class ThemedSheet {
     required WidgetBuilder builder,
     String? title,
     bool isScrollControlled = false,
+    // The distro's chrome, for a caller whose [context] sits under no
+    // ChromeScope: a drawer menu or Kickoff, which build their own. Without
+    // it the sheet fell back to the bootstrap chrome and wore the wrong
+    // distro's accent (orange buttons on KDE).
+    ChromeData? chrome,
   }) {
     // Capture the live chrome from the screen that's opening the sheet.
-    final data = ChromeScope.of(context);
+    final data = chrome ?? ChromeScope.of(context);
+
+    // ─── CAPTURED NOW, NEVER READ FROM [context] INSIDE THE BUILDER ─────────
+    //
+    // The builder runs again on every rebuild of the sheet, and the keyboard
+    // opening is one. By then the widget that opened the sheet (a drawer
+    // tile, a menu row) may be gone, and `Theme.of(context)` on its dead
+    // element threw "Looking up a deactivated widget's ancestor is unsafe".
+    // First seen on the app Edit sheet, the first sheet here with a text field.
+    final hostTheme = Theme.of(context);
     final look = SettingsLook.resolve(context);
     if (look != null && !look.sheetSlidesUp) {
       return _window<T>(context, data, look, title, builder);
@@ -62,7 +76,7 @@ class ThemedSheet {
       barrierColor: Colors.black.withValues(alpha: 0.38),
       shape: RoundedRectangleBorder(borderRadius: top),
       builder: (ctx) => Theme(
-        data: Theme.of(context).copyWith(
+        data: hostTheme.copyWith(
           bottomSheetTheme: const BottomSheetThemeData(
             surfaceTintColor: Colors.transparent,
           ),

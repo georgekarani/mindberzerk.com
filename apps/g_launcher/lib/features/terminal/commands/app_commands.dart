@@ -49,10 +49,10 @@ class PmCommand extends TermCommand {
   TermGroup get group => TermGroup.apps;
 
   @override
-  String get help => 'pm info, pm uninstall, pm settings';
+  String get help => 'pm info, pm edit, pm uninstall, pm settings';
 
   @override
-  String? get usage => 'pm info|uninstall|settings <app>';
+  String? get usage => 'pm info|edit|uninstall|settings <app>';
 
   @override
   Future<TermResult> run(TermInvocation inv) async {
@@ -93,6 +93,15 @@ class PmCommand extends TermCommand {
             TermInk.dim,
           );
         }
+      case 'edit':
+        {
+          final TermOutcome outcome = await inv.context.host.editApp(app);
+          if (outcome.failed) {
+            return TermResult.error('pm: ${app.label}: ${outcome.message}');
+          }
+          return TermResult.line(
+              'editing ${app.label}: name, icon, count', TermInk.dim);
+        }
       case 'settings':
         await inv.context.host.openAppSettings(app);
         return TermResult.line(
@@ -100,7 +109,7 @@ class PmCommand extends TermCommand {
       default:
         return TermResult.lines(<TermLine>[
           TermLine.of('pm: unknown subcommand $sub', TermInk.bad),
-          TermLine.of('info, uninstall, settings', TermInk.dim),
+          TermLine.of('info, edit, uninstall, settings', TermInk.dim),
         ]);
     }
   }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart' show TimeOfDay;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -100,6 +101,48 @@ class SystemStats {
 
   final Duration? uptime;
 
+  /// Value equality, so the poller can drop a sample identical to the last
+  /// one instead of rebuilding every live tile for nothing.
+  @override
+  bool operator ==(Object other) =>
+      other is SystemStats &&
+      other.batteryPercent == batteryPercent &&
+      other.cpuPercent == cpuPercent &&
+      other.memUsedGb == memUsedGb &&
+      other.memTotalGb == memTotalGb &&
+      other.netDownBytesPerSec == netDownBytesPerSec &&
+      other.netUpBytesPerSec == netUpBytesPerSec &&
+      other.wifiConnected == wifiConnected &&
+      other.muted == muted &&
+      other.batteryCharging == batteryCharging &&
+      other.batteryTempC == batteryTempC &&
+      other.batteryCurrentMa == batteryCurrentMa &&
+      other.storageUsedBytes == storageUsedBytes &&
+      other.storageTotalBytes == storageTotalBytes &&
+      other.thermalStatus == thermalStatus &&
+      other.transport == transport &&
+      other.uptime?.inMinutes == uptime?.inMinutes;
+
+  @override
+  int get hashCode => Object.hash(
+        batteryPercent,
+        cpuPercent,
+        memUsedGb,
+        memTotalGb,
+        netDownBytesPerSec,
+        netUpBytesPerSec,
+        wifiConnected,
+        muted,
+        batteryCharging,
+        batteryTempC,
+        batteryCurrentMa,
+        storageUsedBytes,
+        storageTotalBytes,
+        thermalStatus,
+        transport,
+        uptime?.inMinutes,
+      );
+
   bool get hasMemory => memUsedGb != null && memTotalGb != null;
 
   bool get hasNet => netDownBytesPerSec != null && netUpBytesPerSec != null;
@@ -186,6 +229,7 @@ class _StatsPoller {
   Timer? _timer;
   AppLifecycleListener? _lifecycle;
   api.DeviceStats? _prev;
+  SystemStats? _last;
   bool _reading = false;
 
   Stream<SystemStats> get stream => _out.stream;
@@ -229,8 +273,13 @@ class _StatsPoller {
     try {
       final now = await _host.readStats();
       if (_out.isClosed) return;
-      _out.add(_toStats(_prev, now));
+      final stats = _toStats(_prev, now);
       _prev = now;
+      // Nothing a tile could show has changed: no event, so no rebuild and no
+      // frame. Common on an idle phone, where net is zero and memory steady.
+      if (stats == _last) return;
+      _last = stats;
+      _out.add(stats);
     } catch (e) {
       // A failed bridge call must not kill the stream — the desktop keeps its
       // last good panel and tries again in three seconds.
@@ -336,8 +385,18 @@ int? _cpuPercent(api.DeviceStats? prev, api.DeviceStats now) {
 /// real minute by up to 59 seconds, which people notice immediately on a clock
 /// that is 30px tall.
 final clockProvider = StreamProvider<DateTime>((ref) async* {
-  yield DateTime.now();
+  var last = DateTime.now();
+  yield last;
 
+  // ─── SELF-HEALING, NOT ONE SLEEP PER MINUTE ─────────────────────────────
+  //
+  // This slept exactly until the next minute and yielded once. A timer that
+  // fired late (the app paused, the clock or zone changed) left every clock on
+  // the desktop minutes behind until the following minute happened to tick:
+  // Quick Settings read 12:13 while Android's bar said 12:17. Now it wakes at
+  // the minute boundary or after 10 s, whichever is sooner, and emits only
+  // when the minute actually changed, so nothing rebuilds more often and a
+  // missed tick costs at most 10 s.
   while (true) {
     final now = DateTime.now();
     final nextMinute = DateTime(
@@ -347,14 +406,35 @@ final clockProvider = StreamProvider<DateTime>((ref) async* {
       now.hour,
       now.minute + 1,
     );
-    await Future<void>.delayed(nextMinute.difference(now));
-    yield DateTime.now();
+    final untilNext = nextMinute.difference(now);
+    const cap = Duration(seconds: 10);
+    await Future<void>.delayed(untilNext < cap ? untilNext : cap);
+
+    final t = DateTime.now();
+    if (t.minute != last.minute ||
+        t.hour != last.hour ||
+        t.day != last.day ||
+        t.timeZoneOffset != last.timeZoneOffset) {
+      last = t;
+      yield t;
+    }
   }
 });
 
-/// `19:42` — 24-hour, always. GNOME's default, and the mockup's.
+/// `19:42`, 24-hour always. For the clocks whose real counterpart prints
+/// 24-hour regardless (waybar, tmux, `uptime`, terminal timestamps). Every
+/// other clock uses [formatClock].
 String formatTime(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// The time as the PHONE is set to show it: `19:42`, or `7:42 PM` with the
+/// locale's own AM/PM. The GNOME top bar already did this; the panel clock,
+/// Quick Settings, Pocket's bar and the desklets drew 24-hour on a 12-hour
+/// phone, so the launcher's clock disagreed with Android's own status bar.
+String formatClock(BuildContext context, DateTime t) =>
+    MediaQuery.alwaysUse24HourFormatOf(context)
+        ? formatTime(t)
+        : TimeOfDay.fromDateTime(t).format(context);
 
 const _days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const _daysLong = [

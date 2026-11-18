@@ -32,8 +32,10 @@
     "tint": 0.6,
     "radius": 10
   },
+  "accentFromWallpaper": true,
   "layout": {
     "dock": "off",
+    "launchAnimation": "fade",
     "panels": [
       {
         "side": "bottom",
@@ -128,7 +130,31 @@
   },
   "splash": {
     "style": "bar",
-    "durationMs": 1200
+    "durationMs": 1200,
+    "background": {
+      "linear": [
+        "#FF1D2A3A",
+        "#FF141C26",
+        "#FF0D1218"
+      ],
+      "angle": 160
+    },
+    "logoSize": 104,
+    "gap": 40,
+    "indicator": {
+      "kind": "bar",
+      "width": 180,
+      "thickness": 3,
+      "color": "#FF3DAEE9",
+      "track": "#1FFCFCFC"
+    },
+    "wordmark": {
+      "text": "Plasma 6",
+      "size": 13,
+      "weight": 600,
+      "spacing": 1,
+      "color": "#99FCFCFC"
+    }
   },
   "desklets": {
     "offers": [

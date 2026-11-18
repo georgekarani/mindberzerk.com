@@ -21,6 +21,7 @@ import com.mindhunter.g_launcher.AppChangeReason
 import com.mindhunter.g_launcher.AppEntry
 import com.mindhunter.g_launcher.AppShortcut
 import com.mindhunter.g_launcher.NowPlaying
+import com.mindhunter.g_launcher.SearchedShortcut
 import com.mindhunter.g_launcher.LauncherFlutterApi
 import com.mindhunter.g_launcher.LauncherHostApi
 import com.mindhunter.g_launcher.backup.BackupStore
@@ -322,6 +323,26 @@ class LauncherHostApiImpl(
         }
     }
 
+    override fun searchShortcuts(
+        query: String,
+        limit: Long,
+        callback: (Result<List<SearchedShortcut>>) -> Unit,
+    ) {
+        // Off the platform thread for the same reason as [shortcutsFor]: a
+        // binder call per profile, made while the person is typing.
+        io.execute {
+            val out = shortcutReader.search(query, limit.toInt()).map {
+                SearchedShortcut(
+                    componentKey = it.componentKey,
+                    id = it.id,
+                    label = it.label,
+                    disabled = it.disabled,
+                )
+            }
+            main.post { callback(Result.success(out)) }
+        }
+    }
+
     override fun launchShortcut(
         componentKey: String,
         shortcutId: String,
@@ -342,10 +363,35 @@ class LauncherHostApiImpl(
         sourceRight: Double?,
         sourceBottom: Double?,
     ) {
+        val bounds = sourceRect(sourceLeft, sourceTop, sourceRight, sourceBottom)
         repository.launch(
             componentKey,
-            sourceRect(sourceLeft, sourceTop, sourceRight, sourceBottom),
+            bounds,
+            LaunchStyle.options(appContext, activityRef?.get(), bounds),
         )
+    }
+
+    override fun setLaunchStyle(style: String) = LaunchStyle.set(style)
+
+    override fun wallpaperColors(callback: (Result<List<Long>>) -> Unit) {
+        // Off the platform thread: describing a wallpaper can mean decoding
+        // and sampling it the first time it is asked.
+        io.execute {
+            val out = if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O_MR1) {
+                emptyList()
+            } else {
+                runCatching {
+                    val colors = android.app.WallpaperManager.getInstance(appContext)
+                        .getWallpaperColors(android.app.WallpaperManager.FLAG_SYSTEM)
+                    listOfNotNull(
+                        colors?.primaryColor,
+                        colors?.secondaryColor,
+                        colors?.tertiaryColor,
+                    ).map { it.toArgb().toLong() and 0xFFFFFFFFL }
+                }.getOrDefault(emptyList())
+            }
+            main.post { callback(Result.success(out)) }
+        }
     }
 
     override fun openAppInfo(componentKey: String) = repository.openAppInfo(componentKey)
@@ -581,6 +627,22 @@ class LauncherHostApiImpl(
     override fun setIconPack(packageName: String?, callback: (Result<Unit>) -> Unit) {
         iconSwitch.execute {
             runCatching { iconCache.setSystemIconPack(packageName) }
+            main.post { callback(Result.success(Unit)) }
+        }
+    }
+
+    /**
+     * Single-app icon choices (G2b). On [io], because a pack named here has
+     * its appfilter parsed before the reply; Dart awaits that reply before it
+     * re-requests the icon, so the first bitmap it sees is the chosen one.
+     */
+    override fun setIconOverrides(
+        overrides: Map<String, String>,
+        callback: (Result<Unit>) -> Unit,
+    ) {
+        io.execute {
+            runCatching { iconCache.setOverrides(overrides) }
+                .onFailure { android.util.Log.w("GLauncher", "setIconOverrides failed", it) }
             main.post { callback(Result.success(Unit)) }
         }
     }

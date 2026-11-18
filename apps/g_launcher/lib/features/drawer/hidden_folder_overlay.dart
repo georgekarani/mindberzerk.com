@@ -263,11 +263,10 @@ class _HiddenFolderOverlayState extends ConsumerState<_HiddenFolderOverlay> {
               children: [
                 AppIcon(entry: entry, size: theme.iconSizeDp),
                 const SizedBox(height: 6),
-                Text(
+                // Shrinks to fit, never cut mid-word or ended in an ellipsis.
+                FitLabel(
                   entry.label,
                   maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
                   style:
                       chrome.text.caption.copyWith(color: chrome.colors.text),
                 ),

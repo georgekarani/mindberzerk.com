@@ -1169,6 +1169,70 @@ data class NowPlaying (
     return "NowPlaying(packageName=$packageName, title=$title, artist=$artist, playing=$playing, canSkipNext=$canSkipNext, canSkipPrevious=$canSkipPrevious)"
   }
 }
+
+/**
+ * PHASE 5. One app shortcut found by a search across every app.
+ *
+ * ─── APPENDED LAST, SAME ARGUMENT AS AppShortcut ────────────────────────────
+ *
+ * A new class takes the next free codec id, so it goes after every class a
+ * shipped APK already speaks. It carries [componentKey] where [AppShortcut]
+ * does not, because a search result has to say which app it belongs to and
+ * how to launch it; the per-app call already knew both.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class SearchedShortcut (
+  /**
+   * The publishing app's launcher activity, for [LauncherHostApi.launchShortcut]
+   * and for finding the app's icon and name.
+   */
+  val componentKey: String,
+  val id: String,
+  val label: String,
+  val disabled: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): SearchedShortcut {
+      val componentKey = pigeonVar_list[0] as String
+      val id = pigeonVar_list[1] as String
+      val label = pigeonVar_list[2] as String
+      val disabled = pigeonVar_list[3] as Boolean
+      return SearchedShortcut(componentKey, id, label, disabled)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      componentKey,
+      id,
+      label,
+      disabled,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as SearchedShortcut
+    return LauncherApiPigeonUtils.deepEquals(this.componentKey, other.componentKey) && LauncherApiPigeonUtils.deepEquals(this.id, other.id) && LauncherApiPigeonUtils.deepEquals(this.label, other.label) && LauncherApiPigeonUtils.deepEquals(this.disabled, other.disabled)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + LauncherApiPigeonUtils.deepHash(this.componentKey)
+    result = 31 * result + LauncherApiPigeonUtils.deepHash(this.id)
+    result = 31 * result + LauncherApiPigeonUtils.deepHash(this.label)
+    result = 31 * result + LauncherApiPigeonUtils.deepHash(this.disabled)
+    return result
+  }
+  override fun toString(): String {
+    return "SearchedShortcut(componentKey=$componentKey, id=$id, label=$label, disabled=$disabled)"
+  }
+}
 private open class LauncherApiPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -1222,6 +1286,11 @@ private open class LauncherApiPigeonCodec : StandardMessageCodec() {
           NowPlaying.fromList(it)
         }
       }
+      139.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          SearchedShortcut.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -1265,6 +1334,10 @@ private open class LauncherApiPigeonCodec : StandardMessageCodec() {
       }
       is NowPlaying -> {
         stream.write(138)
+        writeValue(stream, value.toList())
+      }
+      is SearchedShortcut -> {
+        stream.write(139)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -1727,6 +1800,24 @@ interface LauncherHostApi {
    */
   fun setIconPack(packageName: String?, callback: (Result<Unit>) -> Unit)
   /**
+   * The icons a person picked for single apps, by component key. PHASE G2b.
+   *
+   * Each value names where that one app's icon comes from, ahead of every
+   * tier `getIcon` walks:
+   *
+   *   app          the app's own artwork, remasked into the theme's shape
+   *   pack:<pkg>   that installed Nova/ADW pack's drawing for this app
+   *   image:<path> a photo the person chose, saved inside this app's files
+   *
+   * The WHOLE map every time, not a delta: native swaps it and evicts, so a
+   * lost call can never leave half an edit applied.
+   *
+   * A method only, like the icon pack calls above it: no new class, so no
+   * codec id moves. `@async` because a pack named here is parsed before the
+   * reply, which is what lets Dart re-request the icon knowing it is ready.
+   */
+  fun setIconOverrides(overrides: Map<String, String>, callback: (Result<Unit>) -> Unit)
+  /**
    * Fire an arbitrary view intent and let Android pick who handles it.
    *
    * ─── WHY THIS IS NOT `openAndroidSettings` WITH A WIDER DOC ───────────────
@@ -1987,6 +2078,28 @@ interface LauncherHostApi {
    * there is no window to open it from or nothing can receive text.
    */
   fun shareText(text: String): Boolean
+  /**
+   * PHASE 5. Shortcuts from every app whose label contains [query], at most
+   * [limit]. One `getShortcuts` per user profile with no package set, which
+   * is how the platform answers "all of them" in a single binder call; asking
+   * app by app on each keystroke would be hundreds. Never cached natively,
+   * for the same reason [shortcutsFor] is not: these are the apps' live state.
+   */
+  fun searchShortcuts(query: String, limit: Long, callback: (Result<List<SearchedShortcut>>) -> Unit)
+  /**
+   * PHASE 6. How apps open from now on: 'zoom' | 'reveal' | 'fade' |
+   * 'slide' | 'none'. Sent when the theme resolves, like [setIconPack], so
+   * [launchApp] keeps its signature and every caller gets the distro's style
+   * without passing it. An unknown value is treated as 'zoom'.
+   */
+  fun setLaunchStyle(style: String)
+  /**
+   * PHASE 6. The system wallpaper's main colours as unsigned ARGB, most
+   * prominent first (`WallpaperColors` primary, secondary, tertiary). Empty
+   * below Android 8.1 or when the system cannot describe the wallpaper. Dart
+   * picks the accent and makes it readable; native only reports.
+   */
+  fun wallpaperColors(callback: (Result<List<Long>>) -> Unit)
 
   companion object {
     /** The codec used by LauncherHostApi. */
@@ -2678,6 +2791,25 @@ interface LauncherHostApi {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.setIconOverrides$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val overridesArg = args[0] as Map<String, String>
+            api.setIconOverrides(overridesArg) { result: Result<Unit> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(LauncherApiPigeonUtils.wrapError(error))
+              } else {
+                reply.reply(LauncherApiPigeonUtils.wrapResult(null))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.openIntent$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
@@ -3060,6 +3192,63 @@ interface LauncherHostApi {
               LauncherApiPigeonUtils.wrapError(exception)
             }
             reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.searchShortcuts$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val queryArg = args[0] as String
+            val limitArg = args[1] as Long
+            api.searchShortcuts(queryArg, limitArg) { result: Result<List<SearchedShortcut>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(LauncherApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(LauncherApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.setLaunchStyle$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val styleArg = args[0] as String
+            val wrapped: List<Any?> = try {
+              api.setLaunchStyle(styleArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              LauncherApiPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.wallpaperColors$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            api.wallpaperColors{ result: Result<List<Long>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(LauncherApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(LauncherApiPigeonUtils.wrapResult(data))
+              }
+            }
           }
         } else {
           channel.setMessageHandler(null)

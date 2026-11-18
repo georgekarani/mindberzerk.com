@@ -11,6 +11,7 @@ import 'kickoff_drawer.dart';
 import 'library_view.dart';
 import 'new_app_dot.dart';
 import 'query_drawer.dart';
+import 'terminal_tip.dart';
 import 'tiling_launcher.dart';
 import 'tool_drawer.dart';
 import 'whisker_drawer.dart';
@@ -42,7 +43,9 @@ class ShellDrawer extends StatelessWidget {
 
   /// Every drawer, wrapped once so its icons can mark newly installed apps.
   @override
-  Widget build(BuildContext context) => NewAppDotScope(child: _drawer(context));
+  Widget build(BuildContext context) => NewAppDotScope(
+        child: TerminalTip(theme: theme, child: _drawer(context)),
+      );
 
   Widget _drawer(BuildContext context) {
     // ─── THE DISTRO GETS THE FIRST WORD ──────────────────────────────────

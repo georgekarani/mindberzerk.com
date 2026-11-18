@@ -52,6 +52,10 @@ const _backgroundChoices = <({String labelKey, double opacity})>[
   (labelKey: 'desklets.solid', opacity: 0.92),
 ];
 
+/// Content scale, as offered. 100% is the widget as drawn; see
+/// content_scale.dart for why this is a layout change and not a zoom.
+const _scaleChoices = <double>[0.8, 0.9, 1.0, 1.1, 1.2];
+
 /// theme-exempt: a per-widget accent is by definition not the theme's, and this
 /// is the fixed set offered beside it. The first entry is null, meaning follow.
 const _accentChoices = <String?>[
@@ -107,9 +111,13 @@ class _Body extends ConsumerWidget {
           );
     }
 
-    // A hosted third-party widget draws its own contents, so only its frame is
-    // ours to shape. Saying so beats offering two controls that do nothing.
+    // A hosted third-party widget draws its own contents and colours. Its
+    // corners, size and backing are applied natively around it (PHASE 4);
+    // its accent is the app's, so that control is not offered.
     final hosted = desklet.kind == 'appwidget';
+    final bare =
+        theme.spec.desklets.skinFor(theme.shell, desklet.kind).surface ==
+            DeskletSurface.bare;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -120,27 +128,44 @@ class _Body extends ConsumerWidget {
           _Label(text: context.t('desklets.corners')),
           _Choices(
             labels: [for (final c in _cornerChoices) context.t(c.labelKey)],
-            selected: _nearestCorner(config['radius']),
+            // A hosted widget untouched keeps the app's own corners, which
+            // is Square here; a drawn card's default is the distro's rounding.
+            selected: _nearestCorner(config['radius'], fallback: hosted ? 0 : 10),
             onPick: (i) => write({'radius': _cornerChoices[i].radius}),
+          ),
+          _Label(text: context.t('desklets.contentSize')),
+          _Choices(
+            labels: [
+              for (final v in _scaleChoices) '${(v * 100).round()}%',
+            ],
+            selected: _nearestScale(config['scale']),
+            // 100% clears the key, so the widget follows any future default
+            // rather than holding a value nobody chose.
+            onPick: (i) => write(
+              {'scale': _scaleChoices[i] == 1.0 ? null : _scaleChoices[i]},
+            ),
+          ),
+          _Label(text: context.t('desklets.background')),
+          _Choices(
+            labels: [for (final b in _backgroundChoices) context.t(b.labelKey)],
+            // What is actually drawn when nothing is set: no backing on a
+            // hosted widget or on a bare distro (GNOME), a card otherwise.
+            selected: _nearestBackground(
+              config['opacity'],
+              fallback: hosted || bare ? 0 : 0.72,
+            ),
+            onPick: (i) => write({'opacity': _backgroundChoices[i].opacity}),
           ),
           if (hosted) ...[
             const SizedBox(height: 14),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 18),
               child: Text(
-                context.t('desklets.hostedNote'),
+                context.t('desklets.hostedAccentNote'),
                 style: d.text.caption.copyWith(color: d.colors.textMuted),
               ),
             ),
           ] else ...[
-            _Label(text: context.t('desklets.background')),
-            _Choices(
-              labels: [
-                for (final b in _backgroundChoices) context.t(b.labelKey)
-              ],
-              selected: _nearestBackground(config['opacity']),
-              onPick: (i) => write({'opacity': _backgroundChoices[i].opacity}),
-            ),
             _Label(text: context.t('desklets.accent')),
             _Swatches(
               themeAccent: theme.palette.accent,
@@ -163,8 +188,8 @@ class _Body extends ConsumerWidget {
   /// Which corner choice a stored radius corresponds to. Nearest rather than
   /// exact, so a value authored by a theme's skin still lights a button up
   /// instead of leaving all three dark.
-  static int _nearestCorner(Object? raw) {
-    final v = raw is num ? raw.toDouble() : 10.0;
+  static int _nearestCorner(Object? raw, {double fallback = 10}) {
+    final v = raw is num ? raw.toDouble() : fallback;
     var best = 0;
     for (var i = 1; i < _cornerChoices.length; i++) {
       if ((_cornerChoices[i].radius - v).abs() <
@@ -175,8 +200,19 @@ class _Body extends ConsumerWidget {
     return best;
   }
 
-  static int _nearestBackground(Object? raw) {
-    final v = raw is num ? raw.toDouble() : 0.72;
+  static int _nearestScale(Object? raw) {
+    final v = raw is num ? raw.toDouble() : 1.0;
+    var best = 0;
+    for (var i = 1; i < _scaleChoices.length; i++) {
+      if ((_scaleChoices[i] - v).abs() < (_scaleChoices[best] - v).abs()) {
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  static int _nearestBackground(Object? raw, {double fallback = 0.72}) {
+    final v = raw is num ? raw.toDouble() : fallback;
     var best = 0;
     for (var i = 1; i < _backgroundChoices.length; i++) {
       if ((_backgroundChoices[i].opacity - v).abs() <

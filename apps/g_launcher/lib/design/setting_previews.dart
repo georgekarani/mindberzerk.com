@@ -946,7 +946,7 @@ class PanelSlider extends StatelessWidget {
     super.key,
     required this.icon,
     required this.label,
-    required this.sub,
+    this.sub,
     required this.value,
     required this.min,
     required this.max,
@@ -959,7 +959,7 @@ class PanelSlider extends StatelessWidget {
 
   final IconData icon;
   final String label;
-  final String sub;
+  final String? sub;
   final double value;
   final double min;
   final double max;
@@ -1045,11 +1045,14 @@ class PanelSlider extends StatelessWidget {
             label: format(value),
             onChanged: onChanged,
           ),
-          Padding(
-            padding: const EdgeInsets.only(left: 34, bottom: 4),
-            child:
-                Text(sub, style: d.text.caption.copyWith(color: c.textMuted)),
-          ),
+          if (sub != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 34, bottom: 4),
+              child: Text(
+                sub!,
+                style: d.text.caption.copyWith(color: c.textMuted),
+              ),
+            ),
         ],
       ),
     );

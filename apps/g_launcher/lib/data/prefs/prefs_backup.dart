@@ -563,6 +563,13 @@ class BackupSummary {
   /// the manifest.
   final Archive? archive;
 
+  /// Nothing worth restoring: no distro settings, no collections, no photos.
+  ///
+  /// What a fresh install writes before setup, and the file that used to win
+  /// a restore because it was the newest. It must never stand in for a real
+  /// backup, in the folder, in Google's copy, or in the pick.
+  bool get isBlank => themeCount == 0 && collectionCount == 0 && photoCount == 0;
+
   /// A display name for one distro id: the recorded name, or the id, which is
   /// still something a person can recognise.
   String nameOf(String id) => themeNames[id] ?? id;

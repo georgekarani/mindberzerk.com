@@ -25,11 +25,14 @@ import {
   isSafePackId,
   validateDraft,
   type ChromeName,
+  type SettingsLookName,
   type ShellName,
   type ThemeDraft,
   type ThemeFeatureJson,
   type ThemeSpecJson,
   CHROMES,
+  SETTINGS_LOOKS,
+  settingsLookLabels,
   SHELLS,
   WALLPAPER_FITS,
   canonWallpaperMeta,
@@ -145,6 +148,13 @@ function logoNamesOf(
 }
 
 type Tab = 'theme' | 'icons' | 'pricing';
+
+/** The store's three screenshots, in the order a card shows them. */
+const SHOT_SLOTS = [
+  { key: 'home', label: 'home screen' },
+  { key: 'drawer', label: 'app drawer' },
+  { key: 'settings', label: 'settings' },
+] as const;
 
 /**
  * Recover the distro id from a theme pack id.
@@ -376,10 +386,25 @@ export function DistroWorkspace({
   // a file the spec does not claim as a logo is a wallpaper, which also covers
   // drafts saved before logos existed.
   const initialLogoNames = logoNamesOf(initial?.spec);
+  const initialShotNames = new Set(initial?.spec?.screenshots ?? []);
   const [wallpapers, setWallpapers] = React.useState<Asset[]>(() =>
     initialAssets
-      .filter((a) => a.file !== initialLogoNames.light && a.file !== initialLogoNames.dark)
+      .filter(
+        (a) =>
+          a.file !== initialLogoNames.light &&
+          a.file !== initialLogoNames.dark &&
+          !initialShotNames.has(a.file),
+      )
       .map((a) => assetFromDataUrl(a.file, a.dataUrl)),
+  );
+  // Store screenshots, one slot each, in the order the store shows them. Kept
+  // apart from the wallpapers so a screenshot can never be offered as one.
+  const [shots, setShots] = React.useState<(Asset | null)[]>(() =>
+    SHOT_SLOTS.map((slot) => {
+      const name = (initial?.spec?.screenshots ?? []).find((n) => n.startsWith(`shot_${slot.key}.`));
+      const hit = name ? initialAssets.find((a) => a.file === name) : null;
+      return hit ? assetFromDataUrl(hit.file, hit.dataUrl) : null;
+    }),
   );
   // Framing lives BESIDE the assets, keyed by filename, exactly as it ships.
   // Hanging it off the Asset objects would look tidier and would lose it on
@@ -721,12 +746,13 @@ export function DistroWorkspace({
           .filter((e): e is readonly [string, WallpaperMetaJson] => e[1] != null),
       ),
       logo,
+      screenshots: shots.filter((a): a is Asset => a != null).map((a) => a.name),
       // `?? undefined` rather than null: `pruneIcons` in theme-spec drops absent
       // keys, and a distro with no hero pack should ship no key at all rather
       // than an explicit null that reads as a deliberate empty.
       icons: { ...spec.icons, heroPack: heroPackId ?? undefined },
     };
-  }, [spec, themePackId, wallpapers, wallpaperMeta, logoLight, logoDark, heroPackId]);
+  }, [spec, themePackId, wallpapers, wallpaperMeta, logoLight, logoDark, shots, heroPackId]);
 
   const themeDraft: ThemeDraft = {
     id: themePackId,
@@ -991,6 +1017,11 @@ export function DistroWorkspace({
         fd.append('files', new File([logoDark.blob], logoDark.name, { type: logoDark.blob.type || 'image/png' }));
         fd.append('paths', logoDark.name);
       }
+      for (const shot of shots) {
+        if (!shot) continue;
+        fd.append('files', new File([shot.blob], shot.name, { type: shot.blob.type || 'image/webp' }));
+        fd.append('paths', shot.name);
+      }
 
       // The inline icon set, saved as the icon-pack draft it will publish as.
       // The comment above used to claim icon art "is saved with the icon pack",
@@ -1044,6 +1075,7 @@ export function DistroWorkspace({
         ...wallpapers.map((w) => ({ file: w.name })),
         ...(logoLight ? [{ file: logoLight.name }] : []),
         ...(logoDark && logoDark.name !== logoLight?.name ? [{ file: logoDark.name }] : []),
+        ...shots.filter((a): a is Asset => a != null).map((a) => ({ file: a.name })),
       ];
       const meta = {
         app,
@@ -1085,6 +1117,7 @@ export function DistroWorkspace({
       for (const w of wallpapers) fd.append(`asset:${w.name}`, w.blob, w.name);
       if (logoLight) fd.append(`asset:${logoLight.name}`, logoLight.blob, logoLight.name);
       if (logoDark && logoDark.name !== logoLight?.name) fd.append(`asset:${logoDark.name}`, logoDark.blob, logoDark.name);
+      for (const shot of shots) if (shot) fd.append(`asset:${shot.name}`, shot.blob, shot.name);
       // One blob per FILE. `order` may name the same file three times (one per
       // package in a role) and appending it three times would upload the same
       // bytes three times and, worse, make the route's file list disagree with
@@ -1243,6 +1276,14 @@ export function DistroWorkspace({
                         onChange={(v) => setS({ chromeFamily: v === 'auto' ? null : v })}
                       />
                     </Field>
+                    <Field label="settings look" hint="auto = follow chrome">
+                      <SelectInput<SettingsLookName | 'auto'>
+                        value={spec.settingsLook ?? 'auto'}
+                        options={['auto', ...SETTINGS_LOOKS] as (SettingsLookName | 'auto')[]}
+                        labels={settingsLookLabels}
+                        onChange={(v) => setS({ settingsLook: v === 'auto' ? null : v })}
+                      />
+                    </Field>
                     <Field label="min app version">
                       <NumberInput value={spec.minAppVersion} min={0} step={1} onChange={(v) => setS({ minAppVersion: v ?? 0 })} />
                     </Field>
@@ -1325,6 +1366,24 @@ export function DistroWorkspace({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 12 }}>
                     <AssetSlot label="logo (light bg)" asset={logoLight} onPick={(file) => pickAsset(file, `logo_light.${extFor(file)}`, setLogoLight)} onClear={() => setLogoLight(null)} />
                     <AssetSlot label="logo (dark bg)" asset={logoDark} onPick={(file) => pickAsset(file, `logo_dark.${extFor(file)}`, setLogoDark)} onClear={() => setLogoDark(null)} />
+                  </div>
+                </Section>
+
+                <Section title="store screenshots" hint="real phone screenshots, portrait; the store shows these instead of the drawn preview">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
+                    {SHOT_SLOTS.map((slot, i) => (
+                      <AssetSlot
+                        key={slot.key}
+                        label={slot.label}
+                        asset={shots[i]}
+                        onPick={(file) =>
+                          pickAsset(file, `shot_${slot.key}.${extFor(file)}`, (a) =>
+                            setShots((prev) => prev.map((s, j) => (j === i ? a : s))),
+                          )
+                        }
+                        onClear={() => setShots((prev) => prev.map((s, j) => (j === i ? null : s)))}
+                      />
+                    ))}
                   </div>
                 </Section>
 

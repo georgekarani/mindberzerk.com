@@ -27,6 +27,8 @@ import '../boot/grub_screen.dart';
 import '../boot/splash_sequence.dart';
 import '../desklets/desklet_edit.dart';
 import '../desklets/widget_stage.dart';
+import '../drawer/auto_folders.dart';
+import '../update/update_prompt.dart';
 import 'quick_settings.dart';
 import '../drawer/library_view.dart' show librarySearchingProvider;
 import 'workspaces/workspace_controller.dart';
@@ -288,7 +290,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
             child: _PackUpdateMessenger(
               name: t.spec.name,
-              child: BootGate(
+              child: UpdatePrompt(
+                child: AutoFolders(
+                theme: t,
+                child: BootGate(
                 colors: BootColors.fromPalette(
                   accent: t.spec.palette.accent,
                   background: t.spec.palette.bgBottom,
@@ -414,6 +419,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     );
                   },
                 ),
+              ),
+              ),
               ),
             ),
           );

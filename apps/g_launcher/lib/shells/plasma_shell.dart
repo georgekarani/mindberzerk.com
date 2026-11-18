@@ -24,6 +24,8 @@ import '../../../features/home/gnome/gnome_dock.dart' show DockEntry;
 import '../../../features/home/workspaces/workspace_controller.dart';
 import '../../../features/panel/panel_bar.dart';
 import '../../../features/panel/panel_skin.dart';
+import '../features/desklets/desklet_edit_bar.dart';
+import '../features/desklets/desklet_edit.dart';
 import '../features/dock/dock_entrance.dart';
 import '../features/home/workspaces/workspace_canvas.dart';
 import 'safe_page.dart';
@@ -260,6 +262,11 @@ class _PlasmaShellState extends ConsumerState<PlasmaShell> {
             child: _Dock(theme: theme),
           ),
         if (activitiesOpen) Positioned.fill(child: ShellDrawer(theme: theme)),
+        // The floating edit pill. Every way into edit mode needs a visible way
+        // out, and this shell had none. Renders nothing unless editing, and
+        // stays away while the panel's own sheet is the editor.
+        if (!activitiesOpen && !ref.watch(deskletEditProvider).editingPanel)
+          DeskletEditBar(theme: theme),
       ],
     );
   }
@@ -300,6 +307,7 @@ class _Dock extends ConsumerWidget {
       frequent: frequent,
       capacity: capacity,
       defaultLimit: AquaDockMetrics.minCapacity + 1,
+      fill: [for (final a in apps) a.componentKey],
     );
     if (keys.isEmpty) {
       keys = [

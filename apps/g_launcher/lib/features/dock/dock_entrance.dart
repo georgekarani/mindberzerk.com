@@ -48,15 +48,17 @@ class _DockEntranceState extends State<DockEntrance>
     with SingleTickerProviderStateMixin {
   static const _duration = Duration(milliseconds: 420);
 
-  late final AnimationController _t =
-      AnimationController(vsync: this, duration: _duration, value: 1);
-  late final AppLifecycleListener _life =
-      AppLifecycleListener(onResume: _play);
+  // Both created in initState, never lazily. With mode 'none' the build
+  // never touched `_t`, so the first read was in dispose(), and creating a
+  // ticker there looks up TickerMode on a deactivated element and throws.
+  late final AnimationController _t;
+  late final AppLifecycleListener _life;
 
   @override
   void initState() {
     super.initState();
-    _life; // created eagerly so the first resume is heard
+    _t = AnimationController(vsync: this, duration: _duration, value: 1);
+    _life = AppLifecycleListener(onResume: _play);
     _play();
   }
 

@@ -1,5 +1,10 @@
 package com.mindhunter.g_launcher.system
 
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.MediaPlayer
 import android.service.wallpaper.WallpaperService
 import android.util.Log
@@ -48,20 +53,88 @@ class MotionWallpaperService : WallpaperService() {
         /** Where Dart puts the copy this service plays. */
         fun currentFile(context: android.content.Context): File =
             File(File(context.filesDir, "motion").apply { mkdirs() }, "current.mp4")
+
+        /**
+         * The lock screen's own video, when the user chose one. Written by Dart
+         * straight into filesDir (path_provider's support directory), so no
+         * bridge call is needed to set or clear it. Absent means the lock screen
+         * plays the home video, which is what it always did.
+         */
+        fun lockFile(context: android.content.Context): File =
+            File(File(context.filesDir, "motion").apply { mkdirs() }, "lock.mp4")
     }
 
     override fun onCreateEngine(): Engine = MotionEngine()
 
     private inner class MotionEngine : Engine() {
         private var player: MediaPlayer? = null
+        private var holder: SurfaceHolder? = null
+
+        /** The file playing now and its timestamp, so a replaced video reloads. */
+        private var playing: File? = null
+        private var playingStamp = 0L
+
+        // ─── ONE ENGINE, TWO VIDEOS ─────────────────────────────────────────
+        //
+        // A third-party app cannot set a different live wallpaper on the lock
+        // screen: the flags that would allow it are system APIs. What it can do
+        // is draw something different while the phone is locked. So this
+        // engine plays lock.mp4 from screen-off until the user unlocks, and
+        // current.mp4 after. Switching on screen-off rather than screen-on
+        // means the lock video is already playing when the screen lights.
+        private val lockState = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                holder?.let { swapIfNeeded(it) }
+            }
+        }
+        private var lockStateRegistered = false
+
+        override fun onCreate(surfaceHolder: SurfaceHolder) {
+            super.onCreate(surfaceHolder)
+            if (isPreview) return
+            registerReceiver(
+                lockState,
+                IntentFilter().apply {
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_USER_PRESENT)
+                },
+            )
+            lockStateRegistered = true
+        }
+
+        override fun onDestroy() {
+            if (lockStateRegistered) {
+                runCatching { unregisterReceiver(lockState) }
+                lockStateRegistered = false
+            }
+            super.onDestroy()
+        }
+
+        /** The video this moment calls for: the lock one while locked, if set. */
+        private fun wanted(): File {
+            val ctx = this@MotionWallpaperService
+            val lock = lockFile(ctx)
+            val locked = (getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager)
+                .isKeyguardLocked
+            return if (locked && lock.exists()) lock else currentFile(ctx)
+        }
+
+        private fun swapIfNeeded(holder: SurfaceHolder) {
+            val next = wanted()
+            if (next == playing && next.lastModified() == playingStamp) return
+            stop()
+            start(holder)
+        }
 
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
+            this.holder = holder
             start(holder)
         }
 
         override fun onSurfaceDestroyed(holder: SurfaceHolder) {
             stop()
+            this.holder = null
             super.onSurfaceDestroyed(holder)
         }
 
@@ -79,6 +152,9 @@ class MotionWallpaperService : WallpaperService() {
          * the first frame each time.
          */
         override fun onVisibilityChanged(visible: Boolean) {
+            // Coming into view is also when a replaced or newly chosen video
+            // should take over, and when the lock state may have moved on.
+            if (visible) holder?.let { swapIfNeeded(it) }
             val p = player ?: return
             try {
                 if (visible) p.start() else p.pause()
@@ -88,7 +164,7 @@ class MotionWallpaperService : WallpaperService() {
         }
 
         private fun start(holder: SurfaceHolder) {
-            val file = currentFile(this@MotionWallpaperService)
+            val file = wanted()
             if (!file.exists()) {
                 // Nothing to play. Left as a black surface rather than crashing:
                 // the user can reach the picker and choose again, and a wallpaper
@@ -115,6 +191,8 @@ class MotionWallpaperService : WallpaperService() {
                     }
                     prepareAsync()
                 }
+                playing = file
+                playingStamp = file.lastModified()
             } catch (e: Exception) {
                 Log.w(TAG, "could not open the motion wallpaper", e)
                 stop()
@@ -129,6 +207,7 @@ class MotionWallpaperService : WallpaperService() {
             }
             player?.release()
             player = null
+            playing = null
         }
     }
 }

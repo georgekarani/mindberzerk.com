@@ -5,6 +5,7 @@ import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
 import '../../core/single_flight_picker.dart';
@@ -17,6 +18,7 @@ import '../../design/branded_message.dart';
 import '../../design/components/components.dart';
 import '../../design/device_preview.dart';
 import '../../engine/effective_theme.dart';
+import '../../system/wallpaper_accent.dart';
 import '../../engine/theme_engine.dart';
 import '../../engine/theme_spec.dart' show ShellKind;
 import '../../engine/theme_source.dart';
@@ -52,6 +54,10 @@ final rotationOptions = <String, int?>{
 /// photos and collection copies out of that resolution, since they are
 /// absolute paths already where they belong.
 String encodeWallpaperFor(EffectiveTheme theme, String source) {
+  // A fully qualified bundle key (another distro's preset, from My distros)
+  // is not a reference into THIS theme. Resolving it through an installed
+  // pack's directory would point at a file that pack does not have.
+  if (source.startsWith('assets/')) return encodeWallpaperSource(source);
   final asset = isThemeAssetRef(source) ? theme.spec.asset(source) : null;
   return encodeWallpaperSource(asset?.path ?? source);
 }
@@ -431,6 +437,12 @@ Future<bool> applyWallpaper(
         ),
       ),
     );
+    // The Wallpaper accent follows the new picture. Android describes a
+    // wallpaper's colours a moment after it is set, so ask again shortly
+    // rather than at once. PHASE 6.
+    refreshWallpaperColorsSoon(
+      () => ref.invalidate(wallpaperColorsProvider),
+    );
   }
   if (context.mounted) {
     context.showMessage(
@@ -458,7 +470,7 @@ Future<bool> applyWallpaper(
 /// that field is what the theme resolve treats as "the user chose this", and
 /// leaving it pointed at something no longer in the list is a choice the user
 /// can neither see nor change.
-Future<void> setPresetHidden(
+Future<void> setWallpaperHidden(
   BuildContext context,
   WidgetRef ref,
   EffectiveTheme theme,
@@ -466,10 +478,48 @@ Future<void> setPresetHidden(
   String src,
   bool hide,
 ) async {
-  // Both read before the first await, while the ref is still mounted.
+  // Read before the first await, while the ref is still mounted. Undo runs
+  // later still, possibly after this page has gone, so it gets these too.
   final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
   final host = ref.read(launcherHostApiProvider);
+  final others = otherDistroFiles(
+    ref.read(otherDistroWallpapersProvider).value ?? const [],
+  );
 
+  Future<void> write(bool hidden) => _writeHidden(
+        notifier,
+        host,
+        theme,
+        collections,
+        others,
+        src,
+        hidden,
+      );
+
+  await write(hide);
+  if (!context.mounted) return;
+  context.showMessage(
+    hide ? tr('settings.hiddenFromThisDistro') : tr('settings.backInTheSet'),
+    actionLabel: hide ? tr('common.undo') : null,
+    onAction: hide ? () => write(false) : null,
+  );
+}
+
+/// The writes behind [setWallpaperHidden], free of any widget so Undo can run
+/// them after the page is gone.
+///
+/// One set serves every tab: a preset is a bare name, another distro's file a
+/// bundle key or pack path, a photo or collection image an absolute path, so
+/// no two tabs can ever share an entry.
+Future<void> _writeHidden(
+  PrefsNotifier notifier,
+  LauncherHostApi host,
+  EffectiveTheme theme,
+  List<WallpaperCollection> collections,
+  List<String> others,
+  String src,
+  bool hide,
+) async {
   // TWO sets, and they are not redundant. This one is for the rotation call at
   // the bottom, which needs the new value before the provider has reloaded; the
   // WRITE below builds its own off the live prefs inside `edit`, so two quick
@@ -491,8 +541,10 @@ Future<void> setPresetHidden(
     return p.copyWith(wallpapersHidden: live);
   });
 
+  // The wallpaper belongs to Android and stays on screen, but a hidden one
+  // cannot remain the user's recorded choice. clearing(): copyWith cannot
+  // write null.
   if (hide && theme.prefs.wallpaperCurrent == src) {
-    // clearing(), not copyWith: copyWith cannot write null.
     await notifier.edit((p) => p.clearing(wallpaperCurrent: true));
   }
 
@@ -504,13 +556,8 @@ Future<void> setPresetHidden(
     collections,
     source: theme.prefs.wallpaperRotationSource,
     hidden: next,
+    others: others,
   );
-
-  if (context.mounted) {
-    context.showMessage(hide
-        ? tr('settings.hiddenFromThisDistro')
-        : tr('settings.backInTheSet'));
-  }
 }
 
 /// The wallpaper on screen right now, as something drawable, or null.
@@ -550,7 +597,15 @@ ImageProvider? wallpaperImageFor(EffectiveTheme theme, String? source) {
 String? previewWallpaperFor(EffectiveTheme theme) {
   final current = theme.prefs.wallpaperCurrent;
   if (current != null && current.isNotEmpty) return current;
-  for (final w in theme.spec.wallpapers) {
+  // Nothing chosen, so the wallpaper up is the one the theme seeded, and the
+  // seed follows the mode (see the seeding branch in effective_theme.dart).
+  // Reading only the dark list here ringed Ubuntu's purple preset as current
+  // while light mode had put the grey one on the phone.
+  final spec = theme.spec;
+  final offered = !theme.dark && spec.wallpapersLight.isNotEmpty
+      ? spec.wallpapersLight
+      : spec.wallpapers;
+  for (final w in offered) {
     if (!theme.prefs.wallpapersHidden.contains(w)) return w;
   }
   return null;
@@ -651,32 +706,76 @@ String rotationFramingJson(
   return out.isEmpty ? '' : jsonEncode(out);
 }
 
+///
+/// [others] is every other installed distro's wallpapers, flattened (see
+/// [otherDistroFiles]). Callers that cannot know them pass nothing, and an
+/// `others` rotation then falls to the distro pool like any other empty one.
 List<String> rotationPoolFor(
   EffectiveTheme theme,
   List<WallpaperCollection> collections,
   String? source, {
   Set<String>? hidden,
+  List<String> others = const [],
 }) {
-  // Hiding applies to the DISTRO'S presets only. The user's own photos have a
-  // real Remove that deletes a real copy, and a collection is theirs to edit,
-  // so neither is filtered here.
+  // A hold hides a picture from its tab, on every tab, and rotation never
+  // shows what the user has hidden.
   final skip = hidden ?? theme.prefs.wallpapersHidden;
-  final own = [
-    for (final w in theme.spec.wallpapers)
-      if (!skip.contains(w)) w,
-    ...theme.prefs.wallpapers,
-  ];
-  if (source == 'all') {
-    return [...own, for (final c in collections) ...c.paths];
-  }
-  if (source != null && source.startsWith('collection:')) {
-    final id = source.substring('collection:'.length);
-    for (final c in collections) {
-      if (c.id == id) return c.paths;
-    }
-  }
-  return own;
+  List<String> shown(Iterable<String> xs) => [
+        for (final x in xs)
+          if (!skip.contains(x)) x,
+      ];
+  final presets = shown(orderedPresets(theme));
+  final photos = shown(theme.prefs.wallpapers);
+  final otherShown = shown(others);
+  // The legacy pool, from before rotation followed the tab: stored null.
+  final own = [...presets, ...photos];
+  final every = shown([for (final c in collections) ...c.paths]);
+
+  final pool = switch (source) {
+    RotationSource.distro => presets,
+    RotationSource.others => otherShown,
+    RotationSource.photos => photos,
+    RotationSource.collections => every,
+    RotationSource.all => [...presets, ...otherShown, ...photos, ...every],
+    final s? when s.startsWith(RotationSource.collectionPrefix) => [
+        for (final c in collections)
+          if (c.id == s.substring(RotationSource.collectionPrefix.length))
+            ...c.paths,
+      ],
+    _ => own,
+  };
+  return pool.isEmpty ? own : pool;
 }
+
+/// What rotation draws from, one value per wallpaper tab.
+///
+/// The Change button writes the source of the tab it was pressed on, so the
+/// pictures that rotate are the pictures on screen. Stored null (and the
+/// older `all`) still resolve as before, for anyone who set rotation before
+/// it followed the tab.
+abstract final class RotationSource {
+  static const distro = 'distro';
+  static const others = 'others';
+  static const photos = 'photos';
+  static const collections = 'collections';
+  /// Every tab at once. The stored string predates the tabs, and kept its
+  /// meaning: everything there is.
+  static const all = 'all';
+  static const collectionPrefix = 'collection:';
+
+  static String collection(String id) => '$collectionPrefix$id';
+
+  /// True when [source] draws from collections: all of them or one.
+  static bool isCollections(String? source) =>
+      source == collections ||
+      (source?.startsWith(collectionPrefix) ?? false);
+}
+
+/// Every other installed distro's wallpapers as one list, in catalogue order.
+List<String> otherDistroFiles(List<OtherDistroWallpapers> others) => [
+      for (final o in others)
+        for (final file in o.files) o.source.asset(file).path,
+    ];
 
 /// What the source row calls [source]. Falls to 'This distro' exactly when
 /// [rotationPoolFor] falls to the distro pool, so the label and the behaviour
@@ -685,9 +784,20 @@ String rotationSourceLabel(
   String? source,
   List<WallpaperCollection> collections,
 ) {
-  if (source == 'all') return tr('settings.everything');
-  if (source != null && source.startsWith('collection:')) {
-    final id = source.substring('collection:'.length);
+  switch (source) {
+    case RotationSource.distro:
+      return tr('wallpaper.tabDistro');
+    case RotationSource.others:
+      return tr('wallpaper.tabMyDistros');
+    case RotationSource.photos:
+      return tr('wallpaper.tabPhotos');
+    case RotationSource.collections:
+      return tr('settings.collections');
+    case RotationSource.all:
+      return tr('wallpaper.allTabs');
+  }
+  if (source != null && source.startsWith(RotationSource.collectionPrefix)) {
+    final id = source.substring(RotationSource.collectionPrefix.length);
     for (final c in collections) {
       if (c.id == id) return c.name;
     }
@@ -711,10 +821,17 @@ Future<void> rescheduleRotation(
   required String? source,
   String? fit,
   Set<String>? hidden,
+  List<String> others = const [],
 }) async {
   final minutes = theme.prefs.wallpaperRotationMinutes;
   if (minutes == null) return;
-  final pool = rotationPoolFor(theme, collections, source, hidden: hidden);
+  final pool = rotationPoolFor(
+    theme,
+    collections,
+    source,
+    hidden: hidden,
+    others: others,
+  );
   // No length branch: Kotlin's schedule() cancels itself on an empty list,
   // and a one-item pool re-applying the same image is harmless.
   await host.scheduleWallpaperRotation(
@@ -770,11 +887,13 @@ final wallpaperRotationSyncProvider = FutureProvider<void>((ref) async {
     return;
   }
 
-  final pool = rotationPoolFor(
-    theme,
-    collections,
-    theme.prefs.wallpaperRotationSource,
-  );
+  final source = theme.prefs.wallpaperRotationSource;
+  // Watched only when rotation draws from it: resolving every installed pack's
+  // spec is not free, and no other source needs it.
+  final others = source == RotationSource.others || source == RotationSource.all
+      ? otherDistroFiles(await ref.watch(otherDistroWallpapersProvider.future))
+      : const <String>[];
+  final pool = rotationPoolFor(theme, collections, source, others: others);
   api.scheduleWallpaperRotation(
     minutes,
     pool.map((p) => encodeWallpaperFor(theme, p)).toList(),
@@ -910,6 +1029,50 @@ Future<void> pickMotion(BuildContext context, WidgetRef ref) async {
 ///
 /// Three bands rather than a formula. The number is advice a person reads, and
 /// "under 15 MB" is followed where "under 14.7 MB" is not.
+/// Where the lock screen's own video lives: `filesDir/motion/lock.mp4`, the
+/// file `MotionWallpaperService.lockFile` plays while the phone is locked.
+/// Written here directly, so setting it needs no bridge call.
+Future<File> lockMotionFile() async {
+  final base = await getApplicationSupportDirectory();
+  final dir = Directory('${base.path}/motion');
+  if (!dir.existsSync()) dir.createSync(recursive: true);
+  return File('${dir.path}/lock.mp4');
+}
+
+/// Is a separate lock screen video set?
+final lockMotionProvider = FutureProvider<bool>((ref) async {
+  return (await lockMotionFile()).existsSync();
+});
+
+/// Pick a video for the lock screen only. The running live wallpaper picks it
+/// up the next time the screen goes off, with no chooser to go through again.
+Future<void> pickLockMotion(BuildContext context, WidgetRef ref) async {
+  final picked = await SingleFlightPicker.pickVideo();
+  if (picked == null || !context.mounted) return;
+  final cap = motionSizeCapMb(context);
+  final source = File(picked.path);
+  final mb = await source.length() / (1024 * 1024);
+  if (!context.mounted) return;
+  if (mb > cap) {
+    context.showMessage(context.t('settings.thatVideoIsTooBig', {'mb': '$cap'}));
+    return;
+  }
+  try {
+    await source.copy((await lockMotionFile()).path);
+  } catch (_) {
+    if (context.mounted) context.showMessage(context.t('settings.couldNotAddThat'));
+    return;
+  }
+  ref.invalidate(lockMotionProvider);
+}
+
+/// Back to one video on both screens.
+Future<void> clearLockMotion(WidgetRef ref) async {
+  final f = await lockMotionFile();
+  if (f.existsSync()) await f.delete();
+  ref.invalidate(lockMotionProvider);
+}
+
 int motionSizeCapMb(BuildContext context) {
   final w = MediaQuery.of(context).size.width *
       MediaQuery.of(context).devicePixelRatio;
@@ -1317,15 +1480,11 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
     // is per pack (a title, a source, its files) and the strip's is one flat
     // list plus a lookup. Keeping the provider grouped means the section could
     // go back to headings without touching it.
-    final otherFiles = <String>[];
-    final otherSources = <String, ThemeSource>{};
-    for (final o in others) {
-      for (final file in o.files) {
-        final path = o.source.asset(file).path;
-        otherFiles.add(path);
-        otherSources[path] = o.source;
-      }
-    }
+    final otherFiles = otherDistroFiles(others);
+    final otherSources = <String, ThemeSource>{
+      for (final o in others)
+        for (final file in o.files) o.source.asset(file).path: o.source,
+    };
 
     final colsAsync = ref.watch(wallpaperCollectionsProvider);
     final collections = colsAsync.hasValue
@@ -1383,10 +1542,65 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
       await keepPhoto(picked.path);
     }
 
+    final tabs = <_Source>[
+      if (presets.isNotEmpty) _Source.distro,
+      if (otherFiles.isNotEmpty) _Source.others,
+      _Source.photos,
+      _Source.collections,
+      _Source.live,
+    ];
+    final tab = tabs.contains(_tab) ? _tab : tabs.first;
+
     final rotationSource = theme.prefs.wallpaperRotationSource;
-    final pool = rotationPoolFor(theme, collections, rotationSource);
-    final canRotate = pool.length >= 2;
     final currentMinutes = theme.prefs.wallpaperRotationMinutes;
+
+    // ─── ROTATION FOLLOWS THE TAB ──────────────────────────────────────
+    //
+    // Change used to rotate whatever "Rotate from" named, which defaulted to
+    // this distro, so choosing a frequency on My distros or Photos rotated
+    // this distro's presets instead. The tab the button is pressed on is now
+    // the source. On Collections a single collection picked under More is
+    // kept; otherwise every collection rotates. Live has nothing to rotate.
+    final perTabSource = switch (tab) {
+      _Source.distro => RotationSource.distro,
+      _Source.others => RotationSource.others,
+      _Source.photos => RotationSource.photos,
+      _Source.collections => RotationSource.isCollections(rotationSource)
+          ? rotationSource
+          : RotationSource.collections,
+      _Source.live => null,
+    };
+    // All tabs, once chosen, holds on every tab but Live.
+    final tabSource =
+        rotationSource == RotationSource.all && perTabSource != null
+            ? RotationSource.all
+            : perTabSource;
+    final pool = tabSource == null
+        ? const <String>[]
+        : rotationPoolFor(theme, collections, tabSource, others: otherFiles);
+    // Exact length, not the fallback: an empty tab must not quietly rotate
+    // the distro pool instead.
+    final tabCount = switch (tab) {
+      _Source.distro => presets
+          .where((w) => !theme.prefs.wallpapersHidden.contains(w))
+          .length,
+      _Source.others => otherFiles.length,
+      _Source.photos => mine.length,
+      _Source.collections => [
+          for (final c in collections)
+            if (tabSource == RotationSource.collections ||
+                tabSource == RotationSource.collection(c.id))
+              ...c.paths,
+        ].length,
+      _Source.live => 0,
+    };
+    final canRotate = tabSource != null &&
+        (tabSource == RotationSource.all ? pool.length : tabCount) >= 2;
+    // Is the running rotation this tab's? Drives the button label and the
+    // check in the sheet, so another tab's rotation reads as Off here.
+    final rotatingHere = tabSource != null &&
+        currentMinutes != null &&
+        rotationSource == tabSource;
 
     // Open the rotation picker as a themed sheet. Captures + re-provides the
     // chrome across the modal route boundary (ThemedSheet handles that), so the
@@ -1400,10 +1614,38 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Widen this tab's rotation to every tab, or narrow it back.
+              // Points the running rotation at once; when rotation is off it
+              // only records the choice for the next frequency picked.
+              ThemedListRow(
+                icon: Icons.all_inclusive,
+                title: ctx.t('wallpaper.allTabs'),
+                trailing: tabSource == RotationSource.all
+                    ? Icon(Icons.check, size: 20, color: c.accent)
+                    : null,
+                onTap: () async {
+                  final next = tabSource == RotationSource.all
+                      ? perTabSource
+                      : RotationSource.all;
+                  Navigator.pop(ctx);
+                  await notifier.edit(
+                    (p) => p.copyWith(wallpaperRotationSource: next),
+                  );
+                  await rescheduleRotation(
+                    api,
+                    theme,
+                    collections,
+                    source: next,
+                    others: otherFiles,
+                  );
+                },
+              ),
               for (final e in rotationOptions.entries)
                 ThemedListRow(
                   title: e.key,
-                  trailing: e.value == currentMinutes
+                  trailing: (e.value == null
+                          ? !rotatingHere
+                          : rotatingHere && e.value == currentMinutes)
                       ? Icon(Icons.check, size: 20, color: c.accent)
                       : null,
                   onTap: () {
@@ -1413,9 +1655,13 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
                       // was cancelled. Nothing re-read it then;
                       // rescheduleRotation does now, and a stale interval
                       // would resurrect a rotation the user turned off.
+                      // A frequency also points rotation at this tab.
                       (p) => e.value == null
                           ? p.clearing(wallpaperRotationMinutes: true)
-                          : p.copyWith(wallpaperRotationMinutes: e.value),
+                          : p.copyWith(
+                              wallpaperRotationMinutes: e.value,
+                              wallpaperRotationSource: tabSource,
+                            ),
                     );
 
                     if (e.value == null) {
@@ -1467,16 +1713,22 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
                     theme,
                     collections,
                     source: value,
+                    others: otherFiles,
                   );
                 },
               );
           return Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              option(tr('settings.thisDistro'), null),
-              option(tr('settings.everything'), 'all'),
+              option(tr('wallpaper.allTabs'), RotationSource.all),
+              option(tr('wallpaper.tabDistro'), RotationSource.distro),
+              if (otherFiles.isNotEmpty)
+                option(tr('wallpaper.tabMyDistros'), RotationSource.others),
+              if (mine.isNotEmpty)
+                option(tr('wallpaper.tabPhotos'), RotationSource.photos),
+              option(tr('settings.collections'), RotationSource.collections),
               for (final col in collections)
-                option(col.name, 'collection:${col.id}'),
+                option(col.name, RotationSource.collection(col.id)),
               const SizedBox(height: 8),
             ],
           );
@@ -1504,17 +1756,30 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
       for (final w in presets)
         if (!hiddenPresets.contains(w)) w,
     ];
-
-    final tabs = <_Source>[
-      if (presets.isNotEmpty) _Source.distro,
-      if (otherFiles.isNotEmpty) _Source.others,
-      _Source.photos,
-      _Source.collections,
-      _Source.live,
+    // The same for the other tabs a hold can hide from.
+    final hiddenAll = theme.prefs.wallpapersHidden;
+    final hiddenOthers = {
+      for (final w in otherFiles)
+        if (hiddenAll.contains(w)) w,
+    };
+    final visibleOthers = [
+      for (final w in otherFiles)
+        if (!hiddenAll.contains(w)) w,
     ];
-    final tab = tabs.contains(_tab) ? _tab : tabs.first;
-    final canEdit =
-        tab == _Source.distro || (tab == _Source.photos && mine.isNotEmpty);
+    final hiddenMine = {
+      for (final w in mine)
+        if (hiddenAll.contains(w)) w,
+    };
+    final visibleMine = [
+      for (final w in mine)
+        if (!hiddenAll.contains(w)) w,
+    ];
+
+    // Edit is where hidden pictures come back, so every tab a hold can hide
+    // from gets it.
+    final canEdit = tab == _Source.distro ||
+        tab == _Source.others ||
+        (tab == _Source.photos && mine.isNotEmpty);
     final editing = _editing && canEdit;
 
     String tabLabel(_Source s) => context.t(switch (s) {
@@ -1557,14 +1822,26 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
       final next = [...presets];
       next.insert(to, next.removeAt(from));
       await notifier.edit((p) => p.copyWith(wallpaperOrder: next));
-      await rescheduleRotation(api, theme, collections, source: rotationSource);
+      await rescheduleRotation(
+        api,
+        theme,
+        collections,
+        source: rotationSource,
+        others: otherFiles,
+      );
     }
 
     Future<void> reorderMine(int from, int to) async {
       final next = [...mine];
       next.insert(to, next.removeAt(from));
       await notifier.edit((p) => p.copyWith(wallpapers: next));
-      await rescheduleRotation(api, theme, collections, source: rotationSource);
+      await rescheduleRotation(
+        api,
+        theme,
+        collections,
+        source: rotationSource,
+        others: otherFiles,
+      );
     }
 
     Future<void> resetAll() async {
@@ -1593,8 +1870,7 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
         builder: (ctx) => Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (collections.isNotEmpty)
-              ThemedListRow(
+            ThemedListRow(
                 icon: Icons.collections_outlined,
                 title: ctx.t('settings.rotateFrom'),
                 subtitle: rotationSourceLabel(rotationSource, collections),
@@ -1654,7 +1930,7 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
             editing: editing,
             hidden: editing ? hiddenPresets : const {},
             onOpen: (i) => preview(visiblePresets, i, ownSource),
-            onHide: (src, hide) => setPresetHidden(
+            onHide: (src, hide) => setWallpaperHidden(
               context,
               ref,
               theme,
@@ -1668,10 +1944,20 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
       _Source.others => padded(
           _WallpaperGrid(
             kit: kit,
-            sources: otherFiles,
+            sources: editing ? otherFiles : visibleOthers,
             sourceFor: otherSource,
             current: current,
-            onOpen: (i) => preview(otherFiles, i, otherSource),
+            editing: editing,
+            hidden: editing ? hiddenOthers : const {},
+            onOpen: (i) => preview(visibleOthers, i, otherSource),
+            onHide: (src, hide) => setWallpaperHidden(
+              context,
+              ref,
+              theme,
+              collections,
+              src,
+              hide,
+            ),
           ),
         ),
       _Source.photos => Column(
@@ -1680,11 +1966,20 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
             padded(
               _WallpaperGrid(
                 kit: kit,
-                sources: mine,
+                sources: editing ? mine : visibleMine,
                 sourceFor: ownSource,
                 current: current,
                 editing: editing,
-                onOpen: (i) => preview(mine, i, ownSource),
+                hidden: editing ? hiddenMine : const {},
+                onOpen: (i) => preview(visibleMine, i, ownSource),
+                onHide: (src, hide) => setWallpaperHidden(
+                  context,
+                  ref,
+                  theme,
+                  collections,
+                  src,
+                  hide,
+                ),
                 onRemove: (src) => _forget(context, ref, theme, src, apply),
                 onReorder: reorderMine,
                 onAdd: addPhoto,
@@ -1744,7 +2039,7 @@ class _WallpaperScreenState extends ConsumerState<WallpaperScreen> {
 
     final rotationLabel = rotationOptions.entries
         .firstWhere(
-          (e) => e.value == currentMinutes,
+          (e) => rotatingHere && e.value == currentMinutes,
           orElse: () => rotationOptions.entries.first,
         )
         .key;

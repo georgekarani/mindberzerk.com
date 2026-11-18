@@ -7,6 +7,7 @@ import '../../data/prefs/desklet_layout.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../design/branded_message.dart';
 import '../../engine/effective_theme.dart';
+import '../drawer/app_edit_sheet.dart';
 import '../settings/settings_screen.dart';
 import '../terminal/command_registry.dart';
 import '../terminal/terminal_screen.dart';
@@ -137,6 +138,10 @@ class TerminalCommands {
         _clearPane(ref, theme);
         return true;
 
+      case CommandAction.editApp:
+        _editApp(context, ref, theme, raw);
+        return true;
+
       case CommandAction.spawnDesklet:
         _spawnKind(context, ref, theme, command.spawnKind!);
         return true;
@@ -167,6 +172,27 @@ class TerminalCommands {
         openTerminal(context, theme, initialCommand: raw.trim());
         return true;
     }
+  }
+
+  /// `edit <app>`: the app editor, for a shell with no app menu.
+  static void _editApp(
+    BuildContext context,
+    WidgetRef ref,
+    EffectiveTheme theme,
+    String raw,
+  ) {
+    final query = raw.trim().split(RegExp(r'\s+')).skip(1).join(' ');
+    if (query.isEmpty) {
+      context.showMessage('edit: give an app name');
+      return;
+    }
+    final app = appForEdit(ref, theme, query);
+    if (app == null) {
+      context.showMessage('edit: no app matches $query');
+      return;
+    }
+    HapticFeedback.selectionClick();
+    showAppEditSheet(context, ref, theme, app);
   }
 
   static void _push(BuildContext context, Widget screen) {

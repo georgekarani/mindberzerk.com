@@ -26,6 +26,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../design/terminal_tokens.dart';
+import '../../drawer/app_edit_sheet.dart';
 import '../../../engine/effective_theme.dart';
 import '../../../system/system_stats.dart';
 import '../adapter/launcher_term_host.dart';
@@ -62,7 +63,9 @@ class GshShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Assigning a field on the adapter, not writing a provider, so this is safe
     // during build. Idempotent: the same closure every time.
-    ref.read(launcherTermHostProvider(theme)).pageOpener = onLauncherPage;
+    ref.read(launcherTermHostProvider(theme))
+      ..pageOpener = onLauncherPage
+      ..appEditor = (entry) => showAppEditSheet(context, ref, theme, entry);
 
     return ProviderScope(
       // No explicit <Override>: the same list fails to resolve that name from a

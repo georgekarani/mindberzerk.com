@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'layout_lock.dart';
+
 /// Desktop edit mode. PHASE D4, widened for panels in P2.
 ///
 /// ─── WHY THIS IS GLOBAL AND NOT LOCAL TO THE SURFACE ────────────────────────
@@ -51,7 +53,12 @@ enum EditMode {
 }
 
 class DeskletEditState {
-  const DeskletEditState({this.mode = EditMode.none, this.selected});
+  const DeskletEditState({
+    this.mode = EditMode.none,
+    this.selected,
+    this.selecting = false,
+    this.picked = const {},
+  });
 
   final EditMode mode;
 
@@ -60,6 +67,18 @@ class DeskletEditState {
   /// see immediately after entering, and it is when tapping an empty cell adds
   /// something there.
   final String? selected;
+
+  /// Multi-select is on. PHASE 3c.
+  ///
+  /// A posture of its own rather than "more than one selected", because a tap
+  /// means something different in it: it adds a tile to [picked] instead of
+  /// showing that tile's handles. Handles on several tiles at once would be
+  /// several resize targets fighting for one thumb.
+  final bool selecting;
+
+  /// The tiles picked for align, distribute and group. A grouped tile is
+  /// always picked or dropped with its whole group.
+  final Set<String> picked;
 
   /// ─── KEPT, AND NOW DERIVED ──────────────────────────────────────────────
   ///
@@ -87,10 +106,14 @@ class DeskletEditState {
     EditMode? mode,
     String? selected,
     bool clear = false,
+    bool? selecting,
+    Set<String>? picked,
   }) =>
       DeskletEditState(
         mode: mode ?? this.mode,
         selected: clear ? null : (selected ?? this.selected),
+        selecting: selecting ?? this.selecting,
+        picked: picked ?? this.picked,
       );
 }
 
@@ -104,19 +127,58 @@ class DeskletEdit extends Notifier<DeskletEditState> {
   /// Not persisted, and never restored on launch, deliberately. Edit mode is a
   /// transient posture, not a preference: coming back to a phone that is still
   /// in edit mode two days later, with handles on everything, reads as a bug.
-  void enter() => state = const DeskletEditState(mode: EditMode.desklets);
+  ///
+  /// Every enter returns whether it happened. A locked layout refuses them all
+  /// here, silently: this is the floor under every hold and menu that opens an
+  /// edit mode. The surfaces a person touches ask `layoutLockRefuses` first,
+  /// which explains the refusal. See layout_lock.dart.
+  bool enter() => _enter(EditMode.desklets);
 
   /// Entering either mode CLEARS the other, because the state can only hold
   /// one. That is the point of the enum, and it is why neither of these has to
   /// check what the other was doing first.
-  void enterPanel() => state = const DeskletEditState(mode: EditMode.panel);
+  bool enterPanel() => _enter(EditMode.panel);
 
   /// Jiggle the apps. Nothing is [DeskletEditState.selected] in this mode: the
   /// X is on every icon at once, so there is no single thing being picked.
-  void enterApps() => state = const DeskletEditState(mode: EditMode.apps);
+  bool enterApps() => _enter(EditMode.apps);
+
+  bool _enter(EditMode mode) {
+    if (ref.read(layoutLockedProvider)) return false;
+    state = DeskletEditState(mode: mode);
+    return true;
+  }
 
   void exit() => state = const DeskletEditState();
 
   void select(String? id) => state =
       id == null ? state.copyWith(clear: true) : state.copyWith(selected: id);
+
+  /// Turns multi-select on, dropping the single selection: the two postures
+  /// never show at once.
+  void startSelecting() {
+    if (!state.editingDesklets) return;
+    state = DeskletEditState(mode: state.mode, selecting: true);
+  }
+
+  /// Back to arranging, nothing picked.
+  void stopSelecting() => state = DeskletEditState(mode: state.mode);
+
+  /// Picks [ids] when none of them is picked yet, otherwise drops them all.
+  /// Callers pass a tile's whole group, so a group is one pick.
+  void togglePick(Set<String> ids) {
+    if (!state.selecting || ids.isEmpty) return;
+    final on = ids.any(state.picked.contains);
+    state = state.copyWith(
+      picked: on
+          ? state.picked.difference(ids)
+          : {...state.picked, ...ids},
+    );
+  }
+
+  /// Replaces the picked set, for after a group or ungroup rewrites ids.
+  void setPicked(Set<String> ids) {
+    if (!state.selecting) return;
+    state = state.copyWith(picked: ids);
+  }
 }
