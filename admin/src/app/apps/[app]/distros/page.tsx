@@ -11,7 +11,7 @@ import { readPlayBuild } from '@/lib/g-launcher/distro-io';
 import { ThemeJsonEditor } from '@/components/distro-builder/ThemeJsonEditor';
 import { DeleteDistro } from '@/components/theme-list/DeleteDistro';
 import { DuplicateDistro } from '@/components/theme-list/DuplicateDistro';
-import { BulkBar, BulkProvider, RowCheck } from '@/components/studio/bulk';
+import { BulkBar, BulkProvider, RowCheck, RunAllButton } from '@/components/studio/bulk';
 import {
   applyThemeJsonAction,
   bulkDeleteDistrosAction,
@@ -220,6 +220,9 @@ export default async function DistrosPage({
 
       {/* THE COMPACT SLAB. No metrics: this screen's vertical space belongs to
           the rows. Same tint, same grid, a third of the Overview's height. */}
+      {/* The provider opens above the slab so "Republish all" in the header
+          and the bar under the filters share one run, one log. */}
+      <BulkProvider>
       <AppSlab
         tint={meta?.tint ?? '#6d4ae8'}
         mark={meta?.mark ?? '?'}
@@ -227,6 +230,16 @@ export default async function DistrosPage({
         title="Distros"
         actions={
           <div className="flex items-center gap-2">
+            {/* Every live distro the CDN serves. Bundled ones ship inside the
+                app, and a draft never published is a first publish, not a
+                republish, so neither is in the run. */}
+            <RunAllButton
+              ids={sorted
+                .filter((r) => !r.bundled && r.publishedVersion != null)
+                .map((r) => r.id)}
+              label="Republish all"
+              busyLabel="Republishing"
+            />
             <ImportDistros app={appId} />
             <ExportDistros app={appId} />
             <SlabButton href={`/apps/${appId}/distros/builder`} primary>
@@ -271,7 +284,6 @@ export default async function DistrosPage({
         })}
       </div>
 
-      <BulkProvider>
       <BulkBar
         noun="distro"
         verb="Delete"

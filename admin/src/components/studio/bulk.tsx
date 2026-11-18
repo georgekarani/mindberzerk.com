@@ -4,7 +4,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
@@ -34,6 +36,13 @@ interface BulkCtx {
   selected: Set<string>;
   toggle: (id: string) => void;
   clear: () => void;
+  /** Start the bar's per-item run over [ids], as if they were selected. */
+  runAll: (ids: string[]) => void;
+  /** The bar hands its starter over here; null when no bar is mounted. */
+  registerRunner: (start: ((ids: string[]) => void) | null) => void;
+  /** True while the bar is walking a queue, so a second run cannot start. */
+  running: boolean;
+  setRunning: (on: boolean) => void;
 }
 
 const Ctx = createContext<BulkCtx | null>(null);
@@ -52,7 +61,19 @@ export function BulkProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setSelected(new Set()), []);
 
-  const value = useMemo(() => ({ selected, toggle, clear }), [selected, toggle, clear]);
+  // A ref, not state: the starter changes every render of the bar and
+  // nothing renders from it.
+  const runner = useRef<((ids: string[]) => void) | null>(null);
+  const registerRunner = useCallback((start: ((ids: string[]) => void) | null) => {
+    runner.current = start;
+  }, []);
+  const runAll = useCallback((ids: string[]) => runner.current?.(ids), []);
+  const [running, setRunning] = useState(false);
+
+  const value = useMemo(
+    () => ({ selected, toggle, clear, runAll, registerRunner, running, setRunning }),
+    [selected, toggle, clear, runAll, registerRunner, running],
+  );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -209,7 +230,7 @@ export function BulkBar({
   runEach?: (app: string, id: string) => Promise<BulkOutcome>;
 }) {
   const router = useRouter();
-  const { selected, clear } = useBulk();
+  const { selected, clear, registerRunner, setRunning } = useBulk();
   const [armed, setArmed] = useState(false);
   const [results, setResults] = useState<BulkOutcome[] | null>(null);
   const [pending, start] = useTransition();
@@ -224,6 +245,29 @@ export function BulkBar({
   const [done, setDone] = useState<BulkOutcome[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [halted, setHalted] = useState(false);
+
+  // ── A RUN ASKED FOR FROM OUTSIDE THE BAR ──────────────────────────────────
+  //
+  // "Republish all" sits in the page header, outside this bar, and starts a
+  // run through the provider. The bar runs it exactly as it runs a selection:
+  // same log, same stop at the first failure, same resume and skip.
+  function startRun(list: string[]) {
+    if (!runEach || queue) return;
+    setResults(null);
+    setDone([]);
+    setHalted(false);
+    setQueue(list);
+    void walk(list, 0, []);
+  }
+  useEffect(() => {
+    registerRunner(startRun);
+    return () => registerRunner(null);
+  });
+
+  // The header button is disabled for as long as a queue is open here.
+  useEffect(() => {
+    setRunning(!!queue);
+  }, [queue, setRunning]);
 
   const ids = [...selected];
   if (ids.length === 0 && !results && !queue) return null;
@@ -423,5 +467,59 @@ export function BulkBar({
         </ul>
       )}
     </div>
+  );
+}
+
+/**
+ * Run the bar's per-item action over a fixed set of ids, from anywhere under
+ * the same {@link BulkProvider}. Two presses: the first names the count, the
+ * second starts it, because a run over every distro publishes every distro.
+ * Styled like the header's own buttons, since that is where it sits.
+ */
+export function RunAllButton({
+  ids,
+  label,
+  busyLabel,
+}: {
+  ids: string[];
+  label: string;
+  /** Shown while the run is going, e.g. "Republishing". */
+  busyLabel: string;
+}) {
+  const { runAll, running } = useBulk();
+  const [armed, setArmed] = useState(false);
+  const cls =
+    'inline-flex items-center gap-1.5 rounded-[10px] border px-3.5 py-2 text-[13px] font-semibold transition disabled:opacity-50';
+  const quiet = `${cls} border-white/20 bg-white/10 text-[#f4f0fb] hover:bg-white/15`;
+
+  if (armed) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => {
+            setArmed(false);
+            runAll(ids);
+          }}
+          className={`${cls} border-white bg-white text-[#1a1226] hover:bg-white/90`}
+        >
+          {label} {ids.length}
+        </button>
+        <button type="button" onClick={() => setArmed(false)} className={quiet}>
+          Cancel
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={ids.length === 0 || running}
+      onClick={() => setArmed(true)}
+      className={quiet}
+    >
+      {running ? busyLabel : label}
+    </button>
   );
 }
