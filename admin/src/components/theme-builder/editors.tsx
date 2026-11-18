@@ -951,6 +951,16 @@ export function PassthroughEditor(props: {
           onChange={(v) => props.setSpec({ accentFromWallpaper: v || undefined })}
         />
       </Field>
+      <Field
+        label="wallpaper follows pages"
+        hint="pan the wallpaper as the user swipes between desktop pages"
+      >
+        <Toggle
+          value={props.spec.wallpaperFollowsPages ?? false}
+          label="Pan with the pages"
+          onChange={(v) => props.setSpec({ wallpaperFollowsPages: v || undefined })}
+        />
+      </Field>
       <JsonArea
         label="accents"
         hint="the accent colours this distro offers, or blank for one"

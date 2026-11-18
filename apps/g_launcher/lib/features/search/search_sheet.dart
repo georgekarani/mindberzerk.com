@@ -189,6 +189,27 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
       scale: theme.textScale,
     );
 
+    // Shortcuts, settings and contacts, as Spotlight lists its other sources.
+    // After the apps when an app matched, before the web when none did.
+    // Capped and scrolling: the sheet hangs from the top with the keyboard
+    // up. PHASE 5.
+    final extras = ConstrainedBox(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.3,
+      ),
+      child: SingleChildScrollView(
+        child: UnifiedExtraRows(
+          theme: theme,
+          query: query,
+          style: rowStyle,
+          commands: false,
+          onClose: () {
+            if (mounted) Navigator.of(context).pop();
+          },
+        ),
+      ),
+    );
+
     void fill(String v) {
       _controller.value = TextEditingValue(
         text: v,
@@ -290,8 +311,13 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
                               onBang: (b) => fill('!${b.key} '),
                             ),
                           ),
+                        // ─── NO APP MATCHED ──────────────────────────────
+                        //
+                        // Contacts, shortcuts and settings come first, then
+                        // the web. No "no matches" line: a contact may well
+                        // match, and the web rows already say no app did.
                         if (results.isEmpty && route.searchApps) ...[
-                          if (route.hits.isEmpty) _Empty(theme: theme),
+                          extras,
                           CommandFallbackRows(
                             query: query,
                             style: rowStyle,
@@ -317,26 +343,7 @@ class _SearchSheetState extends ConsumerState<_SearchSheet> {
                               first: route.hits.length + i == sel,
                               onTap: () => _run(results[i]),
                             ),
-                        // Shortcuts and settings after the apps, as Spotlight
-                        // lists its other sources. Capped and scrolling: the
-                        // sheet hangs from the top with the keyboard up.
-                        // PHASE 5.
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxHeight: MediaQuery.sizeOf(context).height * 0.3,
-                          ),
-                          child: SingleChildScrollView(
-                            child: UnifiedExtraRows(
-                              theme: theme,
-                              query: query,
-                              style: rowStyle,
-                              commands: false,
-                              onClose: () {
-                                if (mounted) Navigator.of(context).pop();
-                              },
-                            ),
-                          ),
-                        ),
+                        if (results.isNotEmpty || !route.searchApps) extras,
                       ],
                     ],
                   ),
@@ -516,29 +523,6 @@ class _Hit extends ConsumerWidget {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Empty extends StatelessWidget {
-  const _Empty({required this.theme});
-
-  final EffectiveTheme theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Center(
-        child: Text(
-          context.t('drawer.noMatches'),
-          style: TextStyle(
-            fontFamily: theme.typography.display,
-            fontSize: 12 * theme.textScale,
-            color: theme.palette.onDark.withValues(alpha: 0.4),
-          ),
         ),
       ),
     );

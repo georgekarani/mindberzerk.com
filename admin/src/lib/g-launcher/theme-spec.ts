@@ -595,6 +595,10 @@ export interface ThemeSpecJson {
    *  takes from the wallpaper. Every distro offers that swatch either way;
    *  this only makes it the default. Emitted only when true. */
   accentFromWallpaper?: boolean;
+  /** Swiping between desktop pages pans the wallpaper. No Linux desktop does
+   *  it, so only a phone-style distro (Pocket) should author it. Emitted only
+   *  when true. */
+  wallpaperFollowsPages?: boolean;
   /** Named layout presets, shallow-merged over `layout` on the device. Absent
    *  means this distro has one layout. See [ThemeLayoutPresetJson]. */
   layouts?: ThemeLayoutPresetJson[];
@@ -786,7 +790,7 @@ export const THEME_SPEC_KEYS: ReadonlySet<string> = new Set([
   'palette', 'paletteLight', 'typography', 'layout', 'icons', 'logo',
   'wallpapers', 'wallpaper', 'wallpaperMeta', 'screenshots', 'fonts', 'minAppVersion',
   'boot', 'splash', 'desklets', 'gestures', 'features', 'seededFromPreview',
-  'categories', 'categoryFallback', 'accents', 'accentGradient', 'accentFromWallpaper', 'layouts',
+  'categories', 'categoryFallback', 'accents', 'accentGradient', 'accentFromWallpaper', 'wallpaperFollowsPages', 'layouts',
   'wallpapersLight', 'terminal', 'home', 'surfaces', 'iconLooks',
 ]);
 
@@ -1168,6 +1172,7 @@ export function canonicalThemeJson(spec: ThemeSpecJson): string {
     if (rows.length) out.accents = rows;
   }
   if (spec.accentFromWallpaper) out.accentFromWallpaper = true;
+  if (spec.wallpaperFollowsPages) out.wallpaperFollowsPages = true;
 
   // Written only when the device would use it: two or three real colours.
   // Anything else is dropped here so the panel never publishes a list the
@@ -2061,6 +2066,7 @@ export function importTheme(
     if (rows.length) spec.accents = rows;
   }
   if (j.accentFromWallpaper === true) spec.accentFromWallpaper = true;
+  if (j.wallpaperFollowsPages === true) spec.wallpaperFollowsPages = true;
   if (Array.isArray(j.accentGradient)) {
     const stops = j.accentGradient
       .map((c) => str(c)?.trim())

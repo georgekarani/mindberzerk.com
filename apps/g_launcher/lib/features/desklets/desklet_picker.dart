@@ -144,16 +144,27 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
 
   EffectiveTheme get theme => widget.theme;
 
-  /// The widget cells under app icons on this page. Empty on a distro with
-  /// no desktop icons, whatever an earlier distro left in the provider.
-  Set<int> _iconCells() => theme.desktopIcons
-      ? ref.read(deskletIconCellsProvider)[widget.page] ?? const {}
-      : const {};
+  /// The widget cells a new tile must not take on this page: those under app
+  /// icons (empty on a distro with no desktop icons, whatever an earlier
+  /// distro left in the provider) and those under the dock.
+  ///
+  /// ─── THE DOCK TOO, AT PLACEMENT ───────────────────────────────────────
+  ///
+  /// The surface only SHOWS a tile under the dock somewhere else, and only
+  /// when it finds room for it there. A tile saved under the dock in the
+  /// first place depended on that every time it was drawn, and sat under the
+  /// dock whenever the dock's box was read late. Placed clear of it, there
+  /// is nothing to correct.
+  Set<int> _reservedCells() => {
+        if (theme.desktopIcons)
+          ...?ref.read(deskletIconCellsProvider)[widget.page],
+        ...ref.read(deskletDockCellsProvider),
+      };
 
   /// May the widget go exactly where the user tapped? Only when a cell was
-  /// tapped and the rectangle from it misses every icon; otherwise the packer
-  /// chooses, and it skips the icons too.
-  bool _clearOfIcons(Set<int> icons, int spanX, int spanY) {
+  /// tapped and the rectangle from it misses every reserved cell; otherwise
+  /// the packer chooses, and it skips them too.
+  bool _clearOfReserved(Set<int> reserved, int spanX, int spanY) {
     final col = widget.col;
     final row = widget.row;
     if (col == null || row == null) return false;
@@ -166,7 +177,7 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
       theme.deskletRows,
     );
     // Off the grid: let placeAt clamp and decide, as it always has.
-    return cells == null || !cells.any(icons.contains);
+    return cells == null || !cells.any(reserved.contains);
   }
 
   /// Add the kind and leave. An exact cell when the user tapped an empty one,
@@ -180,8 +191,9 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
 
     String newId() => 'dk${DateTime.now().microsecondsSinceEpoch}';
 
-    final icons = _iconCells();
-    final after = _clearOfIcons(icons, kind.defaultSpanX, kind.defaultSpanY)
+    final reserved = _reservedCells();
+    final after =
+        _clearOfReserved(reserved, kind.defaultSpanX, kind.defaultSpanY)
         ? DeskletLayout.placeAt(
             before,
             kindId: kind.id,
@@ -199,7 +211,7 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
             cols: theme.deskletCols,
             rows: theme.deskletRows,
             newId: newId,
-            blocked: icons,
+            blocked: reserved,
           );
 
     if (identical(after, before)) {
@@ -315,8 +327,8 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
       WidgetConfigKeys.resizeMode: provider.resizeMode,
     };
 
-    final icons = _iconCells();
-    var after = _clearOfIcons(icons, sx, sy)
+    final reserved = _reservedCells();
+    var after = _clearOfReserved(reserved, sx, sy)
         ? DeskletLayout.placeAt(
             before,
             kindId: 'appwidget',
@@ -344,7 +356,7 @@ class _WidgetPickerScreenState extends ConsumerState<_WidgetPickerScreen> {
         spanX: sx,
         spanY: sy,
         config: config,
-        blocked: icons,
+        blocked: reserved,
       );
     }
 

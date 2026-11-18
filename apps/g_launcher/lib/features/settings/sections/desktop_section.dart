@@ -264,7 +264,22 @@ List<Widget> desktopSection(
       key: const ValueKey('desk.motion'),
       label: context.t('settings.motion'),
       query: q,
-      rows: [_launchRow(context, ref, theme)],
+      rows: [
+        _launchRow(context, ref, theme),
+        // Panned by the pager; see wallpaper_pan.dart for the phones where
+        // it correctly does nothing. PHASE 8.
+        FilterRow(
+          const ['wallpaper', 'parallax', 'pages', 'scroll', 'motion'],
+          SettingsToggleRow(
+            icon: Icons.panorama_horizontal_outlined,
+            title: context.t('settings.wallpaperFollowsPages'),
+            value: theme.wallpaperFollowsPages,
+            onChanged: (v) => ref
+                .read(prefsProvider(theme.spec.id).notifier)
+                .edit((p) => p.copyWith(wallpaperFollowsPages: v)),
+          ),
+        ),
+      ],
     ),
 
     // ── Top bar or panel ───────────────────────────────────────────
@@ -546,15 +561,13 @@ List<Widget> desktopSection(
                     ),
           ),
         ),
-        // ─── THE DOTS ARE GNOME'S OWN, SO ONLY GNOME OFFERS THEM ─────────
+        // ─── ONE PAGE INDICATOR SWITCH, EVERY DISTRO (PHASE 9) ────────────
         //
-        // Plasma, tiling and the terminal show workspaces in a panel module,
-        // and Pocket shows a Search pill, so none of them draws dots to turn
-        // off. Hidden, not greyed, under GNOME 46's pill as well: the pill
-        // already replaces the dots there.
-        if (theme.shell == ShellKind.gnome &&
-            theme.hasWorkspaces.available &&
-            !(theme.activitiesPill && theme.topBar))
+        // GNOME draws dots beside its desktop; every paged app grid draws dots
+        // under its pages. One switch for both, so a person who wants no dots
+        // asks once. A drawer's "+" stays: it grows the drawer, it does not
+        // indicate anything.
+        if (theme.shell != ShellKind.tui)
           FilterRow(
             const [
               'workspace indicator',
@@ -565,8 +578,7 @@ List<Widget> desktopSection(
             ],
             SettingsToggleRow(
               icon: Icons.more_vert,
-              title: context.t('settings.workspaceIndicator'),
-              subtitle: context.t('settings.workspaceIndicatorSub'),
+              title: context.t('settings.pageIndicator'),
               value: theme.workspaceDots,
               onChanged: (v) =>
                   notifier.edit((p) => p.copyWith(workspaceDots: v)),

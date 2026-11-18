@@ -315,7 +315,7 @@ class _Card extends StatelessWidget {
 
     // Liquid Glass distros draw every card on the shared pane, so a widget sits
     // in the same material as the dock and the folders beside it.
-    if (theme.glass) {
+    if (theme.glass && !skin.hasPickedFill) {
       return LiquidGlass(
         radius: BorderRadius.circular(skin.num_('radius', 22)),
         dark: theme.glassDark,
@@ -326,7 +326,7 @@ class _Card extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: p.bar.withValues(alpha: skin.num_('opacity', 0.72)),
+        color: skin.fill(p.bar, 0.72),
         borderRadius: BorderRadius.circular(skin.num_('radius', 10)),
         border: Border.all(color: p.onDark.withValues(alpha: 0.12)),
       ),
@@ -405,6 +405,9 @@ class _CardRow extends StatelessWidget {
                 ),
               ),
             ),
+            // Measured at its intrinsic width the Expanded label collapses to
+            // its text, so the gap the full-width row used to leave is kept here.
+            if (row.value != null) const SizedBox(width: 12),
             if (row.value != null)
               Text(
                 row.value!,
@@ -461,7 +464,7 @@ class _Panel extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: p.bar.withValues(alpha: skin.num_('opacity', 0.9)),
+        color: skin.fill(p.bar, 0.9),
         borderRadius: BorderRadius.circular(skin.num_('radius', 4)),
         border: Border(
           left: BorderSide(color: _accentOf(theme, skin), width: 2),
@@ -637,6 +640,12 @@ class _Bar extends StatelessWidget {
       borderRadius: BorderRadius.circular(height),
       child: SizedBox(
         height: height,
+        // The track spans the row. Sized only by its children, the Stack took
+        // the FILLED width, so the track was exactly as long as the fill and a
+        // 35% bar read as a short grey line with nothing to measure it against.
+        // Unbounded width adds nothing to the card's intrinsic width, so a card
+        // that fits its content is still as wide as its text.
+        width: double.infinity,
         child: Stack(
           children: [
             Positioned.fill(

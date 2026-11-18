@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +8,7 @@ import '../../data/prefs/launcher_prefs.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../design/window_chrome.dart';
 import '../../engine/desklet_skin.dart';
+import '../../engine/desklet_spec.dart' show DeskletKinds;
 import '../../engine/effective_theme.dart';
 // `DockSide` is declared in BOTH `theme_spec.dart` and `dock_metrics.dart`, a
 // debt `DockMetrics` documents at length and says to edit in step. This file
@@ -22,6 +24,7 @@ import '../dock/dock_extent.dart' show dockRectProvider;
 // every USE of the name, never at the import that caused it. Only the
 // reserve constant is wanted here.
 import '../dock/dock_metrics.dart' show DockMetrics;
+import '../../system/wallpaper_accent.dart';
 import 'content_scale.dart';
 import 'desklet_cell.dart';
 import 'desklet_edit.dart';
@@ -37,6 +40,7 @@ import 'kinds/control_desklets.dart';
 import 'kinds/vpn_desklet.dart';
 import 'kinds/glance_desklet.dart';
 import 'kinds/now_playing_desklet.dart';
+import 'kinds/folder_desklet.dart';
 import 'kinds/pane_desklets.dart';
 import 'kinds/stack_desklet.dart';
 import 'kinds/stat_desklets.dart';
@@ -82,6 +86,7 @@ Widget? buildDesklet(
     'nowplaying' =>
       NowPlayingDesklet(theme: theme, desklet: desklet, skin: skin),
     'search' => SearchDesklet(theme: theme, desklet: desklet, skin: skin),
+    'folder' => FolderDesklet(theme: theme, desklet: desklet, skin: skin),
     // Pane-only kinds. DeskletLayout.renderable already keeps these off a
     // graphical desktop, so reaching them here means the pane asked.
     'free' => FreeDesklet(theme: theme, desklet: desklet, skin: skin),
@@ -111,6 +116,74 @@ bool deskletNeedsWidth(String kind, DeskletSkin skin) =>
       DeskletSurface.card || DeskletSurface.panel => true,
       DeskletSurface.bare || DeskletSurface.terminal => false,
     };
+
+/// Should this desklet's box shrink to its content, inside the width it is
+/// bounded to?
+///
+/// ─── A BACKGROUND THE SIZE OF ITS CONTENT ─────────────────────────────────
+///
+/// A bounded card was handed the cell's width and filled it: a 132px clock
+/// sat in the middle of a card the width of the screen, with dead backing on
+/// both sides. Measured at its intrinsic width instead, the card is as wide as
+/// what it holds, never wider than the cell, and centred in it.
+///
+/// Not the conky, Welcome or a window: their rows are defined against an edge
+/// (`${alignr}`, a window's frame), so their width is the cell's by design.
+bool deskletHugsWidth(String kind, DeskletSkin skin) =>
+    deskletNeedsWidth(kind, skin) &&
+    kind != 'conky' &&
+    kind != 'welcome' &&
+    !skin.flag('window', false);
+
+/// [child] at its intrinsic width when [hug], else as it is. The caller has
+/// already bounded the width, so a wide child is still capped at the cell.
+Widget hugDeskletWidth({required bool hug, required Widget child}) =>
+    hug ? _HugWidth(child: child) : child;
+
+/// Lays its child out at the child's intrinsic width, and never narrower than
+/// the widest it has been.
+///
+/// ─── A CARD THAT BREATHES WITH ITS NUMBERS ─────────────────────────────────
+///
+/// A card the width of its text changes width when its text does: the network
+/// card is narrower at "0K" than at "1.5M". Scaled to fill its tile, every one
+/// of those changes rescaled the whole card, so it pulsed every few seconds.
+/// Ratcheting to the widest width seen keeps it still; it settles at its
+/// widest reading within the first few ticks, and a new mount starts fresh.
+class _HugWidth extends SingleChildRenderObjectWidget {
+  const _HugWidth({required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderHugWidth();
+}
+
+class _RenderHugWidth extends RenderProxyBox {
+  double _widest = 0;
+
+  @override
+  double computeMinIntrinsicWidth(double height) =>
+      computeMaxIntrinsicWidth(height);
+
+  @override
+  double computeMaxIntrinsicWidth(double height) =>
+      (child?.getMaxIntrinsicWidth(height) ?? 0).clamp(_widest, double.infinity);
+
+  @override
+  void performLayout() {
+    final box = child;
+    if (box == null) {
+      size = constraints.smallest;
+      return;
+    }
+    final natural = box.getMaxIntrinsicWidth(double.infinity);
+    final w = constraints.constrainWidth(
+      natural > _widest ? natural : _widest,
+    );
+    if (w.isFinite && w > _widest) _widest = w;
+    box.layout(constraints.tighten(width: w), parentUsesSize: true);
+    size = constraints.constrain(box.size);
+  }
+}
 
 /// The desktop grid for ONE workspace.
 ///
@@ -282,7 +355,15 @@ class DeskletSurfaceView extends ConsumerWidget {
           // .edit, never .update: `.update` mutates state without writing to
           // disk, so a corrected span would revert on the next cold start and
           // be recomputed on every launch forever.
-          ref.read(prefsProvider(theme.spec.id).notifier).edit((_) => reflowed);
+          //
+          // RE-DERIVED FROM THE LIVE PREFS, not written back from `prefs`.
+          // That snapshot is the one this frame was built from, so a setting
+          // changed since (a tap in the widget's settings sheet) was in the
+          // state but not in the snapshot, and writing the snapshot back undid
+          // it.
+          ref.read(prefsProvider(theme.spec.id).notifier).edit(
+                (p) => DeskletLayout.reflowWidgets(p, cell: cell),
+              );
         });
 
         // Until the dock has measured itself, the old strip stands in for it,
@@ -405,6 +486,7 @@ class DeskletSurfaceView extends ConsumerWidget {
                         cellW: cellW,
                         cellH: cellH,
                         editing: editing,
+                        inset: gutter / 2,
                         child: Padding(
                           padding: const EdgeInsets.all(gutter / 2),
                           // A live tile (monitor, network, battery) redraws
@@ -427,14 +509,14 @@ class DeskletSurfaceView extends ConsumerWidget {
   }
 }
 
-class _Tile extends StatelessWidget {
+class _Tile extends ConsumerWidget {
   const _Tile({required this.theme, required this.desklet});
 
   final EffectiveTheme theme;
   final Desklet desklet;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     // ─── THE DISTRO'S SKIN, THEN THE PERSON'S ─────────────────────────────
     //
     // Same merge order as every other preference in the app: the distro
@@ -443,7 +525,17 @@ class _Tile extends StatelessWidget {
     // as it did before per-widget settings existed.
     var skin = theme.spec.desklets
         .skinFor(theme.shell, desklet.kind)
-        .mergedWith(skinOverridesFor(desklet));
+        .mergedWith(skinOverridesFor(
+          desklet,
+          accent: theme.palette.accent,
+          // Only watched by a tile that follows the wallpaper.
+          wallpaper: desklet.config['bgColor'] == 'wallpaper'
+              ? wallpaperAccentFor(
+                  ref.watch(wallpaperColorsProvider).asData?.value ?? const [],
+                  theme.palette.bar,
+                )
+              : null,
+        ));
 
     // ─── A BACKGROUND ON A BARE DESKTOP ─────────────────────────────────
     //
@@ -525,6 +617,7 @@ class _Tile extends StatelessWidget {
     // A desklet framed as a WINDOW is bounded for the same reason: the
     // window has a width, and a row inside it (Welcome's links) expands to it.
     final bounded = deskletNeedsWidth(desklet.kind, skin);
+    final hug = deskletHugsWidth(desklet.kind, skin);
 
     // The person's content scale. A bounded card is given the cell's width
     // divided by it, so once ContentScale multiplies it back it fills exactly
@@ -532,10 +625,43 @@ class _Tile extends StatelessWidget {
     final scale = contentScaleOf(desklet.config);
 
     final window = skin.flag('window', false);
+
+    // ─── FITTED: THE TILE IS THE CARD'S SIZE, SO THE CARD FILLS IT ─────────
+    //
+    // Once the editor has fitted this tile's footprint to its content, the
+    // tile's size IS the size the person chose for the widget, and the content
+    // scales to fill it, up as well as down. Before that it only shrinks, which
+    // is what every tile did before footprints were fitted.
+    final grows = desklet.config[deskletFittedKey] == true;
+    final alignment = _alignFor(skin);
+    // Captured here: the report lands after the frame, when this element may
+    // already be gone and its `ref` unusable.
+    final content = ref.read(deskletContentProvider.notifier);
+
+    // ─── A FITTED CARD IS LAID OUT AT ONE WIDTH, THEN SCALED ─────────────
+    //
+    // A bounded card takes its width from what it is given. Given the TILE's
+    // width, a resize changed the layout as well as the scale: narrowing the
+    // clock wrapped its date onto three lines and made the card taller, and the
+    // shape the person was scaling changed under their finger. A fitted tile is
+    // laid out at its kind's default width instead, so its shape is fixed and a
+    // resize only scales it.
+    final cell = ref.watch(deskletCellProvider);
+    final kind = DeskletKinds.byId(desklet.kind);
+    final layoutWidth = grows && cell != null && kind != null
+        ? kind.defaultSpanX * cell.w - cell.gutter
+        : null;
+
     final fitted = LayoutBuilder(
       builder: (context, constraints) => Align(
         alignment: _alignFor(skin),
-        child: FittedBox(
+        // A fitted tile's FittedBox is given the whole tile. Under the Align
+        // alone its constraints are loose, it takes its child's size, and
+        // `contain` has nothing to grow into: the tile got bigger and the card
+        // stayed where it was.
+        child: _fillWhen(
+          grows && !window,
+          child: FittedBox(
           // ─── A WINDOW'S OUTPUT GROWS A LITTLE, NOT TO FILL ──────────────
           //
           // On the desktop a desklet only ever shrinks. Inside a window that
@@ -545,9 +671,21 @@ class _Tile extends StatelessWidget {
           // [_windowGrowth]: the content is given a floor of the window's size
           // divided by that, so `contain` can never scale past it. A terminal
           // with a larger font, not a different picture.
-          fit: window ? BoxFit.contain : BoxFit.scaleDown,
-          alignment: _alignFor(skin),
-          child: _floorForWindow(
+          fit: window || grows ? BoxFit.contain : BoxFit.scaleDown,
+          alignment: alignment,
+          child: _ReportNatural(
+            // A window fills its tile, so it has no content box to report.
+            enabled: !window,
+            token: (grows, alignment),
+            onSize: (natural) => content.set(
+              desklet.id,
+              DeskletContentBox(
+                natural: natural,
+                alignment: alignment,
+                grows: grows,
+              ),
+            ),
+            child: _floorForWindow(
             window: window,
             box: constraints,
             child: ContentScale(
@@ -555,13 +693,15 @@ class _Tile extends StatelessWidget {
               child: bounded
                   ? ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxWidth: constraints.maxWidth / scale,
+                        maxWidth: (layoutWidth ?? constraints.maxWidth) / scale,
                       ),
-                      child: child,
+                      child: hugDeskletWidth(hug: hug, child: child),
                     )
                   : child,
             ),
           ),
+          ),
+        ),
         ),
       ),
     );
@@ -580,6 +720,10 @@ class _Tile extends StatelessWidget {
       child: Padding(padding: const EdgeInsets.all(8), child: fitted),
     );
   }
+
+  /// [child] stretched to its constraints when [fill], else as it is.
+  static Widget _fillWhen(bool fill, {required Widget child}) =>
+      fill ? SizedBox.expand(child: child) : child;
 
   /// How far a window's output may scale up. See the fit note above.
   static const double _windowGrowth = 1.15;
@@ -859,5 +1003,72 @@ class _DockMaskState extends ConsumerState<_DockMask> {
     final origin = _origin;
     return widget.builder(
         context, dock == null || origin == null ? null : dock.shift(-origin));
+  }
+}
+
+/// Reports its child's size, as laid out, after the frame.
+///
+/// Sits directly under the tile's FittedBox, so the size it reports is the
+/// content's natural size, before the tile scales it. Reports only on a change
+/// of size or of [token], so a clock that relays out every minute at the same
+/// size writes nothing.
+class _ReportNatural extends SingleChildRenderObjectWidget {
+  const _ReportNatural({
+    required this.enabled,
+    required this.token,
+    required this.onSize,
+    required super.child,
+  });
+
+  final bool enabled;
+
+  /// Anything else the report carries. A change re-reports at the same size.
+  final Object token;
+
+  final ValueChanged<Size> onSize;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderReportNatural(enabled, token, onSize);
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderReportNatural renderObject,
+  ) {
+    renderObject
+      ..enabled = enabled
+      ..onSize = onSize
+      ..token = token;
+  }
+}
+
+class _RenderReportNatural extends RenderProxyBox {
+  _RenderReportNatural(this.enabled, this._token, this.onSize);
+
+  bool enabled;
+  ValueChanged<Size> onSize;
+  Size? _last;
+
+  Object _token;
+  set token(Object next) {
+    if (next == _token) return;
+    _token = next;
+    _last = null;
+    markNeedsLayout();
+  }
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    if (!enabled) return;
+    final s = size;
+    if (s == _last) return;
+    _last = s;
+    // After the frame: writing a provider during layout marks widgets dirty
+    // inside a build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (attached) onSize(s);
+    });
   }
 }

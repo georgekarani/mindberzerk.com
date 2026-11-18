@@ -9,6 +9,7 @@ import '../../desklets/desklet_surface.dart';
 import '../../drawer/shell_drawer.dart';
 import '../home_grid.dart';
 import 'edge_paging.dart';
+import '../../../system/wallpaper_pan.dart';
 import 'workspace_controller.dart';
 
 /// The vertical-workspace surface shared by the non-GNOME shells.
@@ -57,6 +58,14 @@ class WorkspaceCanvas extends ConsumerWidget {
 
     return Stack(
       children: [
+        // Pans the wallpaper with the pager when the setting is on. Paints
+        // nothing and claims no gesture, so the pager below is untouched.
+        // PHASE 8.
+        WallpaperParallax(
+          controller: controller,
+          pages: pages,
+          enabled: theme.wallpaperFollowsPages,
+        ),
         PageView.builder(
           controller: controller,
           // ─── THE DISTRO'S AXIS, WHICH THIS CANVAS WAS IGNORING ────────

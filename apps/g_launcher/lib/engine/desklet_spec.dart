@@ -442,6 +442,27 @@ class DeskletKinds {
     defaultSpanY: 2,
   );
 
+  /// A large folder: a 2x2 or 3x3 grid of real app icons on the desktop.
+  /// PHASE 7.
+  ///
+  /// Spans are in the fine grid: 4x6 is two icon columns by two icon rows.
+  /// `source` is recent | frequent | folder; a folder source also carries
+  /// `folderId` and `folderStore` (home | drawer).
+  static const folder = DeskletKind(
+    id: 'folder',
+    labelKey: 'desklet_spec.folder',
+    minSpanX: 3,
+    minSpanY: 4,
+    maxSpanX: 8,
+    maxSpanY: 12,
+    defaultSpanX: 4,
+    defaultSpanY: 6,
+    defaults: {
+      'source': 'recent',
+      'grid': 2,
+    },
+  );
+
   static const all = <DeskletKind>[
     glance,
     appWidget,
@@ -462,6 +483,7 @@ class DeskletKinds {
     uptime,
     vpn,
     nowPlaying,
+    folder,
   ];
 
   static final Map<String, DeskletKind> _byId = {

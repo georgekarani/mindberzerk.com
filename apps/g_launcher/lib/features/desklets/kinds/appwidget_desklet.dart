@@ -6,7 +6,9 @@ import '../../../data/prefs/launcher_prefs.dart';
 import '../../../engine/desklet_skin.dart';
 import '../../../engine/effective_theme.dart';
 import '../../../engine/widget_span.dart';
+import '../../../system/wallpaper_accent.dart';
 import '../desklet_menu.dart';
+import '../desklet_settings.dart' show deskletBackgroundColour;
 import '../widget_stage.dart';
 
 /// A hosted third-party AppWidget on the desktop.
@@ -208,14 +210,27 @@ class _AppWidgetDeskletState extends ConsumerState<AppWidgetDesklet> {
     final radius = c['radius'] is num ? (c['radius'] as num).toDouble() : 0.0;
     final opacity =
         c['opacity'] is num ? (c['opacity'] as num).toDouble() : 0.0;
+    // The person's background colour, resolved the way a drawn card resolves
+    // it, so a hosted widget and a clock beside it can share one backing.
+    final bgId = c['bgColor'] is String ? c['bgColor'] as String : null;
+    final fill = deskletBackgroundColour(
+          bgId,
+          accent: widget.theme.palette.accent,
+          wallpaper: bgId == 'wallpaper'
+              ? wallpaperAccentFor(
+                  ref.read(wallpaperColorsProvider).asData?.value ?? const [],
+                  widget.theme.palette.bar,
+                )
+              : null,
+        ) ??
+        widget.theme.palette.bar;
+    final alpha = bgId == 'light' ? opacity.clamp(0.0, 0.35) : opacity;
     return (
       scalePct: (scale * 100).round().clamp(50, 200),
       radius: radius,
       argb: opacity <= 0
           ? 0
-          : widget.theme.palette.bar
-              .withValues(alpha: opacity.clamp(0.0, 1.0))
-              .toARGB32(),
+          : fill.withValues(alpha: alpha.clamp(0.0, 1.0)).toARGB32(),
     );
   }
 

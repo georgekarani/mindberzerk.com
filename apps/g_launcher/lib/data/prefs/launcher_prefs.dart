@@ -60,6 +60,11 @@ class LauncherPrefs {
     this.dockPress,
     this.dockEntrance,
     this.launchAnimation,
+    this.wallpaperFollowsPages,
+    this.edgeHandleSide,
+    this.iconTint,
+    this.edgeHandlePosition,
+    this.edgeHandleVisible,
     this.topBar,
     this.statusBar,
     this.homeLayout,
@@ -101,6 +106,8 @@ class LauncherPrefs {
     this.verboseBoot,
     this.workspaceDots,
     this.layoutLocked,
+    this.contactsSearch,
+    this.notificationHistory,
     this.iconSizeDp,
     this.iconTreatment,
     this.iconPackId,
@@ -214,6 +221,24 @@ class LauncherPrefs {
   /// How an app opens from this distro: one of `launchAnimationModes`. Null
   /// follows the distro's authored default. PHASE 6.
   final String? launchAnimation;
+
+  /// Swiping between desktop pages pans the wallpaper. Null follows the
+  /// distro's `wallpaperFollowsPages`. PHASE 8.
+  final bool? wallpaperFollowsPages;
+
+  /// The edge handle: `off`, `left` or `right`. Null is off. PHASE 8.
+  final String? edgeHandleSide;
+
+  /// The person's icon tint on this distro: 'accent', 'wallpaper', or null
+  /// for none. Resolved to a colour by EffectiveTheme. PHASE 9.
+  final String? iconTint;
+
+  /// Which third of the edge the handle sits in: `top`, `middle` or `bottom`.
+  /// Null is middle.
+  final String? edgeHandlePosition;
+
+  /// Draw the handle, or keep it an invisible strip. Null is drawn.
+  final bool? edgeHandleVisible;
 
   final bool? topBar;
 
@@ -646,6 +671,17 @@ class LauncherPrefs {
   /// PROMOTED to [GlobalPrefs], like the hidden set: someone who locked their
   /// desktop because a child keeps rearranging it means every distro.
   final bool? layoutLocked;
+
+  /// Show contacts in search, on every distro. null = off. Turning it on asks
+  /// for READ_CONTACTS; contacts are read on the phone and never leave it.
+  /// PROMOTED to [GlobalPrefs]: a permission is granted once, not per distro.
+  /// PHASE 9.
+  final bool? contactsSearch;
+
+  /// Keep a history of recent notifications on the phone. null = off. Never
+  /// uploaded; cleared when turned off. PROMOTED to [GlobalPrefs], like
+  /// [contactsSearch]. PHASE 9.
+  final bool? notificationHistory;
 
   final double? iconSizeDp;
 
@@ -1152,6 +1188,11 @@ class LauncherPrefs {
     String? dockPress,
     String? dockEntrance,
     String? launchAnimation,
+    bool? wallpaperFollowsPages,
+    String? edgeHandleSide,
+    String? iconTint,
+    String? edgeHandlePosition,
+    bool? edgeHandleVisible,
     bool? topBar,
     bool? statusBar,
     String? homeLayout,
@@ -1193,6 +1234,8 @@ class LauncherPrefs {
     bool? verboseBoot,
     bool? workspaceDots,
     bool? layoutLocked,
+    bool? contactsSearch,
+    bool? notificationHistory,
     double? iconSizeDp,
     String? iconTreatment,
     String? iconPackId,
@@ -1246,6 +1289,11 @@ class LauncherPrefs {
       dockPress: dockPress ?? this.dockPress,
       dockEntrance: dockEntrance ?? this.dockEntrance,
       launchAnimation: launchAnimation ?? this.launchAnimation,
+      wallpaperFollowsPages: wallpaperFollowsPages ?? this.wallpaperFollowsPages,
+      edgeHandleSide: edgeHandleSide ?? this.edgeHandleSide,
+      iconTint: iconTint ?? this.iconTint,
+      edgeHandlePosition: edgeHandlePosition ?? this.edgeHandlePosition,
+      edgeHandleVisible: edgeHandleVisible ?? this.edgeHandleVisible,
       topBar: topBar ?? this.topBar,
       statusBar: statusBar ?? this.statusBar,
       homeLayout: homeLayout ?? this.homeLayout,
@@ -1287,6 +1335,8 @@ class LauncherPrefs {
       verboseBoot: verboseBoot ?? this.verboseBoot,
       workspaceDots: workspaceDots ?? this.workspaceDots,
       layoutLocked: layoutLocked ?? this.layoutLocked,
+      contactsSearch: contactsSearch ?? this.contactsSearch,
+      notificationHistory: notificationHistory ?? this.notificationHistory,
       iconSizeDp: iconSizeDp ?? this.iconSizeDp,
       iconTreatment: iconTreatment ?? this.iconTreatment,
       iconPackId: iconPackId ?? this.iconPackId,
@@ -1346,6 +1396,11 @@ class LauncherPrefs {
     bool dockPress = false,
     bool dockEntrance = false,
     bool launchAnimation = false,
+    bool wallpaperFollowsPages = false,
+    bool edgeHandleSide = false,
+    bool iconTint = false,
+    bool edgeHandlePosition = false,
+    bool edgeHandleVisible = false,
     bool topBar = false,
     bool statusBar = false,
     bool homeLayout = false,
@@ -1402,6 +1457,8 @@ class LauncherPrefs {
     bool verboseBoot = false,
     bool workspaceDots = false,
     bool layoutLocked = false,
+    bool contactsSearch = false,
+    bool notificationHistory = false,
     bool hiddenAppsSearchable = false,
     bool iconSizeDp = false,
     bool iconTreatment = false,
@@ -1422,6 +1479,11 @@ class LauncherPrefs {
       dockPress: dockPress ? null : this.dockPress,
       dockEntrance: dockEntrance ? null : this.dockEntrance,
       launchAnimation: launchAnimation ? null : this.launchAnimation,
+      wallpaperFollowsPages: wallpaperFollowsPages ? null : this.wallpaperFollowsPages,
+      edgeHandleSide: edgeHandleSide ? null : this.edgeHandleSide,
+      iconTint: iconTint ? null : this.iconTint,
+      edgeHandlePosition: edgeHandlePosition ? null : this.edgeHandlePosition,
+      edgeHandleVisible: edgeHandleVisible ? null : this.edgeHandleVisible,
       // Clearable now, for the section resets. It was pass-through, so
       // "restore defaults" on Icons and bar could turn the bar back ON but
       // could never hand it back to the distro's own answer.
@@ -1477,6 +1539,8 @@ class LauncherPrefs {
       verboseBoot: verboseBoot ? null : this.verboseBoot,
       workspaceDots: workspaceDots ? null : this.workspaceDots,
       layoutLocked: layoutLocked ? null : this.layoutLocked,
+      contactsSearch: contactsSearch ? null : this.contactsSearch,
+      notificationHistory: notificationHistory ? null : this.notificationHistory,
       iconSizeDp: iconSizeDp ? null : this.iconSizeDp,
       iconTreatment: iconTreatment ? null : this.iconTreatment,
       iconPackId: iconPackId ? null : this.iconPackId,
@@ -1559,6 +1623,11 @@ class LauncherPrefs {
         if (dockPress != null) 'dockPress': dockPress,
         if (dockEntrance != null) 'dockEntrance': dockEntrance,
         if (launchAnimation != null) 'launchAnimation': launchAnimation,
+        if (wallpaperFollowsPages != null) 'wallpaperFollowsPages': wallpaperFollowsPages,
+        if (edgeHandleSide != null) 'edgeHandleSide': edgeHandleSide,
+        if (iconTint != null) 'iconTint': iconTint,
+        if (edgeHandlePosition != null) 'edgeHandlePosition': edgeHandlePosition,
+        if (edgeHandleVisible != null) 'edgeHandleVisible': edgeHandleVisible,
         if (topBar != null) 'topBar': topBar,
         if (statusBar != null) 'statusBar': statusBar,
         if (homeLayout != null) 'homeLayout': homeLayout,
@@ -1602,6 +1671,8 @@ class LauncherPrefs {
         if (verboseBoot != null) 'verboseBoot': verboseBoot,
         if (workspaceDots != null) 'workspaceDots': workspaceDots,
         if (layoutLocked != null) 'layoutLocked': layoutLocked,
+        if (contactsSearch != null) 'contactsSearch': contactsSearch,
+        if (notificationHistory != null) 'notificationHistory': notificationHistory,
         if (iconSizeDp != null) 'iconSizeDp': iconSizeDp,
         if (iconTreatment != null) 'iconTreatment': iconTreatment,
         if (iconPackId != null) 'iconPackId': iconPackId,
@@ -1674,6 +1745,11 @@ class LauncherPrefs {
       dockPress: j['dockPress'] as String?,
       dockEntrance: j['dockEntrance'] as String?,
       launchAnimation: j['launchAnimation'] as String?,
+      wallpaperFollowsPages: j['wallpaperFollowsPages'] as bool?,
+      edgeHandleSide: j['edgeHandleSide'] as String?,
+      iconTint: j['iconTint'] as String?,
+      edgeHandlePosition: j['edgeHandlePosition'] as String?,
+      edgeHandleVisible: j['edgeHandleVisible'] as bool?,
       topBar: j['topBar'] as bool?,
       statusBar: j['statusBar'] as bool?,
       homeLayout: j['homeLayout'] as String?,
@@ -1718,6 +1794,8 @@ class LauncherPrefs {
       verboseBoot: j['verboseBoot'] as bool?,
       workspaceDots: j['workspaceDots'] as bool?,
       layoutLocked: j['layoutLocked'] as bool?,
+      contactsSearch: j['contactsSearch'] as bool?,
+      notificationHistory: j['notificationHistory'] as bool?,
       iconSizeDp: (j['iconSizeDp'] as num?)?.toDouble(),
       iconTreatment: j['iconTreatment'] as String?,
       iconPackId: j['iconPackId'] as String?,
@@ -1831,6 +1909,11 @@ class LauncherPrefs {
         other.dockPress == dockPress &&
         other.dockEntrance == dockEntrance &&
         other.launchAnimation == launchAnimation &&
+        other.wallpaperFollowsPages == wallpaperFollowsPages &&
+        other.edgeHandleSide == edgeHandleSide &&
+        other.iconTint == iconTint &&
+        other.edgeHandlePosition == edgeHandlePosition &&
+        other.edgeHandleVisible == edgeHandleVisible &&
         other.topBar == topBar &&
         other.statusBar == statusBar &&
         other.homeLayout == homeLayout &&
@@ -1873,6 +1956,8 @@ class LauncherPrefs {
         other.verboseBoot == verboseBoot &&
         other.workspaceDots == workspaceDots &&
         other.layoutLocked == layoutLocked &&
+        other.contactsSearch == contactsSearch &&
+        other.notificationHistory == notificationHistory &&
         other.iconSizeDp == iconSizeDp &&
         other.iconTreatment == iconTreatment &&
         other.iconPackId == iconPackId &&
@@ -1950,6 +2035,11 @@ class LauncherPrefs {
         dockPress,
         dockEntrance,
         launchAnimation,
+        wallpaperFollowsPages,
+        edgeHandleSide,
+        iconTint,
+        edgeHandlePosition,
+        edgeHandleVisible,
         topBar,
         statusBar,
         homeLayout,
@@ -1991,6 +2081,8 @@ class LauncherPrefs {
         verboseBoot,
         workspaceDots,
         layoutLocked,
+        contactsSearch,
+        notificationHistory,
         iconSizeDp,
         iconTreatment,
         iconPackId,

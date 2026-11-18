@@ -67,3 +67,6 @@ mindberzerk-3eaf5-firebase-adminsdk-fbsvc-388e9a4d01.json
 # every run, so the only thing that would ever be worth keeping is the sources,
 # and those came from the internet.
 iconlab/
+
+# Emulator bridge scratch (tool/emu_bridge.sh): screenshots and logs
+apps/g_launcher/tool/.emu-bridge/

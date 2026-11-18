@@ -44,7 +44,8 @@ import '../../engine/effective_theme.dart';
 // the enum has to come from where it is declared, which is the same place
 // `desklet_skin` takes it from.
 import '../../engine/theme_spec.dart' show ShellKind;
-import 'desklet_surface.dart' show buildDesklet, deskletNeedsWidth;
+import 'desklet_surface.dart'
+    show buildDesklet, deskletNeedsWidth, deskletHugsWidth, hugDeskletWidth;
 
 class DeskletPreview extends StatelessWidget {
   const DeskletPreview({
@@ -127,7 +128,10 @@ class DeskletPreview extends StatelessWidget {
                   child: deskletNeedsWidth(kind.id, skin)
                       ? ConstrainedBox(
                           constraints: BoxConstraints(maxWidth: width),
-                          child: child,
+                          child: hugDeskletWidth(
+                            hug: deskletHugsWidth(kind.id, skin),
+                            child: child,
+                          ),
                         )
                       : child,
                 ),
@@ -192,5 +196,8 @@ List<DeskletKind> offeredDesklets(EffectiveTheme theme) {
     if (!offered.contains(DeskletKinds.vpn)) DeskletKinds.vpn,
     // Music belongs to the phone too, so every theme offers it.
     if (!offered.contains(DeskletKinds.nowPlaying)) DeskletKinds.nowPlaying,
+    // Large folders hold the phone's own apps, so every distro offers them
+    // too, with no theme edit. PHASE 7.
+    if (!offered.contains(DeskletKinds.folder)) DeskletKinds.folder,
   ];
 }

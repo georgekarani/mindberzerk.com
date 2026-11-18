@@ -11,6 +11,7 @@ import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../data/repositories/shell_apps.dart';
 import '../../data/search/search_text.dart';
+import '../../data/update/update_repository.dart' show kApplicationId;
 import '../../data/usage/usage_repository.dart';
 import '../../engine/effective_theme.dart';
 import '../../engine/terminal_spec.dart';
@@ -653,7 +654,7 @@ final drawerItemsProvider =
         ? const <AppEntry>[]
         : ([
             for (final a in byKey.values)
-              if (a.firstInstallTime > 0 && !a.isSystem) a,
+              if (countsAsRecentlyAdded(a)) a,
           ]..sort((a, b) => b.firstInstallTime.compareTo(a.firstInstallTime)))
             .take(_kSuggestions)
             .toList();
@@ -1063,3 +1064,15 @@ const terminalAliases = <String>[
   'tty',
   'ssh',
 ];
+
+/// Whether [a] belongs on a "Recently added" shelf.
+///
+/// System apps carry the factory image's date, so a shelf of preinstalled
+/// apps is not what "recently added" means. Nor is the launcher itself: it is
+/// in the app list so it can be opened, and a user install of G Launcher
+/// headed its own Recently added list, which reads as the launcher advertising
+/// itself.
+bool countsAsRecentlyAdded(AppEntry a) =>
+    a.firstInstallTime > 0 &&
+    !a.isSystem &&
+    !a.packageName.startsWith(kApplicationId);

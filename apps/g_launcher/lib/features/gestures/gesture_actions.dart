@@ -18,9 +18,20 @@ enum Gesture {
   swipeLeft('swipeLeft', 'gestures.swipeLeft'),
   swipeRight('swipeRight', 'gestures.swipeRight'),
   doubleTapHome('doubleTapHome', 'gestures.doubleTapHome'),
-  twoFingerSwipeDown('twoFingerSwipeDown', 'gestures.twoFingerSwipeDown');
+  twoFingerSwipeDown('twoFingerSwipeDown', 'gestures.twoFingerSwipeDown'),
+
+  // The edge handle's three moves. APPENDED: ids are stored, and settings
+  // lists the desktop's gestures and the handle's in separate groups by
+  // [onHandle]. PHASE 8.
+  edgeSwipeIn('edgeSwipeIn', 'gestures.edgeSwipeIn'),
+  edgeSwipeUp('edgeSwipeUp', 'gestures.edgeSwipeUp'),
+  edgeSwipeDown('edgeSwipeDown', 'gestures.edgeSwipeDown');
 
   const Gesture(this.id, this._labelKey);
+
+  /// Made on the edge handle rather than on the desktop itself.
+  bool get onHandle =>
+      this == edgeSwipeIn || this == edgeSwipeUp || this == edgeSwipeDown;
 
   final String id;
   final String _labelKey;
@@ -121,6 +132,9 @@ const defaultGestures = <String, String>{
   'swipeDown': 'none',
   'doubleTapHome': 'lockScreen',
   'twoFingerSwipeDown': 'quickSettings',
+  'edgeSwipeIn': 'search',
+  'edgeSwipeUp': 'quickSettings',
+  'edgeSwipeDown': 'notifications',
 };
 
 /// The ONE place a gesture resolves to a binding: the user's entry, else the

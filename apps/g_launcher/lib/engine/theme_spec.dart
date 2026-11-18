@@ -56,6 +56,7 @@ class ThemeSpec {
     this.categoryFallback,
     this.accents = const [],
     this.accentFromWallpaper = false,
+    this.wallpaperFollowsPages = false,
     this.accentGradient = const [],
     this.layouts = const [],
     this.surfaces,
@@ -369,6 +370,11 @@ class ThemeSpec {
   /// the person can choose the Wallpaper swatch or any authored one.
   final bool accentFromWallpaper;
 
+  /// Swiping between desktop pages pans the wallpaper, as iOS and One UI do.
+  /// Off unless authored: no Linux desktop pans its wallpaper between
+  /// workspaces. The user's setting wins either way. PHASE 8.
+  final bool wallpaperFollowsPages;
+
   /// The distro's signature gradient, two or three stops, or empty.
   ///
   /// Dr460nized is pink to violet to cyan, and pink alone reads as any pink
@@ -490,6 +496,7 @@ class ThemeSpec {
         accents: accents,
         // CARRIED, with the accents, for the same reason.
         accentFromWallpaper: accentFromWallpaper,
+        wallpaperFollowsPages: wallpaperFollowsPages,
         // CARRIED, for the reason every field in this call is.
         accentGradient: accentGradient,
         layouts: layouts,
@@ -690,6 +697,7 @@ class ThemeSpec {
           .where((a) => a.id != 'wallpaper')
           .toList(),
       accentFromWallpaper: json['accentFromWallpaper'] == true,
+      wallpaperFollowsPages: json['wallpaperFollowsPages'] == true,
       accentGradient: _gradient(json['accentGradient']),
       surfaces: ThemeSurfaces.fromJson(
         (json['surfaces'] as Map?)?.cast<String, dynamic>(),

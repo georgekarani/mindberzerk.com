@@ -317,6 +317,7 @@ class IconStyle {
     this.gradientAngle,
     this.brandPack,
     this.brandTreatment,
+    this.iconTint,
   });
 
   IconTreatment treatment;
@@ -391,6 +392,12 @@ class IconStyle {
   /// contract as ShellKind.parse and the icon treatment.
   String? brandTreatment;
 
+  /// PHASE 9. The person's icon tint, ARGB, or null for none. Applied to the
+  /// finished icon from every tier (pack, hero, brand, generated) so any icon
+  /// pack reads in one colour; never to a single-app choice, which is the
+  /// person's own. APPENDED, for the reason [backgroundGradientEnd] gives.
+  int? iconTint;
+
   List<Object?> _toList() {
     return <Object?>[
       treatment,
@@ -403,6 +410,7 @@ class IconStyle {
       gradientAngle,
       brandPack,
       brandTreatment,
+      iconTint,
     ];
   }
 
@@ -422,6 +430,7 @@ class IconStyle {
       gradientAngle: result[7] as double?,
       brandPack: result[8] as String?,
       brandTreatment: result[9] as String?,
+      iconTint: result[10] as int?,
     );
   }
 
@@ -434,7 +443,7 @@ class IconStyle {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(treatment, other.treatment) && _deepEquals(cornerRadius, other.cornerRadius) && _deepEquals(foregroundScale, other.foregroundScale) && _deepEquals(backgroundColor, other.backgroundColor) && _deepEquals(monochromeTint, other.monochromeTint) && _deepEquals(heroPack, other.heroPack) && _deepEquals(backgroundGradientEnd, other.backgroundGradientEnd) && _deepEquals(gradientAngle, other.gradientAngle) && _deepEquals(brandPack, other.brandPack) && _deepEquals(brandTreatment, other.brandTreatment);
+    return _deepEquals(treatment, other.treatment) && _deepEquals(cornerRadius, other.cornerRadius) && _deepEquals(foregroundScale, other.foregroundScale) && _deepEquals(backgroundColor, other.backgroundColor) && _deepEquals(monochromeTint, other.monochromeTint) && _deepEquals(heroPack, other.heroPack) && _deepEquals(backgroundGradientEnd, other.backgroundGradientEnd) && _deepEquals(gradientAngle, other.gradientAngle) && _deepEquals(brandPack, other.brandPack) && _deepEquals(brandTreatment, other.brandTreatment) && _deepEquals(iconTint, other.iconTint);
   }
 
   @override
@@ -443,7 +452,7 @@ class IconStyle {
 
   @override
   String toString() {
-    return 'IconStyle(treatment: $treatment, cornerRadius: $cornerRadius, foregroundScale: $foregroundScale, backgroundColor: $backgroundColor, monochromeTint: $monochromeTint, heroPack: $heroPack, backgroundGradientEnd: $backgroundGradientEnd, gradientAngle: $gradientAngle, brandPack: $brandPack, brandTreatment: $brandTreatment)';
+    return 'IconStyle(treatment: $treatment, cornerRadius: $cornerRadius, foregroundScale: $foregroundScale, backgroundColor: $backgroundColor, monochromeTint: $monochromeTint, heroPack: $heroPack, backgroundGradientEnd: $backgroundGradientEnd, gradientAngle: $gradientAngle, brandPack: $brandPack, brandTreatment: $brandTreatment, iconTint: $iconTint)';
   }
 }
 
@@ -2976,6 +2985,31 @@ class LauncherHostApi {
     )
     ;
     return (pigeonVar_replyValue! as List<Object?>).cast<int>();
+  }
+
+  /// PHASE 9. PNG bytes for [componentKey] as one icon CHOICE would draw it,
+  /// before that choice is saved: the edit sheet's preview. [choice] uses the
+  /// override values (`app`, `pack:<package>`, `image:<path>`), or '' for the
+  /// distro's own icon with no override. Not cached, like the other previews:
+  /// the cache is keyed by the saved choice, and an unsaved one must not land
+  /// in it. Null when nothing could be drawn.
+  Future<Uint8List?> previewIconChoice(String componentKey, String choice, int sizePx) async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.g_launcher.LauncherHostApi.previewIconChoice$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(<Object?>[componentKey, choice, sizePx]);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: true,
+    )
+    ;
+    return pigeonVar_replyValue as Uint8List?;
   }
 }
 

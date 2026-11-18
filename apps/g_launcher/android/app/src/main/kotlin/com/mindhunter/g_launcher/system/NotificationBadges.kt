@@ -42,10 +42,11 @@ import io.flutter.plugin.common.MethodChannel
  * a notification listener can read the CONTENT of every notification on the
  * phone. There is no way to ask for less.
  *
- * This service reads none of it. It counts, and it counts by package. Nothing
- * here touches a title, a body, a sender or an image, and nothing is stored.
- * That is worth saying in the UI when we ask, because the system dialog is
- * going to imply the opposite and the honest answer is a good one.
+ * For badges this service reads none of it. It counts, and it counts by
+ * package. The one exception is the person's own choice: with notification
+ * history turned on (PHASE 9, off by default) each post's title and text are
+ * kept in this app's private files for seven days, on the phone only, and
+ * turning it off deletes them. See [NotificationHistory].
  *
  * Until it is granted, `getActiveNotifications` is never called and Dart simply
  * receives no badges. Never a crash, never a nag, which is the same contract
@@ -95,6 +96,13 @@ class NotificationBadgeService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn?.isOngoing == true) return
         scheduleRecount()
+        // PHASE 9. Kept only when the person turned history on; the check is
+        // inside `record`, on the worker, so the binder thread never touches
+        // the file.
+        if (sbn != null) {
+            val app = applicationContext
+            worker.post { runCatching { NotificationHistory.record(app, sbn) } }
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
@@ -261,6 +269,24 @@ object BadgeBridge {
                 // back from the settings screen. Answers from the cache when
                 // the service is not bound, which is the honest empty map.
                 "refresh" -> result.success(counts)
+
+                // ── PHASE 9: NOTIFICATION HISTORY, OPT-IN, ON THE PHONE ──
+                "historyEnabled" -> result.success(NotificationHistory.enabled(app))
+
+                "historySet" -> {
+                    NotificationHistory.setEnabled(app, call.argument<Boolean>("on") == true)
+                    result.success(null)
+                }
+
+                "historyClear" -> {
+                    NotificationHistory.clear(app)
+                    result.success(null)
+                }
+
+                "history" -> {
+                    val limit = call.argument<Int>("limit") ?: 100
+                    result.success(NotificationHistory.list(app, limit))
+                }
 
                 else -> result.notImplemented()
             }

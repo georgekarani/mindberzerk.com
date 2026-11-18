@@ -9,6 +9,9 @@ import '../../data/prefs/prefs_repository.dart';
 import '../../design/components/components.dart';
 import '../../engine/desklet_skin.dart';
 import '../../engine/effective_theme.dart';
+import '../../system/wallpaper_accent.dart';
+import 'kinds/clock_faces.dart';
+import 'kinds/folder_desklet.dart';
 // parseColor, for the accent swatches.
 import '../../engine/theme_spec.dart' show parseColor;
 
@@ -56,6 +59,38 @@ const _backgroundChoices = <({String labelKey, double opacity})>[
 /// content_scale.dart for why this is a layout change and not a zoom.
 const _scaleChoices = <double>[0.8, 0.9, 1.0, 1.1, 1.2];
 
+/// The background colours a widget's card can take, by the id stored in
+/// config `bgColor`. Null follows the distro's own card colour.
+const deskletBackgroundIds = <String?>[
+  null,
+  'accent',
+  'dark',
+  'light',
+  'wallpaper',
+];
+
+/// The colour background [id] paints, or null to follow the distro.
+///
+/// Named choices rather than free colours, because each has to stay readable
+/// under ink the widget does not control: dark and the accent carry light text
+/// at any strength, and light is capped to a tint where it is drawn.
+Color? deskletBackgroundColour(
+  String? id, {
+  required Color accent,
+  Color? wallpaper,
+}) =>
+    switch (id) {
+      'accent' => accent,
+      'dark' => const Color(0xFF0E0E12), // theme-exempt: a colour the person chose
+      'light' => const Color(0xFFFFFFFF), // theme-exempt: a colour the person chose
+      'wallpaper' => wallpaper ?? accent,
+      _ => null,
+    };
+
+/// `#RRGGBB` for [c], the form [parseColor] reads back.
+String _hexOf(Color c) =>
+    '#${(c.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+
 /// theme-exempt: a per-widget accent is by definition not the theme's, and this
 /// is the fixed set offered beside it. The first entry is null, meaning follow.
 const _accentChoices = <String?>[
@@ -76,7 +111,11 @@ Future<void> showDeskletSettings(
   return ThemedSheet.show<void>(
     context,
     title: context.t('desklets.widgetSettings'),
-    builder: (sheet) => _Body(theme: theme, deskletId: desklet.id),
+    // Scrolls, because a clock's or folder's own rows come above the shared
+    // ones and the whole set is taller than a short phone's sheet.
+    builder: (sheet) => SingleChildScrollView(
+      child: _Body(theme: theme, deskletId: desklet.id),
+    ),
   );
 }
 
@@ -88,8 +127,6 @@ class _Body extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final d = ChromeScope.of(context);
-
     // LIVE, not the snapshot handed in. Every control below writes and the
     // sheet stays open, so reading the desklet off the push-time value would
     // show the old selection until it was closed and reopened.
@@ -125,6 +162,11 @@ class _Body extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // What the widget shows comes before how it looks. PHASE 7.
+          if (desklet.kind == 'clock')
+            ..._clockRows(context, theme, config, write),
+          if (desklet.kind == 'folder')
+            ..._folderRows(context, live, config, write),
           _Label(text: context.t('desklets.corners')),
           _Choices(
             labels: [for (final c in _cornerChoices) context.t(c.labelKey)],
@@ -156,28 +198,30 @@ class _Body extends ConsumerWidget {
             ),
             onPick: (i) => write({'opacity': _backgroundChoices[i].opacity}),
           ),
-          if (hosted) ...[
-            const SizedBox(height: 14),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Text(
-                context.t('desklets.hostedAccentNote'),
-                style: d.text.caption.copyWith(color: d.colors.textMuted),
-              ),
+          _Label(text: context.t('desklets.backgroundColour')),
+          _FillSwatches(
+            accent: theme.palette.accent,
+            distro: theme.palette.bar,
+            wallpaper: wallpaperAccentFor(
+              ref.watch(wallpaperColorsProvider).asData?.value ?? const [],
+              theme.palette.bar,
             ),
-          ] else ...[
+            selected: config['bgColor'] as String?,
+            onPick: (id) => write({
+              'bgColor': id,
+              // A colour on a tile with no backing would change nothing, so
+              // picking one on a bare or hosted tile gives it a backing too.
+              if (id != null && config['opacity'] is! num && (hosted || bare))
+                'opacity': 0.62,
+            }),
+          ),
+          // A hosted widget's accent is the app's own, so it has no row.
+          if (!hosted) ...[
             _Label(text: context.t('desklets.accent')),
             _Swatches(
               themeAccent: theme.palette.accent,
               selected: config['accentHex'] as String?,
               onPick: (hex) => write({'accentHex': hex}),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
-              child: Text(
-                context.t('desklets.followsDistro'),
-                style: d.text.caption.copyWith(color: d.colors.textFaint),
-              ),
             ),
           ],
         ],
@@ -231,16 +275,188 @@ class _Body extends ConsumerWidget {
 /// [DeskletSkin.mergedWith] inherit the distro's value rather than overwrite it
 /// with a manufactured default; that is the exact bug the skin's own doc
 /// describes at length.
-DeskletSkin skinOverridesFor(Desklet desklet) {
+///
+/// [accent] is the distro's accent and [wallpaper] the colour taken from the
+/// wallpaper; they resolve a background colour that follows either.
+DeskletSkin skinOverridesFor(
+  Desklet desklet, {
+  required Color accent,
+  Color? wallpaper,
+}) {
   final c = desklet.config;
+  final bgId = c['bgColor'] is String ? c['bgColor'] as String : null;
+  final bg = deskletBackgroundColour(
+    bgId,
+    accent: (c['accentHex'] is String ? parseColor(c['accentHex'] as String) : null) ??
+        accent,
+    wallpaper: wallpaper,
+  );
 
   return DeskletSkin(
     props: {
       if (c['radius'] is num) 'radius': c['radius'],
       if (c['opacity'] is num) 'opacity': c['opacity'],
       if (c['accentHex'] is String) 'accentHex': c['accentHex'],
+      if (bg != null) 'bgHex': _hexOf(bg),
+      if (bgId == 'light') 'bgLight': true,
     },
   );
+}
+
+/// The clock's face. The selection shows what is DRAWN: the user's choice,
+/// else the distro's default from its skin, so a distro that ships Analog
+/// shows Analog picked rather than nothing.
+List<Widget> _clockRows(
+  BuildContext context,
+  EffectiveTheme theme,
+  Map<String, Object?> config,
+  void Function(Map<String, Object?>) write,
+) {
+  final skinFace = theme.spec.desklets
+      .skinFor(theme.shell, 'clock')
+      .text('face', ClockFace.digital.id);
+  final current = ClockFace.parse(
+    config.containsKey('face') ? config['face'] as String? : skinFace,
+  );
+  return [
+    _Label(text: context.t('desklets.face')),
+    _WrapChoices(
+      labels: [for (final f in ClockFace.values) context.t(f.labelKey)],
+      selected: ClockFace.values.indexOf(current),
+      // Picking the distro's own default clears the key, so the clock keeps
+      // following the distro if its default ever changes.
+      onPick: (i) => write({
+        'face': ClockFace.values[i].id == skinFace
+            ? null
+            : ClockFace.values[i].id,
+      }),
+    ),
+  ];
+}
+
+/// The large folder's source and size. The user's folders are listed by name
+/// after the two lists the launcher keeps, home folders first.
+List<Widget> _folderRows(
+  BuildContext context,
+  LauncherPrefs prefs,
+  Map<String, Object?> config,
+  void Function(Map<String, Object?>) write,
+) {
+  final choices = <({String label, Map<String, Object?> patch})>[
+    (
+      label: context.t('desklets.folder.recent'),
+      patch: {'source': FolderSource.recent.id, 'folderId': null},
+    ),
+    (
+      label: context.t('desklets.folder.frequent'),
+      patch: {'source': FolderSource.frequent.id, 'folderId': null},
+    ),
+    for (final f in prefs.folders)
+      (
+        label: f.name,
+        patch: {
+          'source': FolderSource.folder.id,
+          'folderId': f.id,
+          'folderStore': 'home',
+        },
+      ),
+    for (final f in prefs.drawerFolders)
+      (
+        label: f.name,
+        patch: {
+          'source': FolderSource.folder.id,
+          'folderId': f.id,
+          'folderStore': 'drawer',
+        },
+      ),
+  ];
+  final source = FolderSource.parse(config['source']);
+  var selected = source == FolderSource.frequent ? 1 : 0;
+  if (source == FolderSource.folder) {
+    final store = config['folderStore'] == 'drawer' ? 'drawer' : 'home';
+    final at = choices.indexWhere(
+      (c) =>
+          c.patch['folderId'] == config['folderId'] &&
+          c.patch['folderStore'] == store,
+    );
+    // A folder deleted since keeps nothing lit rather than lighting a wrong
+    // one; picking any choice repoints it.
+    selected = at;
+  }
+  final grid = config['grid'] == 3 ? 3 : 2;
+  return [
+    _Label(text: context.t('desklets.folder.show')),
+    _WrapChoices(
+      labels: [for (final c in choices) c.label],
+      selected: selected,
+      onPick: (i) => write(choices[i].patch),
+    ),
+    _Label(text: context.t('desklets.folder.size')),
+    _WrapChoices(
+      labels: const ['2 x 2', '3 x 3'],
+      selected: grid == 3 ? 1 : 0,
+      onPick: (i) => write({'grid': i == 1 ? 3 : null}),
+    ),
+  ];
+}
+
+/// Chips that wrap onto more lines rather than truncating, for choices whose
+/// labels are words: a face name in German or a folder the user named can be
+/// longer than a segmented row has room for.
+class _WrapChoices extends StatelessWidget {
+  const _WrapChoices({
+    required this.labels,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final List<String> labels;
+  final int selected;
+  final ValueChanged<int> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = ChromeScope.of(context);
+    final c = d.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (var i = 0; i < labels.length; i++)
+            Semantics(
+              button: true,
+              selected: i == selected,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onPick(i),
+                // No alignment here: an aligned Container fills its parent,
+                // and in a Wrap that is the whole row.
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: i == selected ? c.accent : Colors.transparent,
+                    border: Border.all(
+                      color: i == selected ? c.accent : c.line,
+                    ),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Text(
+                    labels[i],
+                    style: d.text.caption.copyWith(
+                      color: i == selected ? c.onAccent : c.text,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _Label extends StatelessWidget {
@@ -314,6 +530,87 @@ class _Choices extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The background colour row: distro, accent, dark, light, wallpaper.
+class _FillSwatches extends StatelessWidget {
+  const _FillSwatches({
+    required this.accent,
+    required this.distro,
+    required this.wallpaper,
+    required this.selected,
+    required this.onPick,
+  });
+
+  final Color accent;
+
+  /// The distro's own card colour, shown on the first swatch.
+  final Color distro;
+
+  /// The wallpaper's colour, or null when it has none to offer.
+  final Color? wallpaper;
+
+  final String? selected;
+  final ValueChanged<String?> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = ChromeScope.of(context).colors;
+    String labelOf(String? id) => switch (id) {
+          'accent' => context.t('settings.accent'),
+          'dark' => context.t('settings.dark'),
+          'light' => context.t('settings.light'),
+          'wallpaper' => context.t('settings.wallpaperAccent'),
+          _ => context.t('settings.distro'),
+        };
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 10,
+        children: [
+          for (final id in deskletBackgroundIds)
+            if (id != 'wallpaper' || wallpaper != null)
+              Semantics(
+                button: true,
+                selected: id == selected,
+                label: labelOf(id),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => onPick(id),
+                  child: Builder(builder: (context) {
+                    final colour = deskletBackgroundColour(
+                          id,
+                          accent: accent,
+                          wallpaper: wallpaper,
+                        ) ??
+                        distro;
+                    return Container(
+                      width: 30,
+                      height: 30,
+                      decoration: BoxDecoration(
+                        color: colour,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: id == selected ? c.text : c.line,
+                          width: id == selected ? 2.5 : 1,
+                        ),
+                      ),
+                      child: switch (id) {
+                        null => Icon(Icons.auto_awesome,
+                            size: 14, color: c.onAccent),
+                        'wallpaper' => WallpaperAccentMark(colour: colour),
+                        _ => null,
+                      },
+                    );
+                  }),
+                ),
+              ),
+        ],
       ),
     );
   }

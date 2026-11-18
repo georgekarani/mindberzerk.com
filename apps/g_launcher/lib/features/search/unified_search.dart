@@ -36,6 +36,7 @@ import '../../data/repositories/shell_apps.dart';
 import '../../design/branded_message.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
+import '../../system/contacts_search.dart';
 import '../command/command_router.dart';
 import '../command/command_rows.dart';
 import '../command/search_settings.dart';
@@ -144,6 +145,28 @@ final shortcutSearchProvider = FutureProvider.autoDispose
   }
 });
 
+/// Contacts matching [query], when the person has turned contacts on and the
+/// permission is held. PHASE 9.
+///
+/// The switch and the grant are read here rather than by each surface, so no
+/// surface can ask native for contacts the person did not opt into. The same
+/// short pause as shortcuts, so a burst of keystrokes is one query.
+final contactSearchProvider = FutureProvider.autoDispose
+    .family<List<ContactHit>, ({String query, bool on})>((ref, key) async {
+  final q = key.query.trim();
+  if (!key.on || q.length < _minExtraQuery) return const [];
+  if (!await ref.watch(contactsGrantedProvider.future)) return const [];
+
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
+  await Future<void>.delayed(const Duration(milliseconds: 160));
+  if (disposed) return const [];
+  return searchContacts(q, limit: _maxContacts);
+});
+
+/// Most contact rows shown at once.
+const _maxContacts = 3;
+
 /// Everything that is not an app, for one query, drawn in a surface's style.
 ///
 /// Renders nothing at all when there is nothing to show, so a surface can put
@@ -157,6 +180,7 @@ class UnifiedExtraRows extends ConsumerWidget {
     required this.onClose,
     this.fillQuery,
     this.commands = true,
+    this.empty = const SizedBox.shrink(),
   });
 
   final EffectiveTheme theme;
@@ -173,10 +197,14 @@ class UnifiedExtraRows extends ConsumerWidget {
   /// not answered twice.
   final bool commands;
 
+  /// Drawn instead when there are no rows at all: a surface's own "no
+  /// matches", so it never sits beside a contact or a shortcut that matched.
+  final Widget empty;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final q = query.trim();
-    if (q.isEmpty) return const SizedBox.shrink();
+    if (q.isEmpty) return empty;
 
     final hits = commands
         ? CommandRouter.route(q, extraBangs: ref.watch(extraBangsProvider)).hits
@@ -193,6 +221,14 @@ class UnifiedExtraRows extends ConsumerWidget {
         if (visible[s.componentKey] case final app?) (shortcut: s, app: app),
     ].take(_maxShortcuts).toList();
 
+    final contacts = ref
+            .watch(contactSearchProvider(
+              (query: q, on: theme.prefs.contactsSearch == true),
+            ))
+            .asData
+            ?.value ??
+        const <ContactHit>[];
+
     final topics = topicsFor(q, context.t);
     // Only when Settings will show something for it: a row that opens an
     // empty page is a dead end, and "wifi" matches nothing of the launcher's
@@ -200,8 +236,12 @@ class UnifiedExtraRows extends ConsumerWidget {
     final showSettings = q.length >= _minExtraQuery &&
         settingsMatchCount(context, ref, theme, q) > 0;
 
-    if (hits.isEmpty && shortcuts.isEmpty && topics.isEmpty && !showSettings) {
-      return const SizedBox.shrink();
+    if (hits.isEmpty &&
+        contacts.isEmpty &&
+        shortcuts.isEmpty &&
+        topics.isEmpty &&
+        !showSettings) {
+      return empty;
     }
 
     return Column(
@@ -224,6 +264,26 @@ class UnifiedExtraRows extends ConsumerWidget {
             },
             onBang: fillQuery == null ? null : (b) => fillQuery!('!${b.key} '),
           ),
+        if (contacts.isNotEmpty) ...[
+          _Header(text: context.t('search.contacts'), style: style),
+          for (final c in contacts)
+            _ExtraRow(
+              style: style,
+              leading: Icon(
+                Icons.person_outline,
+                size: 22 * style.scale,
+                color: style.accent,
+              ),
+              title: c.name,
+              subtitle: c.phone ?? '',
+              onTap: () async {
+                HapticFeedback.selectionClick();
+                ref.read(recentSearchesProvider.notifier).record(q);
+                await openContact(c.uri);
+                onClose();
+              },
+            ),
+        ],
         if (shortcuts.isNotEmpty) ...[
           _Header(text: context.t('search.shortcuts'), style: style),
           for (final r in shortcuts)
@@ -373,16 +433,17 @@ class _ExtraRow extends StatelessWidget {
                         color: s.text,
                       ),
                     ),
-                    Text(
-                      subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontFamily: s.fontFamily,
-                        fontSize: 12 * s.scale,
-                        color: s.muted,
+                    if (subtitle.isNotEmpty)
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: s.fontFamily,
+                          fontSize: 12 * s.scale,
+                          color: s.muted,
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),

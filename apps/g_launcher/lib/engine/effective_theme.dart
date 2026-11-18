@@ -23,6 +23,7 @@ import '../data/repositories/app_repository.dart';
 import '../features/dock/dock_metrics.dart' show DockMetrics;
 import '../i18n/i18n.dart';
 import '../platform/launcher_api.g.dart' as api;
+import '../system/notification_history.dart';
 import '../system/wallpaper_accent.dart';
 import '../system/wallpaper_source.dart';
 // `DeskletKinds` for the pane-only test on the starter below. The layout import
@@ -357,6 +358,28 @@ class EffectiveTheme {
   /// The GNOME shell's workspace dots. On unless the user turned them off.
   bool get workspaceDots => prefs.workspaceDots ?? true;
 
+  /// Swiping between desktop pages pans the wallpaper. The user's choice,
+  /// else the distro's (Pocket authors it on; no Linux desktop does). PHASE 8.
+  bool get wallpaperFollowsPages =>
+      prefs.wallpaperFollowsPages ?? spec.wallpaperFollowsPages;
+
+  /// The edge handle's side: `left`, `right`, or `off` for anything else.
+  String get edgeHandleSide => switch (prefs.edgeHandleSide) {
+        'left' => 'left',
+        'right' => 'right',
+        _ => 'off',
+      };
+
+  /// Which third of the edge: `top`, `middle` or `bottom`.
+  String get edgeHandlePosition => switch (prefs.edgeHandlePosition) {
+        'top' => 'top',
+        'bottom' => 'bottom',
+        _ => 'middle',
+      };
+
+  /// Drawn, or an invisible strip.
+  bool get edgeHandleVisible => prefs.edgeHandleVisible ?? true;
+
   /// Whether home folders are glass squares. See [ThemeLayout.folderStyle].
   bool get folderGlass => _layoutNow.folderStyle == 'glass';
 
@@ -531,8 +554,21 @@ class EffectiveTheme {
   /// the wallpaper: a wallpaper with no usable colour leaves the distro's own.
   Color? get accent => _accentOn(_basePalette);
 
-  Color? _accentOn(ThemePalette base) {
-    final id = accentChoice;
+  Color? _accentOn(ThemePalette base) =>
+      _accentFor(spec, prefs, wallpaperColors, base);
+
+  /// The accent rule, static so [resolve] can use it before the theme exists:
+  /// the icon tint is part of the icon style the constructor takes.
+  static Color? _accentFor(
+    ThemeSpec spec,
+    LauncherPrefs prefs,
+    List<Color> wallpaperColors,
+    ThemePalette base,
+  ) {
+    final picked = prefs.accentId?.trim();
+    final id = picked != null && picked.isNotEmpty
+        ? picked
+        : (spec.accentFromWallpaper ? wallpaperAccentId : null);
     if (id == null) return null;
     if (id == wallpaperAccentId) {
       return wallpaperAccentFor(wallpaperColors, base.bar);
@@ -541,6 +577,23 @@ class EffectiveTheme {
       if (a.id == id) return a.value;
     }
     return null;
+  }
+
+  /// The colour [LauncherPrefs.iconTint] asks for, or null for no tint.
+  /// 'wallpaper' falls back to the accent when the wallpaper has no usable
+  /// colour, so choosing it never silently turns the tint off. PHASE 9.
+  static Color? _iconTintFor(
+    ThemeSpec spec,
+    LauncherPrefs prefs,
+    List<Color> wallpaperColors,
+    ThemePalette base,
+  ) {
+    final accent = _accentFor(spec, prefs, wallpaperColors, base) ?? base.accent;
+    return switch (prefs.iconTint) {
+      'accent' => accent,
+      'wallpaper' => wallpaperAccentFor(wallpaperColors, base.bar) ?? accent,
+      _ => null,
+    };
   }
 
   /// The swatches a picker offers: the wallpaper's, when it has a usable
@@ -713,6 +766,12 @@ class EffectiveTheme {
     final layout = LayoutResolver.resolve(spec, prefs);
     // The look Customize chose, merged over the base block at parse time.
     final themeIcons = spec.iconsFor(prefs.iconLook);
+    final iconTint = _iconTintFor(
+      spec,
+      prefs,
+      wallpaperColors,
+      dark ? spec.palette : (spec.paletteLight ?? spec.palette),
+    );
 
     return EffectiveTheme(
       spec: spec,
@@ -765,6 +824,7 @@ class EffectiveTheme {
         foregroundScale: themeIcons.foregroundScale,
         backgroundColor: themeIcons.backgroundColor,
         monochromeTint: themeIcons.monochromeTint,
+        iconTint: iconTint?.toARGB32(),
         // ─── THE ICON PACK OVERRIDE ────────────────────────────────────────
         //
         // The user's pack beats the distro's, and this one line is what makes
@@ -885,7 +945,8 @@ class EffectiveTheme {
         '|${i.backgroundGradientEnd}'
         '|${i.gradientAngle}'
         '|${i.brandPack}'
-        '|${i.brandTreatment}';
+        '|${i.brandTreatment}'
+        '|${i.iconTint}';
   }
 
   /// Value equality — LOAD-BEARING, not boilerplate.
@@ -1140,6 +1201,13 @@ final effectiveThemeProvider = FutureProvider<EffectiveTheme>((ref) async {
   // launch site gets the distro's style without passing it. A volatile field
   // set natively; nothing to wait for.
   unawaited(api_.setLaunchStyle(effective.launchAnimation));
+
+  // ── NOTIFICATION HISTORY (PHASE 9) ──────────────────────────────────────
+  //
+  // Native records only while this says so, and deletes on off. Pushed on
+  // every emit like the launch style: a cheap flag write, and it means a
+  // restore or a reset lands on the right answer without its own path.
+  unawaited(setNotificationHistory(prefs.notificationHistory == true));
 
   // ── WHOSE WALLPAPER IS ON THE SCREEN ────────────────────────
   //

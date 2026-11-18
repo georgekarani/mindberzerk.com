@@ -214,14 +214,9 @@ class _QueryDrawerState extends ConsumerState<QueryDrawer> {
                     onClose: () => closeApps(ref),
                     fillQuery: _fill,
                   ),
-                  if (results.isEmpty)
-                    // Only for a plain search: an explicit command mode has
-                    // its answer above and no apps to miss.
-                    if (ref.watchRoute(query).searchApps)
-                      _Empty(theme: theme, query: query)
-                    else
-                      const SizedBox.shrink()
-                  else
+                  // No apps: the miss line is drawn by the extras below, and
+                  // only when they have nothing either.
+                  if (results.isNotEmpty)
                     for (var i = 0; i < results.length; i++)
                       _Result(
                         theme: theme,
@@ -252,6 +247,12 @@ class _QueryDrawerState extends ConsumerState<QueryDrawer> {
                           scale: theme.textScale,
                         ),
                         onClose: () => closeApps(ref),
+                        // Only for a plain search: an explicit command mode
+                        // has its answer above and no apps to miss.
+                        empty: results.isEmpty &&
+                                ref.watchRoute(query).searchApps
+                            ? _Empty(theme: theme, query: query)
+                            : const SizedBox.shrink(),
                       ),
                     ),
                   ),

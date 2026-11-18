@@ -75,6 +75,12 @@
       requested until there is something to post.
     -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      PHASE 9. Contacts in search, OFF by default. Requested only when the
+      person turns the switch on; read on the phone to answer a search and
+      never stored or sent anywhere.
+    -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
@@ -127,6 +133,18 @@
       does not cover face or iris.
     -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!--
+      NO ADVERTISING ID. firebase_analytics merges AD_ID in from Play services
+      measurement and collects the Advertising ID by default. G Launcher shows
+      no ads and links no ad account, so the permission is removed here and
+      collection is switched off in the application element below. The Firebase app
+      instance ID still counts users; nothing that follows a person across
+      apps leaves the phone. Play Console's Advertising ID declaration must
+      read "No" for builds from this one on.
+    -->
+    <uses-permission
+        android:name="com.google.android.gms.permission.AD_ID"
+        tools:node="remove" />
 
 
     <queries>
@@ -272,6 +290,11 @@
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules">
+        <!-- See the AD_ID note above: no Advertising ID in Analytics. -->
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
+
 
         <!--
           launchMode=singleTask + clearTaskOnLaunch

@@ -11,6 +11,9 @@ import '../features/search/unified_search.dart';
 import '../features/desklets/desklet_surface.dart';
 import '../features/desklets/terminal_commands.dart';
 import '../features/desklets/terminal_matches.dart';
+import '../features/gestures/accessibility_disclosure.dart';
+import '../features/gestures/edge_handle.dart';
+import '../features/gestures/gesture_actions.dart';
 import '../features/palette/fuzzy.dart';
 import '../features/palette/palette_controller.dart';
 import '../platform/launcher_api.g.dart';
@@ -150,7 +153,9 @@ class _TuiShellState extends ConsumerState<TuiShell> {
       // The match list must ride above the keyboard, not under it.
       resizeToAvoidBottomInset: true,
       body: SafeArea(
-        child: Shortcuts(
+        child: Stack(
+          children: [
+            Positioned.fill(child: Shortcuts(
           shortcuts: const {
             SingleActivator(LogicalKeyboardKey.escape): _ClearIntent(),
           },
@@ -248,9 +253,49 @@ class _TuiShellState extends ConsumerState<TuiShell> {
               ],
             ),
           ),
+        )),
+            // The edge handle, drawn as a box-drawing scrollbar. The terminal
+            // has no Activities and no dock, so those bindings do nothing
+            // here; "search apps" puts the cursor in the prompt, which is
+            // this shell's search. PHASE 8.
+            Positioned.fill(
+              child: EdgeHandle(theme: widget.theme, onGesture: _fireEdge),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  /// Put the cursor in the prompt with the keyboard up.
+  ///
+  /// Focus alone is not enough: a prompt that kept its focus after the
+  /// keyboard was dismissed ignores a second `requestFocus`, and one that
+  /// regains it from a gesture does not always raise the keyboard. So focus
+  /// first, then ask for the keyboard once that frame has settled.
+  void _openPrompt() {
+    _focus.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_focus.hasFocus) {
+        SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+      }
+    });
+  }
+
+  Future<void> _fireEdge(Gesture gesture) async {
+    final binding = bindingFor(widget.theme, gesture);
+    final ok = await runGesture(
+      ref,
+      binding,
+      onActivities: () {},
+      onShowDock: () {},
+      onSearch: _openPrompt,
+    );
+    // Same just-in-time disclosure the desktop shells give: the user bound
+    // this to something the service does, and has just asked for it.
+    if (!ok && binding.action.needsService && mounted) {
+      await requestGestureService(context, ref);
+    }
   }
 }
 

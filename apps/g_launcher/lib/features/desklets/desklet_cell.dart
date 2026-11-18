@@ -24,6 +24,9 @@
 /// unrepresentable rather than merely discouraged.
 library;
 
+import 'dart:math' as math;
+
+import 'package:flutter/painting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../engine/widget_span.dart';
@@ -94,4 +97,75 @@ class DeskletIconCellsNotifier extends Notifier<Map<int, Set<int>>> {
 final deskletIconCellsProvider =
     NotifierProvider<DeskletIconCellsNotifier, Map<int, Set<int>>>(
   DeskletIconCellsNotifier.new,
+);
+
+/// Config key set once a drawn desklet's footprint has been fitted to its
+/// content. From then on the content scales up as well as down with the tile.
+const String deskletFittedKey = 'fitted';
+
+/// A drawn desklet's content as the desktop measured it.
+///
+/// ─── THE FRAME IS THE CARD ──────────────────────────────────────────────────
+///
+/// A tile is a whole number of grid cells; what it draws is whatever size the
+/// kind authored, scaled into those cells and aligned by its surface. The two
+/// rarely match, so the edit frame drawn around the cells sat far outside the
+/// card, and the handles hung off empty space. Publishing the content's own
+/// size lets the editor draw the frame, and place the handles, around what is
+/// actually painted, and lets a resize keep the card's shape.
+class DeskletContentBox {
+  const DeskletContentBox({
+    required this.natural,
+    required this.alignment,
+    required this.grows,
+  });
+
+  /// The content's size before the tile scales it, in logical pixels.
+  final Size natural;
+
+  /// Where the surface puts the content inside its tile.
+  final Alignment alignment;
+
+  /// True once fitted: the content scales to fill its box (contain), up as
+  /// well as down. Before that it only ever shrinks, as it always has.
+  final bool grows;
+
+  /// The scale the tile applies inside [box].
+  double scaleIn(Size box) {
+    if (natural.width <= 0 || natural.height <= 0) return 1;
+    final s = math.min(box.width / natural.width, box.height / natural.height);
+    return grows ? s : math.min(s, 1);
+  }
+
+  /// The painted content inside [box], positioned by [alignment].
+  Rect paintedIn(Size box) =>
+      alignment.inscribe(natural * scaleIn(box), Offset.zero & box);
+
+  /// Same box to within half a pixel. Text whose width moves by a sub-pixel
+  /// between ticks must not republish and rebuild every editor on the page.
+  bool sameAs(DeskletContentBox other) =>
+      grows == other.grows &&
+      alignment == other.alignment &&
+      (natural.width - other.natural.width).abs() < 0.5 &&
+      (natural.height - other.natural.height).abs() < 0.5;
+}
+
+/// The measured content of every drawn desklet on screen, by desklet id.
+///
+/// Hosted AppWidgets, stacks and window-framed tiles fill their cells, so they
+/// never appear here and the editor frames their whole tile.
+class DeskletContentNotifier extends Notifier<Map<String, DeskletContentBox>> {
+  @override
+  Map<String, DeskletContentBox> build() => const {};
+
+  void set(String id, DeskletContentBox box) {
+    final had = state[id];
+    if (had != null && had.sameAs(box)) return;
+    state = {...state, id: box};
+  }
+}
+
+final deskletContentProvider =
+    NotifierProvider<DeskletContentNotifier, Map<String, DeskletContentBox>>(
+  DeskletContentNotifier.new,
 );

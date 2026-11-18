@@ -22,6 +22,7 @@ import '../features/desklets/desklet_edit.dart';
 import '../features/desklets/desklet_edit_bar.dart';
 import '../features/dock/aqua_dock_metrics.dart';
 import '../features/dock/dock_extent.dart';
+import '../features/drawer/app_edit_sheet.dart';
 import '../features/drawer/app_icon.dart';
 import '../features/drawer/drawer_drag.dart';
 import '../features/drawer/drawer_state.dart';
@@ -222,7 +223,20 @@ class _AquaShellState extends ConsumerState<AquaShell> {
             onTap: () => apps.openInfo(app),
           ),
       ],
-      rows: (menu) => const [],
+      // Edit, as every other app menu offers it (G2): a row, because the
+      // strip above holds three. Work profile apps keep the profile's names.
+      rows: (menu) => [
+        if (!app.isWorkProfile)
+          ThemedListRow(
+            icon: Icons.edit_outlined,
+            title: host.t('appEdit.title'),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () {
+              Navigator.pop(menu);
+              showAppEditSheet(host, ref, theme, app);
+            },
+          ),
+      ],
     );
   }
 

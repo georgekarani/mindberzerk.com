@@ -1,4 +1,7 @@
-import 'theme_spec.dart' show ShellKind;
+import 'dart:math' as math;
+import 'dart:ui' show Color;
+
+import 'theme_spec.dart' show ShellKind, parseColor;
 
 /// How a distro draws a desklet. PHASE D3.
 ///
@@ -404,4 +407,24 @@ class StarterDesklet {
         config: ((j['config'] as Map?) ?? const {})
             .map((k, v) => MapEntry(k.toString(), v as Object?)),
       );
+}
+
+/// The fill a desklet's card is painted with.
+extension DeskletFill on DeskletSkin {
+  /// Whether the person picked a background colour for this widget.
+  bool get hasPickedFill => text('bgHex', '').isNotEmpty;
+
+  /// The card's fill: the person's background colour, else [bar], at the
+  /// background strength (`opacity`, else [defaultOpacity]).
+  ///
+  /// A light colour is capped at a soft tint, because every widget draws its
+  /// text in the palette's light ink and a near-white card under white text
+  /// would erase it.
+  Color fill(Color bar, double defaultOpacity) {
+    final alpha = num_('opacity', defaultOpacity).clamp(0.0, 1.0).toDouble();
+    final picked = parseColor(text('bgHex', ''));
+    if (picked == null) return bar.withValues(alpha: alpha);
+    final cap = flag('bgLight', false) ? 0.35 : 1.0;
+    return picked.withValues(alpha: math.min(alpha, cap));
+  }
 }

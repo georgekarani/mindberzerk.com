@@ -333,11 +333,97 @@ List<Widget> gesturesSection(
       query: q,
       rows: [
         for (final g in Gesture.values)
-          FilterRow(
-            [g.label.toLowerCase(), 'gesture', 'swipe'],
-            _GestureRow(theme: theme, gesture: g),
-          ),
+          if (!g.onHandle)
+            FilterRow(
+              [g.label.toLowerCase(), 'gesture', 'swipe'],
+              _GestureRow(theme: theme, gesture: g),
+            ),
       ],
     ),
+
+    // ── Edge handle ────────────────────────────────────────────────
+    //
+    // Where it sits and how it looks, then what its three moves do. The
+    // moves are listed only once there is a handle to make them on. PHASE 8.
+    SettingsGroup(
+      key: const ValueKey('gest.edge'),
+      label: context.t('settings.edgeHandle'),
+      query: q,
+      rows: _edgeHandleRows(context, ref, theme),
+    ),
+  ];
+}
+
+List<FilterRow> _edgeHandleRows(
+  BuildContext context,
+  WidgetRef ref,
+  EffectiveTheme theme,
+) {
+  final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
+  final on = theme.edgeHandleSide != 'off';
+  const terms = ['edge', 'handle', 'side', 'swipe'];
+  return [
+    FilterRow(
+      terms,
+      SettingsRow(
+        icon: Icons.vertical_split_outlined,
+        title: context.t('settings.edgeHandle.side'),
+        trailing: Seg(
+          value: theme.edgeHandleSide,
+          options: {
+            'off': tr('settings.backup.off'),
+            'left': tr('settings.edgeHandle.left'),
+            'right': tr('settings.edgeHandle.right'),
+          },
+          // Off clears the key rather than storing a word for "none".
+          onChanged: (v) => notifier.edit(
+            (p) => v == 'off'
+                ? p.clearing(edgeHandleSide: true)
+                : p.copyWith(edgeHandleSide: v),
+          ),
+        ),
+      ),
+    ),
+    if (on) ...[
+      FilterRow(
+        terms,
+        SettingsRow(
+          icon: Icons.height,
+          title: context.t('settings.edgeHandle.position'),
+          trailing: Seg(
+            value: theme.edgeHandlePosition,
+            options: {
+              'top': tr('settings.edgeHandle.top'),
+              'middle': tr('settings.edgeHandle.middle'),
+              'bottom': tr('settings.edgeHandle.bottom'),
+            },
+            onChanged: (v) => notifier.edit(
+              (p) => v == 'middle'
+                  ? p.clearing(edgeHandlePosition: true)
+                  : p.copyWith(edgeHandlePosition: v),
+            ),
+          ),
+        ),
+      ),
+      FilterRow(
+        terms,
+        SettingsToggleRow(
+          icon: Icons.visibility_outlined,
+          title: context.t('settings.edgeHandle.show'),
+          value: theme.edgeHandleVisible,
+          onChanged: (v) => notifier.edit(
+            (p) => v
+                ? p.clearing(edgeHandleVisible: true)
+                : p.copyWith(edgeHandleVisible: false),
+          ),
+        ),
+      ),
+      for (final g in Gesture.values)
+        if (g.onHandle)
+          FilterRow(
+            [g.label.toLowerCase(), ...terms],
+            _GestureRow(theme: theme, gesture: g),
+          ),
+    ],
   ];
 }

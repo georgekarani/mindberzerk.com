@@ -582,6 +582,20 @@ class LauncherHostApiImpl(
         }
     }
 
+    override fun previewIconChoice(
+        componentKey: String,
+        choice: String,
+        sizePx: Long,
+        callback: (Result<ByteArray?>) -> Unit,
+    ) {
+        // Clamped like every preview: the sheet asks for one small icon, and a
+        // malformed size must not allocate a screen-sized bitmap.
+        val px = sizePx.toInt().coerceIn(16, 512)
+        iconCache.previewChoice(componentKey, choice, px) { bytes ->
+            main.post { callback(Result.success(bytes)) }
+        }
+    }
+
     override fun clearIconCache(callback: (Result<Unit>) -> Unit) {
         iconCache.clear()
         callback(Result.success(Unit))
@@ -1211,6 +1225,7 @@ class LauncherHostApiImpl(
         gradientAngle = gradientAngle?.toFloat() ?: 45f,
         brandPack = brandPack,
         brandTreatment = BrandTreatment.parse(brandTreatment),
+        iconTint = iconTint?.toInt(),
     )
 
     // ---- backup folder ---------------------------------------------------

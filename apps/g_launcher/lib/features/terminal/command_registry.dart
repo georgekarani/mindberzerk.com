@@ -306,6 +306,16 @@ abstract final class TerminalRegistry {
       category: CommandCategory.launcher,
       description: 'Installed apps. Try ls -a, ls -l',
     ),
+    // A large folder, as the terminal draws one: `ls` of it. Starts on the
+    // newest installs; its settings repoint it. PHASE 7.
+    TerminalCommand(
+      name: 'folder',
+      aliases: ['recent'],
+      action: CommandAction.spawnDesklet,
+      spawnKind: 'folder',
+      category: CommandCategory.launcher,
+      description: 'Large folder, newest apps',
+    ),
     TerminalCommand(
       name: 'uptime',
       action: CommandAction.spawnDesklet,

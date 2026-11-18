@@ -13,6 +13,7 @@ import '../home/workspaces/workspace_overview.dart';
 import '../keyboard/launcher_keys.dart';
 import 'accessibility_disclosure.dart';
 import '../drawer/library_view.dart' show openSearch;
+import 'edge_handle.dart';
 import 'gesture_actions.dart';
 
 /// Temporarily reveals the dock. Auto-hides — a dock summoned by a gesture that
@@ -238,6 +239,18 @@ class _GestureLayerState extends ConsumerState<GestureLayer> {
               behavior: HitTestBehavior.translucent,
               onDoubleTap:
                   editing ? null : () => _fire(Gesture.doubleTapLeftEdge),
+            ),
+          ),
+
+          // The edge handle, last so its strip wins over the left-edge
+          // double-tap where the two overlap. Mounted always, and inert while
+          // editing, for the same tree-shape reason as everything above.
+          // PHASE 8.
+          Positioned.fill(
+            child: EdgeHandle(
+              theme: widget.theme,
+              enabled: !editing,
+              onGesture: _fire,
             ),
           ),
         ],

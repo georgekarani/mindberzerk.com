@@ -20,9 +20,11 @@ import '../../../design/setting_previews.dart';
 import '../../drawer/az_rail.dart';
 import '../../../engine/capabilities.dart';
 import '../../../engine/effective_theme.dart';
+import '../../../system/contacts_search.dart';
 import '../../../system/notification_badges.dart';
 import '../../command/search_settings.dart';
 import '../folders_screen.dart';
+import '../notification_history_screen.dart';
 import '../search_settings_screen.dart';
 import '../settings_rows.dart';
 import '../settings_sheets.dart';
@@ -704,6 +706,11 @@ List<Widget> applicationsSection(
             },
           ),
         ),
+        // PHASE 9. Off by default; on asks for contacts access.
+        FilterRow(
+          const ['contacts', 'people', 'phone', 'search contacts'],
+          _ContactsRow(theme: theme),
+        ),
       ],
     ),
 
@@ -805,6 +812,22 @@ List<Widget> applicationsSection(
                 : notifier.edit((p) => p.copyWith(badgeStyle: v)),
           ),
         ),
+        // PHASE 9. Off by default, kept on the phone, deleted when off.
+        FilterRow(
+          const ['notification', 'history', 'notification history', 'missed'],
+          _HistoryToggleRow(theme: theme),
+        ),
+        if (theme.prefs.notificationHistory == true)
+          FilterRow(
+            const ['notification', 'history', 'notification history'],
+            SettingsRow(
+              icon: Icons.history,
+              accent: true,
+              title: context.t('notifHistory.open'),
+              trailing: const Chevron(),
+              onTap: () => openNotificationHistory(context),
+            ),
+          ),
       ],
     ),
 
@@ -876,6 +899,94 @@ List<Widget> applicationsSection(
 /// only where they are mounted changed. That was the whole risk in this
 /// refactor: a row that loses its keywords stops being findable by search and
 /// nothing fails, so nothing here was retyped.
+
+/// Contacts in search: on only when the person chose it AND Android granted it.
+///
+/// ─── THE SWITCH SHOWS WHAT SEARCH WILL DO ──────────────────────────────────
+///
+/// On in prefs with the permission refused would show a switch that is on and
+/// a search with no contacts in it. So the switch reads both, and turning it on
+/// while refused asks again. The answer arrives as the activity resumes, which
+/// is when the grant is read again.
+class _ContactsRow extends ConsumerStatefulWidget {
+  const _ContactsRow({required this.theme});
+
+  final EffectiveTheme theme;
+
+  @override
+  ConsumerState<_ContactsRow> createState() => _ContactsRowState();
+}
+
+class _ContactsRowState extends ConsumerState<_ContactsRow> {
+  late final AppLifecycleListener _life = AppLifecycleListener(
+    onResume: () => ref.invalidate(contactsGrantedProvider),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _life;
+  }
+
+  @override
+  void dispose() {
+    _life.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final granted = ref.watch(contactsGrantedProvider).asData?.value ?? false;
+    final chosen = widget.theme.prefs.contactsSearch == true;
+    final notifier = ref.read(prefsProvider(widget.theme.spec.id).notifier);
+
+    return SettingsToggleRow(
+      icon: Icons.contacts_outlined,
+      title: context.t('settings.contactsSearch'),
+      value: chosen && granted,
+      onChanged: (v) async {
+        if (!v) {
+          await notifier.edit((p) => p.clearing(contactsSearch: true));
+          return;
+        }
+        await notifier.edit((p) => p.copyWith(contactsSearch: true));
+        if (!granted) await requestContactsAccess();
+        ref.invalidate(contactsGrantedProvider);
+      },
+    );
+  }
+}
+
+/// Notification history: the person's opt-in, which also needs the same
+/// notification access the badges use. Turning it on without that access goes
+/// to Android's page for it, because nothing can be kept until it is granted.
+class _HistoryToggleRow extends ConsumerWidget {
+  const _HistoryToggleRow({required this.theme});
+
+  final EffectiveTheme theme;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifier = ref.read(prefsProvider(theme.spec.id).notifier);
+    return SettingsToggleRow(
+      icon: Icons.notifications_outlined,
+      title: context.t('settings.notificationHistory'),
+      value: theme.prefs.notificationHistory == true,
+      onChanged: (v) async {
+        if (!v) {
+          await notifier.edit((p) => p.clearing(notificationHistory: true));
+          return;
+        }
+        await notifier.edit((p) => p.copyWith(notificationHistory: true));
+        final access = await ref.read(notificationAccessProvider.future);
+        if (!access) {
+          await openNotificationAccessSettings();
+          ref.invalidate(notificationAccessProvider);
+        }
+      },
+    );
+  }
+}
 
 /// Notification access: the state, and the way to change it.
 class _BadgeAccessRow extends ConsumerWidget {

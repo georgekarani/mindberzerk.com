@@ -73,6 +73,10 @@
         }
       }
     },
+    "wallpaperFollowsPages": {
+      "type": "boolean",
+      "$comment": "Swiping between desktop pages pans the wallpaper, as iOS and One UI do. Off unless authored: no Linux desktop pans between workspaces. The user's setting wins. Phones that crop the wallpaper to the screen (One UI, recent Pixels, most Transsion ROMs) cannot pan it, and there it does nothing."
+    },
     "accentFromWallpaper": {
       "type": "boolean",
       "$comment": "When true, a user who has not picked an accent gets one taken from the wallpaper, made readable on the bar colour. Every distro offers the Wallpaper swatch either way; this only sets the default. Needs Android 8.1 or later; older devices keep palette.accent."
@@ -469,7 +473,11 @@
       "properties": {
         "surface": { "enum": ["bare", "card", "panel", "terminal"] },
         "font": { "enum": ["display", "mono"] },
-        "accent": { "type": "boolean" }
+        "accent": { "type": "boolean" },
+        "face": {
+          "enum": ["digital", "analog", "fuzzy", "binary", "digits"],
+          "$comment": "Clock skins only: the face a new clock wears on this distro. digits is tty-clock. The user's choice in the widget settings wins. Unknown values draw digital."
+        }
       }
     },
 
@@ -477,7 +485,7 @@
       "enum": [
         "glance", "clock", "monitor", "fastfetch", "network", "storage",
         "battery", "notes", "search",
-        "free", "df", "ls", "uptime"
+        "free", "df", "ls", "uptime", "folder"
       ],
       "$comment": "ENUMERATED ON PURPOSE, even though the runtime keeps unknown kinds rather than deleting them. A typo (`clcok`) would otherwise vanish from the picker silently, which is exactly the failure class this file exists to catch. ADDING A KIND MEANS UPDATING THIS LIST - see the checklist in docs/theme_authoring.md."
     }

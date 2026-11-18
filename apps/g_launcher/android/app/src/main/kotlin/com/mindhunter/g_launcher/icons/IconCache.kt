@@ -542,14 +542,7 @@ class IconCache(
         // photo since deleted) falls through to the normal chain rather than
         // leaving a hole.
         val bitmap = renderOverride(componentKey, sizePx)
-            ?: renderWebApp(componentKey, sizePx)
-            ?: renderIconPack(componentKey, sizePx)
-            ?: renderHero(componentKey, sizePx)
-            ?: renderBrand(componentKey, sizePx)
-            // PHASE L4. Below every layer that identifies the APP, above the
-            // one that identifies nothing. See CategoryIndex.
-            ?: renderCategory(componentKey, sizePx)
-            ?: renderGenerated(componentKey, sizePx)
+            ?: renderChain(componentKey, sizePx)?.let(::applyTint)
             ?: return null
 
         val bytes = bitmap.toPngBytes()
@@ -735,14 +728,78 @@ class IconCache(
      *   image:<path> the photo, decoded near [sizePx] and masked into the
      *                theme's shape, so a photo reads as an icon of this distro
      */
-    private fun renderOverride(componentKey: String, sizePx: Int): Bitmap? {
-        val choice = overrides[componentKey] ?: return null
+    /**
+     * The distro's own answer for an app, with no single-app choice: the web
+     * app branch, then the four layers. Shared by [loadOrRender] and the edit
+     * sheet's preview of "the distro's icon".
+     */
+    private fun renderChain(componentKey: String, sizePx: Int): Bitmap? =
+        renderWebApp(componentKey, sizePx)
+            ?: renderIconPack(componentKey, sizePx)
+            ?: renderHero(componentKey, sizePx)
+            ?: renderBrand(componentKey, sizePx)
+            // PHASE L4. Below every layer that identifies the APP, above the
+            // one that identifies nothing. See CategoryIndex.
+            ?: renderCategory(componentKey, sizePx)
+            ?: renderGenerated(componentKey, sizePx)
+
+    /**
+     * PHASE 9. [componentKey] as [choice] would draw it, before it is saved.
+     * '' is the distro's own icon. A choice that cannot draw falls back to the
+     * distro's, the same fall-through a saved choice gets, so the preview never
+     * shows something the drawer would not.
+     *
+     * NOT CACHED: the cache is keyed by the SAVED choice, so an unsaved one
+     * written there would be served after the sheet was cancelled.
+     */
+    fun previewChoice(
+        componentKey: String,
+        choice: String,
+        sizePx: Int,
+        callback: (ByteArray?) -> Unit,
+    ) {
+        io.execute {
+            val bytes = runCatching {
+                switchLock.read {
+                    val bitmap = (if (choice.isEmpty()) null else renderOverride(componentKey, sizePx, choice))
+                        ?: renderChain(componentKey, sizePx)?.let(::applyTint)
+                        ?: return@read null
+                    bitmap.toPngBytes().also { bitmap.recycle() }
+                }
+            }.getOrNull()
+            callback(bytes)
+        }
+    }
+
+    /**
+     * PHASE 9. The person's icon tint over an icon the distro chose. A
+     * single-app choice is never passed here: it is already what they asked
+     * for, and tinting a photo they picked would undo the point of picking it.
+     */
+    private fun applyTint(bitmap: Bitmap): Bitmap {
+        val tint = style.iconTint ?: return bitmap
+        val out = renderer.tinted(bitmap, tint)
+        bitmap.recycle()
+        return out
+    }
+
+    private fun renderOverride(
+        componentKey: String,
+        sizePx: Int,
+        choice: String? = overrides[componentKey],
+    ): Bitmap? {
+        if (choice == null) return null
         return when {
             choice == OVERRIDE_APP -> renderGenerated(componentKey, sizePx)
             choice.startsWith(OVERRIDE_PACK) -> {
+                // A pack the saved choices never named is loaded on demand: the
+                // preview can name any installed pack.
+                val pkg = choice.removePrefix(OVERRIDE_PACK)
                 val resolver = synchronized(overridePacks) {
-                    overridePacks[choice.removePrefix(OVERRIDE_PACK)]
-                } ?: return null
+                    overridePacks.getOrPut(pkg) {
+                        IconPackResolver(appContext).also { it.load(pkg) }
+                    }
+                }
                 val drawable = resolver.resolve(componentKey) ?: return null
                 renderer.renderHero(drawable, style, sizePx, false)
             }
@@ -824,5 +881,5 @@ class IconCache(
     private fun IconStyle.fingerprint(): String =
         "${treatment.name}:$cornerRadius:$foregroundScale:$backgroundColor:" +
             "$monochromeTint:$heroPack:$backgroundGradientEnd:$gradientAngle:" +
-            "$brandPack:${brandTreatment.name}"
+            "$brandPack:${brandTreatment.name}:tint3-$iconTint"
 }

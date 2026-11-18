@@ -27,16 +27,18 @@ class BoxProbe extends SingleChildRenderObjectWidget {
 
   @override
   RenderObject createRenderObject(BuildContext context) =>
-      _RenderBoxProbe(handle);
+      RenderBoxProbe(handle);
 
   @override
-  void updateRenderObject(BuildContext context, _RenderBoxProbe renderObject) {
+  void updateRenderObject(BuildContext context, RenderBoxProbe renderObject) {
     renderObject.handle = handle;
   }
 }
 
-class _RenderBoxProbe extends RenderProxyBox {
-  _RenderBoxProbe(this._handle);
+/// The render object behind [BoxProbe]; public only because
+/// [BoxProbe.updateRenderObject] names it.
+class RenderBoxProbe extends RenderProxyBox {
+  RenderBoxProbe(this._handle);
 
   BoxRef _handle;
 

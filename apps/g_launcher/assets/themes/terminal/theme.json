@@ -94,6 +94,9 @@
       }
     ],
     "skins": {
+      "clock": {
+        "face": "digits"
+      },
       "fastfetch": {
         "surface": "terminal",
         "font": "mono",

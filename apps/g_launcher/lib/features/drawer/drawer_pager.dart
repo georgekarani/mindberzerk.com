@@ -74,6 +74,7 @@ class DrawerPager extends StatefulWidget {
     this.onPage,
     this.onAddPage,
     this.jumpToPage,
+    this.showDots = true,
   });
 
   /// Page to turn to when this CHANGES, or null for "stay where you are".
@@ -90,6 +91,10 @@ class DrawerPager extends StatefulWidget {
   /// only on a change, which matters because the drawer rebuilds constantly and
   /// an unconditional jump would fight every swipe the user makes.
   final int? jumpToPage;
+
+  /// Draw the page dots. Off frees their strip unless the "+" still needs it.
+  /// PHASE 9: the page indicator switch, on every distro.
+  final bool showDots;
 
   final int itemCount;
   final int columns;
@@ -471,7 +476,7 @@ class _DrawerPagerState extends State<DrawerPager> {
 
         // The one case where the strip is not drawn: a single page with no add
         // button. Give the height back and recount.
-        if (pageCount <= 1 && widget.onAddPage == null) {
+        if ((pageCount <= 1 || !widget.showDots) && widget.onAddPage == null) {
           strip = 0;
           rows = deriveRows(strip);
           pageCount = pagesFor(rows);
@@ -621,14 +626,17 @@ class _DrawerPagerState extends State<DrawerPager> {
             ),
             // The "+" has to be reachable even on a one-page drawer, which
             // is the one case the old `> 1` test hid.
-            if (pageCount > 1 || widget.onAddPage != null)
+            if ((pageCount > 1 && widget.showDots) ||
+                widget.onAddPage != null)
               // Listens rather than reads. The dots are the only thing below
               // the pages that cares about the live offset, and a strip of six
               // circles is cheap to rebuild; the pages behind it are not.
               ValueListenableBuilder<double>(
                 valueListenable: _page,
                 builder: (context, page, _) => _Dots(
-                  count: pageCount,
+                  // Hidden dots keep the "+": growing the drawer is a control,
+                  // not an indicator.
+                  count: widget.showDots ? pageCount : 0,
                   page: (page.round() - _wrapBase) % pageCount,
                   onAdd: widget.onAddPage,
                 ),

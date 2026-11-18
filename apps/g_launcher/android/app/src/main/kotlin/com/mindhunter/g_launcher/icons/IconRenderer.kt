@@ -87,6 +87,13 @@ data class IconStyle(
 
     /** How a brand glyph is coloured. See [BrandTreatment]. */
     val brandTreatment: BrandTreatment = BrandTreatment.BRAND_PLATE,
+
+    /**
+     * PHASE 9. The person's icon tint, ARGB, or null. Applied by [tinted] to the
+     * finished icon, after every tier has drawn, so it reaches pack art the
+     * renderer never otherwise recolours.
+     */
+    val iconTint: Int? = null,
 )
 
 /**
@@ -730,4 +737,49 @@ class IconRenderer {
         }
         path.close()
     }
+
+    /**
+     * PHASE 9. [source] recoloured in [tint], keeping its light and shade.
+     *
+     * Two ramps meeting at the pure tint. Below mid-luminance a pixel runs from
+     * a deep shade of the tint ([TINT_DEEP] of it) up to the tint itself; above
+     * it, from the tint toward white ([TINT_LIGHT] of the way). So a coloured
+     * plate, which sits near the middle, keeps the full colour; a white glyph
+     * stays light on it; dark strokes stay dark. One straight ramp through the
+     * middle greyed every plate out. Alpha is untouched, so shapes stay shapes.
+     *
+     * Per pixel rather than a ColorMatrix, because the two segments are not one
+     * linear map. It runs once per icon per size, on the cache's IO thread.
+     */
+    fun tinted(source: Bitmap, tint: Int): Bitmap {
+        val w = source.width
+        val h = source.height
+        val pixels = IntArray(w * h)
+        source.getPixels(pixels, 0, w, 0, 0, w, h)
+        val tr = Color.red(tint)
+        val tg = Color.green(tint)
+        val tb = Color.blue(tint)
+        fun channel(t: Int, l: Float): Int {
+            val v = if (l < 0.5f) {
+                t * (TINT_DEEP + (1f - TINT_DEEP) * (l / 0.5f))
+            } else {
+                t + (255 - t) * TINT_LIGHT * ((l - 0.5f) / 0.5f)
+            }
+            return v.toInt().coerceIn(0, 255)
+        }
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val a = p ushr 24
+            if (a == 0) continue
+            val l = (0.299f * Color.red(p) + 0.587f * Color.green(p) + 0.114f * Color.blue(p)) / 255f
+            pixels[i] = Color.argb(a, channel(tr, l), channel(tg, l), channel(tb, l))
+        }
+        return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+    }
 }
+
+/** Black in a tinted icon becomes this share of the tint. */
+private const val TINT_DEEP = 0.35f
+
+/** White in a tinted icon becomes the tint moved this far toward white. */
+private const val TINT_LIGHT = 0.82f

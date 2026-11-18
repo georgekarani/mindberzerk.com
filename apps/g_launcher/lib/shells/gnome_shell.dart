@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_launcher/i18n/i18n.dart';
 
+import '../system/wallpaper_pan.dart';
 import '../data/prefs/hidden_apps.dart';
 import '../data/prefs/home_layout.dart';
 import '../data/prefs/prefs_repository.dart';
@@ -22,6 +23,7 @@ import '../engine/effective_theme.dart';
 import '../engine/theme_spec.dart' show TopBarSide, WorkspaceAxis;
 import '../features/dock/dock_entrance.dart';
 import '../features/dock/dock_metrics.dart';
+import '../features/drawer/app_edit_sheet.dart';
 import '../features/drawer/app_icon.dart';
 import '../features/desklets/desklet_edit.dart';
 import '../features/desklets/desklet_edit_bar.dart';
@@ -293,7 +295,20 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
             onTap: () => apps.openInfo(app),
           ),
       ],
-      rows: (menu) => const [],
+      // Edit, as every other app menu offers it (G2): a row, because the
+      // strip above holds three. Work profile apps keep the profile's names.
+      rows: (menu) => [
+        if (!app.isWorkProfile)
+          ThemedListRow(
+            icon: Icons.edit_outlined,
+            title: host.t('appEdit.title'),
+            trailing: const Icon(Icons.chevron_right, size: 20),
+            onTap: () {
+              Navigator.pop(menu);
+              showAppEditSheet(host, ref, theme, app);
+            },
+          ),
+      ],
     );
   }
 
@@ -621,6 +636,13 @@ class _GnomeShellState extends ConsumerState<GnomeShell> {
 
                 return Stack(
                   children: [
+                    // Pans the wallpaper with the pager when the setting is
+                    // on. Paints nothing and claims no gesture. PHASE 8.
+                    WallpaperParallax(
+                      controller: _pages,
+                      pages: count,
+                      enabled: theme.wallpaperFollowsPages,
+                    ),
                     // ── Workspaces: VERTICAL, and empty on purpose ──────
                     // Their content is the wallpaper, which WindowManager
                     // draws behind Flutter. Vertical drags fall through the

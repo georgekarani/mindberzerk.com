@@ -80,6 +80,8 @@ class GlobalPrefs {
     this.monoFont,
     this.hiddenApps,
     this.layoutLocked,
+    this.contactsSearch,
+    this.notificationHistory,
     this.appLabels,
     this.badgeMuted,
     this.iconOverrides,
@@ -168,6 +170,17 @@ class GlobalPrefs {
   /// theme, so there is no stored value to carry across and nothing a missing
   /// top-up could lose.
   final bool? layoutLocked;
+
+  /// Show contacts in search, on every distro. null = off. Turning it on asks
+  /// for READ_CONTACTS; contacts are read on the phone and never leave it.
+  /// PROMOTED to [GlobalPrefs]: a permission is granted once, not per distro.
+  /// PHASE 9.
+  final bool? contactsSearch;
+
+  /// Keep a history of recent notifications on the phone. null = off. Never
+  /// uploaded; cleared when turned off. PROMOTED to [GlobalPrefs], like
+  /// [contactsSearch]. PHASE 9.
+  final bool? notificationHistory;
 
   // ── APP IDENTITY ──────────────────────────────────────────────────────────
 
@@ -280,6 +293,8 @@ class GlobalPrefs {
         monoFont: p.monoFont,
         hiddenApps: p.hiddenApps,
         layoutLocked: p.layoutLocked,
+        contactsSearch: p.contactsSearch,
+        notificationHistory: p.notificationHistory,
         appLabels: p.appLabels,
         badgeMuted: p.badgeMuted,
         iconOverrides: p.iconOverrides,
@@ -324,6 +339,8 @@ class GlobalPrefs {
       displayFont: displayFont == null,
       monoFont: monoFont == null,
       layoutLocked: layoutLocked == null,
+      contactsSearch: contactsSearch == null,
+      notificationHistory: notificationHistory == null,
     );
 
     return cleared.copyWith(
@@ -357,6 +374,8 @@ class GlobalPrefs {
       displayFont: displayFont,
       monoFont: monoFont,
       layoutLocked: layoutLocked,
+      contactsSearch: contactsSearch,
+      notificationHistory: notificationHistory,
       // A Set has no null to clear to: absent means empty, which is also what
       // a reset to defaults (`const GlobalPrefs()`) should produce.
       hiddenApps: hiddenApps ?? const <String>{},
@@ -400,6 +419,8 @@ class GlobalPrefs {
         if (displayFont != null) 'displayFont': displayFont,
         if (monoFont != null) 'monoFont': monoFont,
         if (layoutLocked != null) 'layoutLocked': layoutLocked,
+        if (contactsSearch != null) 'contactsSearch': contactsSearch,
+        if (notificationHistory != null) 'notificationHistory': notificationHistory,
         if (appLabels != null) 'appLabels': appLabels,
         if (badgeMuted != null) 'badgeMuted': badgeMuted!.toList()..sort(),
         if (iconOverrides != null) 'iconOverrides': iconOverrides,
@@ -439,6 +460,8 @@ class GlobalPrefs {
         monoFont: j['monoFont'] as String?,
         hiddenApps: (j['hiddenApps'] as List?)?.whereType<String>().toSet(),
         layoutLocked: j['layoutLocked'] as bool?,
+        contactsSearch: j['contactsSearch'] as bool?,
+        notificationHistory: j['notificationHistory'] as bool?,
         appLabels: (j['appLabels'] as Map?)
             ?.map((k, v) => MapEntry(k.toString(), v.toString())),
         badgeMuted: (j['badgeMuted'] as List?)?.whereType<String>().toSet(),
@@ -507,6 +530,8 @@ class GlobalPrefs {
         displayFont: displayFont,
         monoFont: monoFont,
         layoutLocked: layoutLocked,
+        contactsSearch: contactsSearch,
+        notificationHistory: notificationHistory,
         appLabels: appLabels,
         badgeMuted: badgeMuted,
         iconOverrides: iconOverrides,
@@ -571,6 +596,8 @@ class GlobalPrefs {
         monoFont,
         const SetEquality<String>().hash(hiddenApps),
         layoutLocked,
+        contactsSearch,
+        notificationHistory,
         const MapEquality<String, String>().hash(appLabels),
         const SetEquality<String>().hash(badgeMuted),
         const MapEquality<String, String>().hash(iconOverrides),

@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import com.mindhunter.g_launcher.system.ContactsBridge
 import com.mindhunter.g_launcher.system.WallpaperOffsets
 import com.mindhunter.g_launcher.widgets.StageBridge
 import com.mindhunter.g_launcher.widgets.WidgetStage
@@ -300,7 +301,7 @@ class LauncherActivity : FlutterActivity() {
             screenOffRegistered = true
         }
 
-        // ── WALLPAPER PANNING, FOR THE SAME REASON ──────────────────────────
+        // ── WALLPAPER PANNING AND THE EDGE EXCLUSION, FOR THE SAME REASON ───
         //
         // `setWallpaperOffsets` takes a WINDOW TOKEN, and the Pigeon host API
         // holds an application Context. A token comes from a View attached to a
@@ -312,6 +313,14 @@ class LauncherActivity : FlutterActivity() {
         // there is certainly a window because somebody is looking at it.
         WallpaperOffsets.setUp(flutterEngine.dartExecutor.binaryMessenger) {
             if (isFinishing || isDestroyed) null else window?.decorView
+        }
+
+        // ── CONTACTS IN SEARCH (PHASE 9), FOR THE SAME REASON ───────────────
+        //
+        // Asking for READ_CONTACTS needs an Activity, so the bridge is set up
+        // here and resolves this one per call.
+        ContactsBridge.setUp(this, flutterEngine.dartExecutor.binaryMessenger) {
+            if (isFinishing || isDestroyed) null else this
         }
     }
 

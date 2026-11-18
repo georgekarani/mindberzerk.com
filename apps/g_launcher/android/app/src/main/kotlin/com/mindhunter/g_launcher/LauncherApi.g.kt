@@ -474,7 +474,14 @@ data class IconStyle (
    * existing class costs nothing. Unknown values degrade to "brandPlate", same
    * contract as ShellKind.parse and the icon treatment.
    */
-  val brandTreatment: String? = null
+  val brandTreatment: String? = null,
+  /**
+   * PHASE 9. The person's icon tint, ARGB, or null for none. Applied to the
+   * finished icon from every tier (pack, hero, brand, generated) so any icon
+   * pack reads in one colour; never to a single-app choice, which is the
+   * person's own. APPENDED, for the reason [backgroundGradientEnd] gives.
+   */
+  val iconTint: Long? = null
 )
  {
   companion object {
@@ -489,7 +496,8 @@ data class IconStyle (
       val gradientAngle = pigeonVar_list[7] as Double?
       val brandPack = pigeonVar_list[8] as String?
       val brandTreatment = pigeonVar_list[9] as String?
-      return IconStyle(treatment, cornerRadius, foregroundScale, backgroundColor, monochromeTint, heroPack, backgroundGradientEnd, gradientAngle, brandPack, brandTreatment)
+      val iconTint = pigeonVar_list[10] as Long?
+      return IconStyle(treatment, cornerRadius, foregroundScale, backgroundColor, monochromeTint, heroPack, backgroundGradientEnd, gradientAngle, brandPack, brandTreatment, iconTint)
     }
   }
   fun toList(): List<Any?> {
@@ -504,6 +512,7 @@ data class IconStyle (
       gradientAngle,
       brandPack,
       brandTreatment,
+      iconTint,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -514,7 +523,7 @@ data class IconStyle (
       return true
     }
     val other = other as IconStyle
-    return LauncherApiPigeonUtils.deepEquals(this.treatment, other.treatment) && LauncherApiPigeonUtils.deepEquals(this.cornerRadius, other.cornerRadius) && LauncherApiPigeonUtils.deepEquals(this.foregroundScale, other.foregroundScale) && LauncherApiPigeonUtils.deepEquals(this.backgroundColor, other.backgroundColor) && LauncherApiPigeonUtils.deepEquals(this.monochromeTint, other.monochromeTint) && LauncherApiPigeonUtils.deepEquals(this.heroPack, other.heroPack) && LauncherApiPigeonUtils.deepEquals(this.backgroundGradientEnd, other.backgroundGradientEnd) && LauncherApiPigeonUtils.deepEquals(this.gradientAngle, other.gradientAngle) && LauncherApiPigeonUtils.deepEquals(this.brandPack, other.brandPack) && LauncherApiPigeonUtils.deepEquals(this.brandTreatment, other.brandTreatment)
+    return LauncherApiPigeonUtils.deepEquals(this.treatment, other.treatment) && LauncherApiPigeonUtils.deepEquals(this.cornerRadius, other.cornerRadius) && LauncherApiPigeonUtils.deepEquals(this.foregroundScale, other.foregroundScale) && LauncherApiPigeonUtils.deepEquals(this.backgroundColor, other.backgroundColor) && LauncherApiPigeonUtils.deepEquals(this.monochromeTint, other.monochromeTint) && LauncherApiPigeonUtils.deepEquals(this.heroPack, other.heroPack) && LauncherApiPigeonUtils.deepEquals(this.backgroundGradientEnd, other.backgroundGradientEnd) && LauncherApiPigeonUtils.deepEquals(this.gradientAngle, other.gradientAngle) && LauncherApiPigeonUtils.deepEquals(this.brandPack, other.brandPack) && LauncherApiPigeonUtils.deepEquals(this.brandTreatment, other.brandTreatment) && LauncherApiPigeonUtils.deepEquals(this.iconTint, other.iconTint)
   }
 
   override fun hashCode(): Int {
@@ -529,10 +538,11 @@ data class IconStyle (
     result = 31 * result + LauncherApiPigeonUtils.deepHash(this.gradientAngle)
     result = 31 * result + LauncherApiPigeonUtils.deepHash(this.brandPack)
     result = 31 * result + LauncherApiPigeonUtils.deepHash(this.brandTreatment)
+    result = 31 * result + LauncherApiPigeonUtils.deepHash(this.iconTint)
     return result
   }
   override fun toString(): String {
-    return "IconStyle(treatment=$treatment, cornerRadius=$cornerRadius, foregroundScale=$foregroundScale, backgroundColor=$backgroundColor, monochromeTint=$monochromeTint, heroPack=$heroPack, backgroundGradientEnd=$backgroundGradientEnd, gradientAngle=$gradientAngle, brandPack=$brandPack, brandTreatment=$brandTreatment)"
+    return "IconStyle(treatment=$treatment, cornerRadius=$cornerRadius, foregroundScale=$foregroundScale, backgroundColor=$backgroundColor, monochromeTint=$monochromeTint, heroPack=$heroPack, backgroundGradientEnd=$backgroundGradientEnd, gradientAngle=$gradientAngle, brandPack=$brandPack, brandTreatment=$brandTreatment, iconTint=$iconTint)"
   }
 }
 
@@ -2100,6 +2110,15 @@ interface LauncherHostApi {
    * picks the accent and makes it readable; native only reports.
    */
   fun wallpaperColors(callback: (Result<List<Long>>) -> Unit)
+  /**
+   * PHASE 9. PNG bytes for [componentKey] as one icon CHOICE would draw it,
+   * before that choice is saved: the edit sheet's preview. [choice] uses the
+   * override values (`app`, `pack:<package>`, `image:<path>`), or '' for the
+   * distro's own icon with no override. Not cached, like the other previews:
+   * the cache is keyed by the saved choice, and an unsaved one must not land
+   * in it. Null when nothing could be drawn.
+   */
+  fun previewIconChoice(componentKey: String, choice: String, sizePx: Long, callback: (Result<ByteArray?>) -> Unit)
 
   companion object {
     /** The codec used by LauncherHostApi. */
@@ -3241,6 +3260,28 @@ interface LauncherHostApi {
         if (api != null) {
           channel.setMessageHandler { _, reply ->
             api.wallpaperColors{ result: Result<List<Long>> ->
+              val error = result.exceptionOrNull()
+              if (error != null) {
+                reply.reply(LauncherApiPigeonUtils.wrapError(error))
+              } else {
+                val data = result.getOrNull()
+                reply.reply(LauncherApiPigeonUtils.wrapResult(data))
+              }
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.g_launcher.LauncherHostApi.previewIconChoice$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val componentKeyArg = args[0] as String
+            val choiceArg = args[1] as String
+            val sizePxArg = args[2] as Long
+            api.previewIconChoice(componentKeyArg, choiceArg, sizePxArg) { result: Result<ByteArray?> ->
               val error = result.exceptionOrNull()
               if (error != null) {
                 reply.reply(LauncherApiPigeonUtils.wrapError(error))

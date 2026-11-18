@@ -171,6 +171,7 @@ class IconStyle {
     this.gradientAngle,
     this.brandPack,
     this.brandTreatment,
+    this.iconTint,
   });
 
   IconTreatment treatment;
@@ -244,6 +245,12 @@ class IconStyle {
   /// existing class costs nothing. Unknown values degrade to "brandPlate", same
   /// contract as ShellKind.parse and the icon treatment.
   String? brandTreatment;
+
+  /// PHASE 9. The person's icon tint, ARGB, or null for none. Applied to the
+  /// finished icon from every tier (pack, hero, brand, generated) so any icon
+  /// pack reads in one colour; never to a single-app choice, which is the
+  /// person's own. APPENDED, for the reason [backgroundGradientEnd] gives.
+  int? iconTint;
 }
 
 /// One live sample of everything the device is willing to tell us.
@@ -1481,6 +1488,15 @@ abstract class LauncherHostApi {
   /// picks the accent and makes it readable; native only reports.
   @async
   List<int> wallpaperColors();
+
+  /// PHASE 9. PNG bytes for [componentKey] as one icon CHOICE would draw it,
+  /// before that choice is saved: the edit sheet's preview. [choice] uses the
+  /// override values (`app`, `pack:<package>`, `image:<path>`), or '' for the
+  /// distro's own icon with no override. Not cached, like the other previews:
+  /// the cache is keyed by the saved choice, and an unsaved one must not land
+  /// in it. Null when nothing could be drawn.
+  @async
+  Uint8List? previewIconChoice(String componentKey, String choice, int sizePx);
 }
 
 // ─── FLUTTER API (Kotlin calls, Dart implements) ─────────────────────────────

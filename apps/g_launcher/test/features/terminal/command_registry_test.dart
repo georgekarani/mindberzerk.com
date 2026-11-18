@@ -131,6 +131,7 @@ void main() {
         'df',
         'ls',
         'uptime',
+        'folder',
       };
       for (final c in TerminalRegistry.all) {
         if (c.spawnKind != null) {

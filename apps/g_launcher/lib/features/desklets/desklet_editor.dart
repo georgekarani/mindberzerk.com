@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +14,7 @@ import '../../data/prefs/desklet_layout.dart';
 import '../../data/prefs/launcher_prefs.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../design/branded_message.dart';
+import '../../engine/desklet_spec.dart' show DeskletKinds;
 import '../../engine/effective_theme.dart';
 import '../../engine/theme_spec.dart' show ThemePalette;
 import '../../engine/widget_span.dart';
@@ -53,12 +56,17 @@ class EditableDesklet extends ConsumerStatefulWidget {
     required this.cellH,
     required this.editing,
     required this.child,
+    this.inset = 0,
   });
 
   final EffectiveTheme theme;
   final Desklet desklet;
   final double cellW;
   final double cellH;
+
+  /// The padding between the tile's edge and its content, so the card's
+  /// painted box can be placed inside the tile exactly.
+  final double inset;
 
   /// Whether the desktop is in edit mode.
   ///
@@ -101,6 +109,153 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
   bool _removeDown = false;
 
   Desklet get _d => widget.desklet;
+
+  /// The content box last measured for this tile, or null for a tile that
+  /// fills its cells (hosted widget, stack, window). Set in [build].
+  DeskletContentBox? _content;
+
+  /// Whether this mount has already asked to fit the footprint.
+  bool _fitAsked = false;
+
+  // ── the card, not the cells ──────────────────────────────────────────────
+
+  /// Where the content is painted inside a tile of [tile] size.
+  Rect _cardIn(Size tile, [DeskletContentBox? box]) {
+    final c = box ?? _content;
+    if (c == null) return Offset.zero & tile;
+    final i = widget.inset;
+    final inner = Size(
+      math.max(0, tile.width - 2 * i),
+      math.max(0, tile.height - 2 * i),
+    );
+    return c.paintedIn(inner).shift(Offset(i, i));
+  }
+
+  /// Whole cells needed to hold [px] pixels. Half a pixel of slack, so a size
+  /// that lands exactly on a cell boundary is not rounded up a whole cell.
+  static int _cellsFor(double px, double cell) =>
+      math.max(1, ((px - 0.5) / cell).ceil());
+
+  /// The tile's size right now: its cells, or, under a resize drag, the drag.
+  ///
+  /// ─── A RESIZE SCALES THE CARD, IT DOES NOT RESHAPE IT ──────────────────
+  ///
+  /// Content that is drawn at a natural size keeps its shape: the drag picks a
+  /// scale from whichever axis the finger changed most, relative to the tile,
+  /// and the tile follows the card at that scale. Dragging only sideways
+  /// still grows the clock, dragging inward shrinks it, and the frame never
+  /// opens a gap beside it. Capped by the kind's largest span and by the grid
+  /// edge from where the tile sits, so the card can never be dragged off the
+  /// workspace or past what the kind allows.
+  Size _liveSize() {
+    final rest = Size(_d.spanX * widget.cellW, _d.spanY * widget.cellH);
+    final c = _content;
+    if (!_resizing) return rest;
+    final raw = Size(rest.width + _grow.width, rest.height + _grow.height);
+    if (c == null || c.natural.isEmpty) return raw;
+
+    final i = widget.inset;
+    final n = c.natural;
+    Size inner(Size t) => Size(t.width - 2 * i, t.height - 2 * i);
+    final now = c.scaleIn(inner(rest));
+    final rw = raw.width / rest.width;
+    final rh = raw.height / rest.height;
+    final ratio = (rw - 1).abs() >= (rh - 1).abs() ? rw : rh;
+
+    final kind = DeskletKinds.byId(_d.kind);
+    final cols = math.min(
+      widget.theme.deskletCols - _d.col,
+      kind?.maxSpanX ?? widget.theme.deskletCols,
+    );
+    final rows = math.min(
+      widget.theme.deskletRows - _d.row,
+      kind?.maxSpanY ?? widget.theme.deskletRows,
+    );
+    final s = [
+      now * ratio,
+      (cols * widget.cellW - 2 * i) / n.width,
+      (rows * widget.cellH - 2 * i) / n.height,
+    ].reduce(math.min);
+    final scale = math.max(s, 0.05);
+    return Size(n.width * scale + 2 * i, n.height * scale + 2 * i);
+  }
+
+  /// Fit the footprint to the card, once.
+  ///
+  /// ─── THE SPACE A WIDGET TAKES IS THE SPACE IT SHOWS ───────────────────
+  ///
+  /// Kinds open at a default span, and the content was scaled down into it
+  /// and centred, so a clock could reserve eight columns and paint three.
+  /// The first time a tile's content is measured, its span shrinks to the
+  /// cells the card actually covers at its current size, and the tile is
+  /// marked fitted, which lets the content scale to fill it from then on.
+  /// Shrink only: the card keeps its size and nothing it overlaps can
+  /// appear. It moves by the share of the freed cells its alignment gave
+  /// away, so a centred card stays where it was.
+  void _fitOnce() {
+    if (!mounted) return;
+    final c = ref.read(deskletContentProvider)[_d.id];
+    if (c == null || c.grows) return;
+    if (ref.read(prefsProvider(widget.theme.spec.id)).value == null) {
+      _fitAsked = false;
+      return;
+    }
+
+    final cellW = widget.cellW;
+    final cellH = widget.cellH;
+    final inset = widget.inset;
+    final cols = widget.theme.deskletCols;
+    final rows = widget.theme.deskletRows;
+    final id = _d.id;
+
+    // ─── COMPUTED FROM THE PREFS THE EDIT IS GIVEN, NEVER FROM A COPY ─────
+    //
+    // Every tile on a page fits itself in the same frame. Reading the prefs
+    // here and writing a result built from that read meant each tile wrote
+    // back the whole layout as IT had seen it, so the last writer silently
+    // undid every other tile's fit, and could restore a layout from before a
+    // change made in between. Inside `edit`, each fit applies to whatever the
+    // previous one left.
+    _edit((p) {
+      final d = DeskletLayout.byId(p, id);
+      if (d == null || d.config[deskletFittedKey] == true) return p;
+
+      final tile = Size(d.spanX * cellW, d.spanY * cellH);
+      final card = _cardIn(tile, c);
+      final sx = math.min(d.spanX, _cellsFor(card.width + 2 * inset, cellW));
+      final sy = math.min(d.spanY, _cellsFor(card.height + 2 * inset, cellH));
+
+      var next = p;
+      if (sx != d.spanX || sy != d.spanY) {
+        final shrunk = DeskletLayout.resize(
+          p,
+          id: id,
+          spanX: sx,
+          spanY: sy,
+          cols: cols,
+          rows: rows,
+        );
+        final now = DeskletLayout.byId(shrunk, id);
+        if (now != null) {
+          next = shrunk;
+          final dc = ((d.spanX - now.spanX) * (c.alignment.x + 1) / 2).round();
+          final dr = ((d.spanY - now.spanY) * (c.alignment.y + 1) / 2).round();
+          if (dc != 0 || dr != 0) {
+            next = DeskletLayout.move(
+              next,
+              id: id,
+              toPage: now.page,
+              toCol: now.col + dc,
+              toRow: now.row + dr,
+              cols: cols,
+              rows: rows,
+            );
+          }
+        }
+      }
+      return DeskletLayout.configure(next, id, {deskletFittedKey: true});
+    });
+  }
 
   /// The hosted widget id this tile owns, or null for our own desklets.
   int? get _hostedId {
@@ -553,6 +708,64 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
   }
 
   void _resizeEnd() {
+    // A drawn card commits the cells its scaled card covers, so the footprint
+    // fits the card at the size the drag chose.
+    if (_content != null && _resizing) {
+      final live = _liveSize();
+      // Within the kind's own limits here, so a drag that only reaches the
+      // kind's floor or ceiling is a quiet stop, never "No room".
+      final kind = DeskletKinds.byId(_d.kind);
+      final sx = _cellsFor(live.width, widget.cellW).clamp(
+          kind?.minSpanX ?? 1, kind?.maxSpanX ?? widget.theme.deskletCols);
+      final sy = _cellsFor(live.height, widget.cellH).clamp(
+          kind?.minSpanY ?? 1, kind?.maxSpanY ?? widget.theme.deskletRows);
+      setState(() {
+        _grow = Size.zero;
+        _resizing = false;
+      });
+      final before = ref.read(prefsProvider(widget.theme.spec.id)).value;
+      if (before == null) return;
+      final resized = (sx == _d.spanX && sy == _d.spanY)
+          ? before
+          : DeskletLayout.resize(
+              before,
+              id: _d.id,
+              spanX: sx,
+              spanY: sy,
+              cols: widget.theme.deskletCols,
+              rows: widget.theme.deskletRows,
+              cell: ref.read(deskletCellProvider),
+              byUser: true,
+            );
+      if (identical(resized, before) && (sx != _d.spanX || sy != _d.spanY)) {
+        HapticFeedback.heavyImpact();
+        if (mounted) context.showMessage(context.t('desklets.noRoomToGrow'));
+        return;
+      }
+      HapticFeedback.selectionClick();
+      final id = _d.id;
+      final cols = widget.theme.deskletCols;
+      final rows = widget.theme.deskletRows;
+      final cell = ref.read(deskletCellProvider);
+      // Re-applied to the prefs the edit is given, for the reason _fitOnce
+      // gives: the check above used a read, the write must not.
+      _edit((p) => DeskletLayout.configure(
+            DeskletLayout.resize(
+              p,
+              id: id,
+              spanX: sx,
+              spanY: sy,
+              cols: cols,
+              rows: rows,
+              cell: cell,
+              byUser: true,
+            ),
+            id,
+            {deskletFittedKey: true},
+          ));
+      return;
+    }
+
     final dx = (_grow.width / widget.cellW).round();
     final dy = (_grow.height / widget.cellH).round();
 
@@ -666,15 +879,28 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
         g != null && g.ids.contains(_d.id) && !_moving ? g.offset : null));
     final p = widget.theme.palette;
 
-    final w = _d.spanX * widget.cellW + _grow.width;
-    final h = _d.spanY * widget.cellH + _grow.height;
+    _content = ref.watch(deskletContentProvider.select((m) => m[_d.id]));
+    if (_content != null && !_content!.grows && !_fitAsked) {
+      _fitAsked = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitOnce());
+    }
 
-    // The span this resize WOULD commit, by the same rounding `_resizeEnd`
-    // uses. Derived from that one arithmetic rather than re-guessed, so the
+    final live = _liveSize();
+    final w = live.width;
+    final h = live.height;
+    final card = _cardIn(live);
+    final tile = Size(w, h);
+
+    // The span this resize WOULD commit, by the same arithmetic `_resizeEnd`
+    // uses. Derived from that one calculation rather than re-guessed, so the
     // number on screen and the number stored can never disagree; a chip that
     // says 4 x 3 and commits 4 x 4 is worse than no chip.
-    final pendingX = _d.spanX + (_grow.width / widget.cellW).round();
-    final pendingY = _d.spanY + (_grow.height / widget.cellH).round();
+    final pendingX = _content != null
+        ? _cellsFor(w, widget.cellW)
+        : _d.spanX + (_grow.width / widget.cellW).round();
+    final pendingY = _content != null
+        ? _cellsFor(h, widget.cellH)
+        : _d.spanY + (_grow.height / widget.cellH).round();
     // `_resizing`, the existing flag set on pan start, not `_grow != zero`:
     // the latter is false for the first few pixels of a drag, so the chip would
     // appear late and flicker at the moment the user most needs it.
@@ -700,8 +926,8 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
               // the thing you are looking at, and a label over its middle
               // covers exactly what you are judging.
               Positioned(
-                left: 0,
-                bottom: -26,
+                left: card.left,
+                top: card.bottom + 6,
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: p.bgBottom.withValues(alpha: 0.88),
@@ -721,7 +947,43 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                   ),
                 ),
               ),
+            // ─── FRAME, CONTENT, THEN THE HIT AREA, EACH WHERE IT BELONGS ──
+            //
+            // The frame and the hit area sit on the CARD, not on the cells:
+            // the outline hugs what is painted and a tap beside the card is a
+            // tap on the desktop. The content still lays out across the whole
+            // tile, because its own surface aligns and scales it there; the
+            // card rect above is computed from exactly that.
+            Positioned.fromRect(
+              // Just outside the card, so the outline frames its edge rather
+              // than drawing over it.
+              rect: card.inflate(3),
+              child: IgnorePointer(
+                child: _Frame(
+                  palette: p,
+                  editing: widget.editing,
+                  selected: selected || picked,
+                  lifted: _moving || _resizing || follow != null,
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+            // IGNORE POINTERS ON THE TILE CONTENT WHILE EDITING.
+            //
+            // In edit mode the tile itself must not be interactive: the editor
+            // owns tap (select), hold (move) and the handles. Without this a
+            // hosted AppWidget (an AndroidView, so a PlatformView) claims the
+            // touch and eats the drag, so you cannot move a widget around the
+            // screen; a note or search tile would also swallow the tap that is
+            // meant to select it. Conditional, because at rest every
+            // interactive desklet must keep its own taps.
             Positioned.fill(
+              child: widget.editing
+                  ? IgnorePointer(child: widget.child)
+                  : widget.child,
+            ),
+            Positioned.fromRect(
+              rect: card,
               child: RawGestureDetector(
                 // TRANSLUCENT, so a tile that owns an onTap keeps it while the
                 // desktop is at rest: the note opens its editor, the search
@@ -770,27 +1032,7 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                       },
                     ),
                 },
-                child: _Frame(
-                  palette: p,
-                  editing: widget.editing,
-                  selected: selected || picked,
-                  lifted: _moving || _resizing || follow != null,
-                  // IGNORE POINTERS ON THE TILE CONTENT WHILE EDITING.
-                  //
-                  // In edit mode the tile itself must not be interactive: the
-                  // editor owns tap (select), hold (move) and the handles.
-                  // Without this a hosted AppWidget (an AndroidView, so a
-                  // PlatformView) claims the touch and eats the drag, so you
-                  // cannot move a widget around the screen; a note or search
-                  // tile would also swallow the tap that is meant to select it.
-                  //
-                  // CONDITIONAL now, where it used to be unconditional, because
-                  // this widget renders at rest too. Ignoring pointers all the
-                  // time would make every interactive desklet permanently dead.
-                  child: widget.editing
-                      ? IgnorePointer(child: widget.child)
-                      : widget.child,
-                ),
+                child: const SizedBox.expand(),
               ),
             ),
 
@@ -822,8 +1064,8 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
             // link in the corner while editing says it is on purpose.
             if (widget.editing && _d.group != null && !selected)
               Positioned(
-                left: 8,
-                top: 8,
+                left: card.left + 8,
+                top: card.top + 8,
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -876,6 +1118,8 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                     // itself against either.
                     _HandleRole.resize => _positioned(
                         placed.value,
+                        card: card,
+                        tile: tile,
                         child: Listener(
                           behavior: HitTestBehavior.opaque,
                           onPointerDown: (_) {
@@ -920,6 +1164,8 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                     // cannot diverge between them.
                     _HandleRole.move => _positioned(
                         placed.value,
+                        card: card,
+                        tile: tile,
                         child: Listener(
                           behavior: HitTestBehavior.opaque,
                           onPointerDown: (_) {
@@ -950,6 +1196,8 @@ class _EditableDeskletState extends ConsumerState<EditableDesklet> {
                       ),
                     _HandleRole.remove => _positioned(
                         placed.value,
+                        card: card,
+                        tile: tile,
                         child: GestureDetector(
                           behavior: HitTestBehavior.opaque,
                           // Down and up drive the highlight; the tap itself still
@@ -1118,14 +1366,25 @@ const double _overhang = -10;
 /// small positive inset, so the badge lands just inside the tile's own border.
 const double _tuck = 2;
 
-Positioned _positioned(_Placement at, {required Widget child}) {
+/// A handle on a corner of [card], which sits inside a tile of [tile] size.
+Positioned _positioned(
+  _Placement at, {
+  required Rect card,
+  required Size tile,
+  required Widget child,
+}) {
   final o = at.inset ? _tuck : _overhang;
+  final left = card.left + o;
+  final top = card.top + o;
+  final right = tile.width - card.right + o;
+  final bottom = tile.height - card.bottom + o;
 
   return switch (at.corner) {
-    _Corner.topLeft => Positioned(left: o, top: o, child: child),
-    _Corner.topRight => Positioned(right: o, top: o, child: child),
-    _Corner.bottomLeft => Positioned(left: o, bottom: o, child: child),
-    _Corner.bottomRight => Positioned(right: o, bottom: o, child: child),
+    _Corner.topLeft => Positioned(left: left, top: top, child: child),
+    _Corner.topRight => Positioned(right: right, top: top, child: child),
+    _Corner.bottomLeft => Positioned(left: left, bottom: bottom, child: child),
+    _Corner.bottomRight =>
+      Positioned(right: right, bottom: bottom, child: child),
   };
 }
 

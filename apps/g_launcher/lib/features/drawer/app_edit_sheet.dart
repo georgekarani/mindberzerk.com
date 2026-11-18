@@ -12,6 +12,7 @@ import '../../data/prefs/app_identity.dart';
 import '../../data/prefs/prefs_repository.dart';
 import '../../data/repositories/app_repository.dart';
 import '../../design/components/components.dart';
+import '../../design/settings_look.dart';
 import '../../engine/effective_theme.dart';
 import '../../platform/launcher_api.g.dart';
 import '../icons/icon_theme_screen.dart' show installedIconThemesProvider;
@@ -136,6 +137,45 @@ class _EditBodyState extends ConsumerState<_EditBody> {
   late bool _countOn;
   String? _icon;
 
+  /// Previews already asked for, by choice ('' for the distro's icon), so a
+  /// rebuild does not ask native to draw the same icon again.
+  final Map<String, Future<Uint8List?>> _previews = {};
+
+  /// The icon as the current, unsaved choice draws it.
+  ///
+  /// ─── THE PREVIEW SHOWS THE CHOICE, NOT THE SAVED ICON ─────────────────
+  ///
+  /// [AppIcon] draws what is saved, so picking a pack or a photo changed the
+  /// check mark and nothing else, and the only way to see a choice was to
+  /// save it. Native draws the unsaved choice off to the side, uncached.
+  Widget _preview(double size) {
+    final saved = AppIcon(entry: widget.entry, size: size, showBadge: false);
+    if (_icon == widget.icon) return saved;
+    final choice = _icon ?? '';
+    final px = (size * MediaQuery.devicePixelRatioOf(context)).round();
+    final future = _previews.putIfAbsent(
+      choice,
+      () => ref
+          .read(launcherHostApiProvider)
+          .previewIconChoice(widget.entry.componentKey, choice, px),
+    );
+    return FutureBuilder<Uint8List?>(
+      key: ValueKey(choice),
+      future: future,
+      builder: (context, snap) {
+        final bytes = snap.data;
+        if (bytes == null) return saved;
+        return Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          gaplessPlayback: true,
+          filterQuality: FilterQuality.medium,
+        );
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -194,6 +234,29 @@ class _EditBodyState extends ConsumerState<_EditBody> {
     final photo = _icon != null &&
         _icon!.startsWith(AppIdentity.iconImagePrefix);
 
+    // ─── iOS: THE OPTIONS ON CARDS, NOT ON THE GLASS ──────────────────────
+    //
+    // Pocket's sheet is frosted glass over the home screen, and bare rows on
+    // it read as faint text floating over icons. iOS puts a sheet's choices
+    // on inset grouped cards with a solid fill, which is what makes them
+    // read as controls; the other distros keep their own flat rows.
+    final grouped = (SheetLookScope.of(context) ??
+            SettingsLook.resolve(context)) ==
+        SettingsLook.grouped;
+    Widget section(List<Widget> rows) {
+      if (grouped) return ThemedListCard(children: rows);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < rows.length; i++) ...[
+            if (i > 0) Divider(height: 0.5, thickness: 0.5, color: c.line),
+            rows[i],
+          ],
+        ],
+      );
+    }
+
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -207,7 +270,7 @@ class _EditBodyState extends ConsumerState<_EditBody> {
         children: [
           Row(
             children: [
-              AppIcon(entry: widget.entry, size: 44, showBadge: false),
+              _preview(44),
               const SizedBox(width: 14),
               Expanded(
                 child: TextField(
@@ -253,31 +316,39 @@ class _EditBodyState extends ConsumerState<_EditBody> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ThemedListRow(
-                    icon: Icons.notifications_outlined,
-                    title: context.t('appEdit.count'),
-                    trailing: ThemedToggle(
-                      value: _countOn,
-                      onChanged: (v) => setState(() => _countOn = v),
+                  section([
+                    ThemedListRow(
+                      icon: Icons.notifications_outlined,
+                      title: context.t('appEdit.count'),
+                      trailing: ThemedToggle(
+                        value: _countOn,
+                        onChanged: (v) => setState(() => _countOn = v),
+                      ),
+                      onTap: () => setState(() => _countOn = !_countOn),
                     ),
-                    onTap: () => setState(() => _countOn = !_countOn),
-                  ),
-                  Divider(height: 0.5, thickness: 0.5, color: c.line),
+                  ]),
+                  if (grouped)
+                    const SizedBox(height: 12)
+                  else
+                    Divider(height: 0.5, thickness: 0.5, color: c.line),
                   // ── THE ICON: THE DISTRO'S, THE APP'S OWN, A PACK'S, A PHOTO
-                  choice(Icons.palette_outlined, context.t('appEdit.iconDistro'),
-                      null),
-                  choice(Icons.android, context.t('appEdit.iconApp'),
-                      AppIdentity.iconApp),
-                  for (final pack in packs.entries)
-                    choice(Icons.style_outlined, pack.value,
-                        '${AppIdentity.iconPackPrefix}${pack.key}'),
-                  ThemedListRow(
-                    icon: Icons.photo_outlined,
-                    title: context.t('appEdit.iconPhoto'),
-                    trailing:
-                        photo ? Icon(Icons.check, color: c.accent, size: 20) : null,
-                    onTap: _pickPhoto,
-                  ),
+                  section([
+                    choice(Icons.palette_outlined,
+                        context.t('appEdit.iconDistro'), null),
+                    choice(Icons.android, context.t('appEdit.iconApp'),
+                        AppIdentity.iconApp),
+                    for (final pack in packs.entries)
+                      choice(Icons.style_outlined, pack.value,
+                          '${AppIdentity.iconPackPrefix}${pack.key}'),
+                    ThemedListRow(
+                      icon: Icons.photo_outlined,
+                      title: context.t('appEdit.iconPhoto'),
+                      trailing: photo
+                          ? Icon(Icons.check, color: c.accent, size: 20)
+                          : null,
+                      onTap: _pickPhoto,
+                    ),
+                  ]),
                 ],
               ),
             ),

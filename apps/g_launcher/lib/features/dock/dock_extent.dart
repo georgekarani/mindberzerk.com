@@ -43,7 +43,11 @@ class DockExtentController extends Notifier<double?> {
   @override
   double? build() => null;
 
-  void report(double extent) {
+  /// The probe that wrote [state], so only that probe can clear it.
+  Object? _owner;
+
+  void report(double extent, {Object? owner}) {
+    _owner = owner;
     // Half a dp of hysteresis. A measurement that oscillates on a rounding
     // boundary would relayout the desktop every frame, which is the cost the
     // constant was avoiding by being wrong in a fixed direction.
@@ -53,7 +57,20 @@ class DockExtentController extends Notifier<double?> {
 
   /// Called when the dock leaves, so the desktop stops reserving for a dock
   /// that is not there. `dockReveal: 'apps'` docks come and go.
-  void clear() => state = null;
+  ///
+  /// ─── ONLY THE PROBE THAT WROTE IT ─────────────────────────────────────
+  ///
+  /// A distro switch mounts the new shell's dock in the same frame the old
+  /// one is disposed, and the old probe clears after that frame. Unowned,
+  /// that clear could land after the new dock's first report and erase it,
+  /// leaving the desktop on the stand-in reserve until something relaid the
+  /// dock. With an [owner], a clear is ignored once another probe has
+  /// reported; without one it clears unconditionally.
+  void clear({Object? owner}) {
+    if (owner != null && !identical(owner, _owner)) return;
+    _owner = null;
+    state = null;
+  }
 }
 
 /// Reports [child]'s cross-axis size into [dockExtentProvider].
@@ -130,7 +147,7 @@ class _DockExtentProbeState extends ConsumerState<DockExtentProbe> {
     // unmount marks widgets dirty inside a teardown.
     final n = _controller;
     if (n != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => n.clear());
+      WidgetsBinding.instance.addPostFrameCallback((_) => n.clear(owner: this));
     }
     // The BOX is deliberately kept. A dock hidden by Activities or an
     // edge-reveal comes back to the same place, and clearing it would make
@@ -146,7 +163,7 @@ class _DockExtentProbeState extends ConsumerState<DockExtentProbe> {
         if (!mounted) return;
         ref
             .read(dockExtentProvider.notifier)
-            .report(widget.vertical ? size.width : size.height);
+            .report(widget.vertical ? size.width : size.height, owner: this);
       },
       onRect: (rect) {
         if (!mounted) return;
@@ -187,17 +204,55 @@ class _RenderMeasure extends RenderProxyBox {
   ValueChanged<Rect> onRect;
   Size? _last;
 
+  /// How many drawn frames after a layout the box keeps being re-read.
+  ///
+  /// ─── A BOX READ ONCE IS READ MID-ANIMATION ────────────────────────────
+  ///
+  /// The dock arrives inside `DockEntrance`, which slides or scales it in
+  /// over 420ms. Transforms above the dock move it without relaying it out,
+  /// so a box read once, after the first layout, was the box a few frames
+  /// into the slide: shifted toward the edge, or shrunk. The desktop then
+  /// blocked too few cells and widgets sat under the real dock until a
+  /// restart. So the box is re-read on every frame for a while after each
+  /// layout. It rides frames that are already being drawn (the entrance is
+  /// producing them) and never asks for one, so an idle dock costs nothing.
+  ///
+  /// ─── COUNTED IN FRAMES, NOT TIME ──────────────────────────────────────
+  ///
+  /// A launcher started behind another screen (Android's "Updating" screen
+  /// after an install, a lock screen) draws no frames, and the entrance
+  /// animation waits with it. A wall-clock window ran out during that pause,
+  /// so the one read left was the dock's first, mid-slide box, and a widget
+  /// added later was placed under the real dock. Frames advance only when
+  /// the animation does, so 90 of them (about 1.5 s at 60 Hz) always cover
+  /// the whole entrance.
+  static const _followFrames = 90;
+
+  int _framesLeft = 0;
+  bool _pending = false;
+
+  void _readBox() {
+    if (_pending) return;
+    _pending = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pending = false;
+      final box = child;
+      if (!attached || box == null || !box.hasSize) return;
+      // The controller drops repeats, so a settled dock writes nothing.
+      onRect(box.localToGlobal(Offset.zero) & box.size);
+      if (--_framesLeft > 0) _readBox();
+    });
+  }
+
   @override
   void performLayout() {
     super.performLayout();
     // The box, every layout: a dock can move without changing size (a
     // centred bottom dock on rotation). Read after the frame, when the
-    // parents' offsets are final; the controller drops repeats.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final box = child;
-      if (!attached || box == null || !box.hasSize) return;
-      onRect(box.localToGlobal(Offset.zero) & box.size);
-    });
+    // parents' offsets are final, and followed for [_followFrames] frames
+    // in case an ancestor is still animating it into place.
+    _framesLeft = _followFrames;
+    _readBox();
     final s = child?.size;
     if (s == null || s == _last) return;
     _last = s;

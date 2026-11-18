@@ -6,6 +6,7 @@ import '../../../engine/desklet_skin.dart';
 import '../../../engine/desklet_spec.dart';
 import '../../../engine/effective_theme.dart';
 import '../../../system/system_stats.dart';
+import 'clock_faces.dart';
 
 /// The clock. ONE widget, five desktops. PHASE D3.
 ///
@@ -42,7 +43,17 @@ class ClockDesklet extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // The one shared minute-aligned ticker. Every clock on every workspace
     // watches the same provider, so five clocks cost one timer.
-    final now = ref.watch(clockProvider).asData?.value ?? DateTime.now();
+    //
+    // ─── BUT A PAUSED TICKER IS A STALE ONE ───────────────────────────────
+    //
+    // Riverpod pauses a provider nothing is listening to, and a clock on a
+    // page you left IS nothing listening. Coming back, the first frame drew
+    // the last tick it had: 9:24 at 9:37, until the ticker woke and caught
+    // up. Every build here is a moment the clock is on screen, so when the
+    // tick's minute is behind the wall clock's, the wall clock wins.
+    final tick = ref.watch(clockProvider).asData?.value;
+    final wall = DateTime.now();
+    final now = tick == null || _minuteOf(wall) != _minuteOf(tick) ? wall : tick;
 
     const kind = DeskletKinds.clock;
     final config = desklet.config;
@@ -64,6 +75,26 @@ class ClockDesklet extends ConsumerWidget {
     final time = _formatTime(now, twelve: twelve, seconds: seconds);
     final date = formatDateLong(now);
 
+    // The face: the user's choice, else the distro's (`skins.clock.face`),
+    // else digital. Every face but digital draws in clock_faces.dart; digital
+    // stays the four surfaces below, exactly as before faces existed. PHASE 7.
+    final face = ClockFace.parse(
+      config.containsKey('face')
+          ? kind.read<String>(config, 'face', 'digital')
+          : skin.text('face', 'digital'),
+    );
+    if (face != ClockFace.digital) {
+      return ClockFaceView(
+        theme: theme,
+        skin: skin,
+        face: face,
+        now: now,
+        twelve: twelve,
+        showDate: showDate,
+        date: date,
+      );
+    }
+
     return switch (skin.surface) {
       DeskletSurface.terminal => _Terminal(
           theme: theme, skin: skin, time: time, date: date, show: showDate),
@@ -75,6 +106,9 @@ class ClockDesklet extends ConsumerWidget {
         _Bare(theme: theme, skin: skin, time: time, date: date, show: showDate),
     };
   }
+
+  /// Minutes since the epoch, for comparing two times to the minute.
+  static int _minuteOf(DateTime t) => t.millisecondsSinceEpoch ~/ 60000;
 
   /// Local rather than `formatTime`, because that one is 24-hour by contract
   /// (it feeds the GNOME top bar and the waybar, both of which want exactly
@@ -206,7 +240,7 @@ class _Card extends StatelessWidget {
       decoration: BoxDecoration(
         // The theme's bar colour, not a grey: a Breeze card matches the panel
         // it belongs to, and Ubuntu's card should look like Ubuntu's chrome.
-        color: p.bar.withValues(alpha: skin.num_('opacity', 0.72)),
+        color: skin.fill(p.bar, 0.72),
         borderRadius: BorderRadius.circular(skin.num_('radius', 10)),
         border: Border.all(color: p.onDark.withValues(alpha: 0.12)),
       ),
@@ -276,7 +310,7 @@ class _Panel extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: p.bar.withValues(alpha: skin.num_('opacity', 0.9)),
+        color: skin.fill(p.bar, 0.9),
         borderRadius: BorderRadius.circular(skin.num_('radius', 4)),
         border: Border(
           // The accent edge is the module marker: every waybar module is a flat

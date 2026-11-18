@@ -608,7 +608,9 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
                     // out seeds the grid provider on a shape one row taller than
                     // the pager can draw, and the first frame reflows.
                     dockInset.vertical -
-                    DrawerPager.dotsStripFor(withAdd: mode == 'custom'),
+                    (mode == 'custom' || theme.workspaceDots
+                        ? DrawerPager.dotsStripFor(withAdd: mode == 'custom')
+                        : 0),
                 tileHeight: tileH,
                 topPadding: topGap,
               );
@@ -791,6 +793,13 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
               child: UnifiedExtraRows(
                 theme: theme,
                 query: _query,
+                // The miss only when no app matched either.
+                empty: grid == null
+                    ? Padding(
+                        padding: const EdgeInsets.only(top: 48),
+                        child: _NoMatches(theme: theme),
+                      )
+                    : const SizedBox.shrink(),
                 style: CommandRowStyle(
                   text: theme.palette.onDark,
                   muted: theme.palette.onDark.withValues(alpha: 0.6),
@@ -808,15 +817,7 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
             );
 
             body = grid == null
-                ? Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        extras,
-                        Expanded(child: _NoMatches(theme: theme)),
-                      ],
-                    ),
-                  )
+                ? Expanded(child: extras)
                 : Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -914,6 +915,7 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
             final per = grid.cols * grid.rows;
             body = Expanded(
               child: DrawerPager(
+                showDots: theme.workspaceDots,
                 itemCount: grid.cells.length,
                 columns: grid.cols,
                 aspectRatio: aspect,
@@ -977,6 +979,7 @@ class _AppDrawerState extends ConsumerState<AppDrawer> {
           } else if (style != 'vertical') {
             body = Expanded(
               child: DrawerPager(
+                showDots: theme.workspaceDots,
                 itemCount: items.length,
                 columns: columns,
                 aspectRatio: aspect,

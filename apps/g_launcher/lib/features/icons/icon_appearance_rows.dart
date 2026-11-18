@@ -109,6 +109,37 @@ List<Widget> iconAppearanceRows(
           ),
       ],
     ),
+    // ─── TINT, PER DISTRO (PHASE 9) ───────────────────────────────────────
+    //
+    // Its own group because it is not global like the shape above: the
+    // accent it follows is this distro's. Any pack, hero set or generated icon
+    // takes the colour; a single app's own choice keeps its colours.
+    SettingsGroup(
+      label: context.t('icons.tint'),
+      rows: [
+        FilterRow(
+          const ['tint', 'colour', 'color', 'monochrome', 'themed icons'],
+          SettingsRow(
+            icon: Icons.format_color_fill_outlined,
+            title: context.t('icons.tint'),
+            trailing: Seg(
+              value: theme.prefs.iconTint ?? 'off',
+              options: {
+                'off': tr('settings.backup.off'),
+                'accent': tr('settings.accent'),
+                'wallpaper': tr('settings.wallpaperAccent'),
+              },
+              // Off clears the key rather than storing a word for "none".
+              onChanged: (v) => notifier.edit(
+                (p) => v == 'off'
+                    ? p.clearing(iconTint: true)
+                    : p.copyWith(iconTint: v),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
   ];
 }
 

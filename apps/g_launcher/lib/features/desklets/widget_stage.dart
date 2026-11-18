@@ -218,36 +218,64 @@ final stageMovingProvider =
 /// A plain [ValueNotifier] rather than a provider because a [NavigatorObserver]
 /// is constructed by `MaterialApp`, outside any `ProviderScope`, and has no
 /// `ref` to write with.
+///
+/// ─── A SCREEN HIDES THE STAGE; A MENU DOES NOT ──────────────────────────────
+///
+/// Covered only stops the stage taking presses, because a menu or sheet over
+/// the desktop is ABOUT what is under it and the widget should stay in view.
+/// A full screen (Settings, the widget picker) is not, and several draw a
+/// see-through background over the wallpaper, so a hosted widget showed
+/// through them as a ghost. [screened] counts page routes for that: the
+/// stage hides while any is up. Popups and sheets are not page routes.
 class StageRouteObserver extends NavigatorObserver {
   /// True while at least one route sits above the desktop.
   final ValueNotifier<bool> covered = ValueNotifier<bool>(false);
 
+  /// True while at least one full-screen page sits above the desktop.
+  final ValueNotifier<bool> screened = ValueNotifier<bool>(false);
+
   var _depth = 0;
+  var _pages = 0;
 
   void _set(int next) {
     _depth = next < 0 ? 0 : next;
     covered.value = _depth > 0;
   }
 
+  void _setPages(int next) {
+    _pages = next < 0 ? 0 : next;
+    screened.value = _pages > 0;
+  }
+
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
     // `previous == null` is the FIRST route, which IS the desktop rather than
     // something over it. Counting it would leave the stage permanently deaf.
-    if (previousRoute != null) _set(_depth + 1);
+    if (previousRoute == null) return;
+    _set(_depth + 1);
+    if (route is PageRoute) _setPages(_pages + 1);
   }
 
   @override
-  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) =>
-      _set(_depth - 1);
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _set(_depth - 1);
+    if (route is PageRoute) _setPages(_pages - 1);
+  }
 
   @override
-  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) =>
-      _set(_depth - 1);
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    _set(_depth - 1);
+    if (route is PageRoute) _setPages(_pages - 1);
+  }
 
   @override
   void didReplace({Route<dynamic>? newRoute, Route<dynamic>? oldRoute}) {
     // One out, one in. The depth is unchanged and saying so beats letting the
-    // pair of callbacks drift it.
+    // pair of callbacks drift it. The page count changes only if the pair
+    // differs in kind.
+    final delta =
+        (newRoute is PageRoute ? 1 : 0) - (oldRoute is PageRoute ? 1 : 0);
+    if (delta != 0) _setPages(_pages + delta);
   }
 }
 
@@ -308,6 +336,7 @@ class _WidgetStageSyncState extends ConsumerState<WidgetStageSync> {
     // Rebuild when a route opens or closes over the desktop, so the stage is
     // told to stop taking touches. See [StageRouteObserver].
     stageRouteObserver.covered.addListener(_onCoveredChanged);
+    stageRouteObserver.screened.addListener(_onCoveredChanged);
 
     _channel.setMethodCallHandler((call) async {
       if (call.method != 'longPress') return null;
@@ -344,6 +373,7 @@ class _WidgetStageSyncState extends ConsumerState<WidgetStageSync> {
   @override
   void dispose() {
     stageRouteObserver.covered.removeListener(_onCoveredChanged);
+    stageRouteObserver.screened.removeListener(_onCoveredChanged);
     _channel.setMethodCallHandler(null);
     super.dispose();
   }
@@ -351,7 +381,8 @@ class _WidgetStageSyncState extends ConsumerState<WidgetStageSync> {
   @override
   Widget build(BuildContext context) {
     final rects = ref.watch(stageRectsProvider);
-    final visible = ref.watch(stageVisibleProvider);
+    final visible = ref.watch(stageVisibleProvider) &&
+        !stageRouteObserver.screened.value;
 
     // ─── WHILE HIDDEN, POSITIONS ARE NOT NEWS ─────────────────────────────
     //

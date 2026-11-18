@@ -189,6 +189,7 @@
     ],
     "skins": {
       "clock": {
+        "face": "analog",
         "surface": "card",
         "font": "display",
         "accent": true

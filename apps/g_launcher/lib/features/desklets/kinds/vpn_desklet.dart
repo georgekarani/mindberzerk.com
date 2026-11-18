@@ -283,13 +283,15 @@ class _StatusLine extends StatelessWidget {
     final line = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        CustomPaint(
+        SizedBox.fromSize(
           size: Size.square(bare ? 40 : 30),
-          painter: _ShieldPainter(
-              colour: markColour,
-              mark: view.mark,
-              filled: view.mark == _Mark.check,
-              shadow: bare),
+          child: CustomPaint(
+            painter: _ShieldPainter(
+                colour: markColour,
+                mark: view.mark,
+                filled: view.mark == _Mark.check,
+                shadow: bare),
+          ),
         ),
         SizedBox(width: bare ? 14 : 10),
         Flexible(
