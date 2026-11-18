@@ -10,6 +10,7 @@
 #   text WORD | sleep SECONDS | shot NAME
 #   analyze   flutter analyze, output in analyze.txt
 #   install   debug build installed on the emulator and opened, output in build.txt
+#   release   signed Play bundle (key.properties), output in release.txt
 #   pigeon    regenerate the platform bridge from pigeons/launcher_api.dart, output in pigeon.txt
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)/.emu-bridge"
@@ -58,6 +59,7 @@ while true; do
         install) (cd "$APP" && flutter build apk --debug > "$DIR/build.txt" 2>&1 < /dev/null \
                    && "$ADB" install -r build/app/outputs/flutter-apk/app-debug.apk >> "$DIR/build.txt" 2>&1 < /dev/null \
                    && "$ADB" shell monkey -p com.mindhunter.g_launcher 1 >> "$DIR/build.txt" 2>&1 < /dev/null) ;;
+        release) (cd "$APP" && flutter build appbundle --release > "$DIR/release.txt" 2>&1 < /dev/null) ;;
         *)     echo "ignored: $verb" >> "$DIR/log.txt" ;;
       esac
     done 3< "$DIR/run.txt"
