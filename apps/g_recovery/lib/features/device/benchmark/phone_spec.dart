@@ -39,10 +39,7 @@ class PhoneSpec {
   });
 
   /// Before anything is read: a common phone shape with eight cores.
-  static const PhoneSpec fallback = PhoneSpec(
-    aspect: 2.1,
-    clusters: <int>[8],
-  );
+  static const PhoneSpec fallback = PhoneSpec(aspect: 2.1, clusters: <int>[8]);
 
   /// Body height over width.
   final double aspect;
@@ -124,7 +121,8 @@ final FutureProvider<PhoneSpec> phoneSpecProvider = FutureProvider<PhoneSpec>((
   final CpuInfo? cpu = await ref.watch(cpuInfoProvider.future);
   Map<Object?, Object?> hw = const <Object?, Object?>{};
   try {
-    hw = await channel.invokeMethod<Map<Object?, Object?>>('hardware') ??
+    hw =
+        await channel.invokeMethod<Map<Object?, Object?>>('hardware') ??
         const <Object?, Object?>{};
   } on PlatformException {
     // Left empty: parts are drawn without labels.
@@ -133,7 +131,8 @@ final FutureProvider<PhoneSpec> phoneSpecProvider = FutureProvider<PhoneSpec>((
     aspect: PhoneSpec.fallback.aspect,
     clusters: clustersFrom(cpu),
     rearCameras: <double>[
-      for (final Object? f in (hw['rearCameras'] as List<Object?>?) ?? <Object?>[])
+      for (final Object? f
+          in (hw['rearCameras'] as List<Object?>?) ?? <Object?>[])
         (f! as num).toDouble(),
     ],
     ramBytes: (hw['ramBytes'] as num?)?.toInt(),

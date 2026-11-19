@@ -199,9 +199,7 @@ class _PhoneRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GDesignTheme g = GDesignTheme.of(context);
-    final Color tint = entry.mine
-        ? g.accent
-        : tierColor(g, tier);
+    final Color tint = entry.mine ? g.accent : tierColor(g, tier);
     return Container(
       color: entry.mine ? g.accent.withValues(alpha: 0.08) : null,
       padding: const EdgeInsets.symmetric(

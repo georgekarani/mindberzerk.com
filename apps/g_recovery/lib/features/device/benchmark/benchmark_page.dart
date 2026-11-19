@@ -325,10 +325,7 @@ class _BenchRunPageState extends ConsumerState<BenchRunPage> {
           children: <Widget>[
             if (gpu)
               Positioned.fill(
-                child: GpuBench(
-                  onProgress: _onGpuProgress,
-                  onDone: _onGpuDone,
-                ),
+                child: GpuBench(onProgress: _onGpuProgress, onDone: _onGpuDone),
               ),
             SafeArea(
               child: Padding(
@@ -356,9 +353,10 @@ class _BenchRunPageState extends ConsumerState<BenchRunPage> {
                         CountUpText(
                           value: _now.live.round(),
                           format: (num v) => v.round().toString(),
-                          style: g
-                              .largeTitle()
-                              .copyWith(fontSize: 56, height: 1),
+                          style: g.largeTitle().copyWith(
+                            fontSize: 56,
+                            height: 1,
+                          ),
                         ),
                       const SizedBox(height: GDesign.space8),
                       DirectionalSwitcher(

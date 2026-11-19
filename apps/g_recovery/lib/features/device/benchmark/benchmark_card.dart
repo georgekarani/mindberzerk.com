@@ -67,7 +67,10 @@ class BenchmarkCard extends ConsumerWidget {
                               style: g.title1(),
                             ),
                             const SizedBox(width: GDesign.space8),
-                            TierBadge(tier: ladderOf(ref).tierOf(last.total), size: 28),
+                            TierBadge(
+                              tier: ladderOf(ref).tierOf(last.total),
+                              size: 28,
+                            ),
                           ],
                         ),
                         const SizedBox(height: 2),

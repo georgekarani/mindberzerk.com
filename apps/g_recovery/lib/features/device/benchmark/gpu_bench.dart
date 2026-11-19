@@ -8,7 +8,11 @@ import 'package:g_design/g_design.dart';
 /// What the graphics test measured.
 @immutable
 class GpuOutcome {
-  const GpuOutcome({required this.score, required this.fps, required this.iters});
+  const GpuOutcome({
+    required this.score,
+    required this.fps,
+    required this.iters,
+  });
 
   /// Relative to a Galaxy S22 at 1000.
   final double score;
@@ -61,7 +65,9 @@ class _GpuBenchState extends State<GpuBench>
   @override
   void initState() {
     super.initState();
-    ui.FragmentProgram.fromAsset('shaders/bench.frag').then((ui.FragmentProgram p) {
+    ui.FragmentProgram.fromAsset('shaders/bench.frag').then((
+      ui.FragmentProgram p,
+    ) {
       if (!mounted) return;
       setState(() => _shader = p.fragmentShader());
       _ticker.start();
@@ -98,9 +104,16 @@ class _GpuBenchState extends State<GpuBench>
       }
       _frames = 0;
       _windowStart = elapsed;
-      widget.onProgress((elapsed.inMilliseconds / _limit.inMilliseconds).clamp(0, 0.6), fps);
+      widget.onProgress(
+        (elapsed.inMilliseconds / _limit.inMilliseconds).clamp(0, 0.6),
+        fps,
+      );
     } else if (!_ramping) {
-      widget.onProgress(0.6 + 0.4 * (window.inMilliseconds / _measure.inMilliseconds).clamp(0, 1), fps);
+      widget.onProgress(
+        0.6 +
+            0.4 * (window.inMilliseconds / _measure.inMilliseconds).clamp(0, 1),
+        fps,
+      );
       if (window >= _measure || elapsed >= _limit) _finish(fps);
     } else if (elapsed >= _limit) {
       _finish(fps);

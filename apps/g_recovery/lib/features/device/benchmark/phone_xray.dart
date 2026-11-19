@@ -183,7 +183,10 @@ class _XrayPainter extends CustomPainter {
       h * 0.92,
     );
 
-    _rearCameras(canvas, Rect.fromLTWH(w * 0.07, h * 0.035, w * 0.22, soc.height));
+    _rearCameras(
+      canvas,
+      Rect.fromLTWH(w * 0.07, h * 0.035, w * 0.22, soc.height),
+    );
     _frontCamera(canvas, size);
 
     // Traces from the processor to memory and storage.
@@ -200,16 +203,29 @@ class _XrayPainter extends CustomPainter {
       );
     }
     if (ramOn) {
-      _packets(canvas, Offset(soc.right, soc.center.dy),
-          Offset(ram.left, soc.center.dy), w * 0.06, alongX: true);
+      _packets(
+        canvas,
+        Offset(soc.right, soc.center.dy),
+        Offset(ram.left, soc.center.dy),
+        w * 0.06,
+        alongX: true,
+      );
     }
     if (flashOn) {
-      _packets(canvas, Offset(soc.center.dx, soc.bottom),
-          Offset(soc.center.dx, flash.top), w * 0.06, alongX: false);
+      _packets(
+        canvas,
+        Offset(soc.center.dx, soc.bottom),
+        Offset(soc.center.dx, flash.top),
+        w * 0.06,
+        alongX: false,
+      );
     }
 
     // Battery.
-    final RRect cell = RRect.fromRectAndRadius(battery, Radius.circular(w * 0.05));
+    final RRect cell = RRect.fromRectAndRadius(
+      battery,
+      Radius.circular(w * 0.05),
+    );
     canvas.drawRRect(cell, Paint()..color = dim);
     canvas.drawRRect(cell, _stroke);
 
@@ -235,8 +251,12 @@ class _XrayPainter extends CustomPainter {
     _label(canvas, 'GPU', gpuArea.center, gpuOn);
 
     // Labels: the real figures where the phone gives them.
-    _label(canvas, spec.clusters.join(' + '),
-        Offset(soc.center.dx, soc.top - 11), cpuOn);
+    _label(
+      canvas,
+      spec.clusters.join(' + '),
+      Offset(soc.center.dx, soc.top - 11),
+      cpuOn,
+    );
     _label(
       canvas,
       spec.ramBytes == null ? 'RAM' : _gb(spec.ramBytes!, _ramSizes),
@@ -359,7 +379,8 @@ class _XrayPainter extends CustomPainter {
     final int widest = rows.fold(1, (int a, int b) => math.max(a, b));
     final double gap = area.width * 0.05;
     final double rowH = (area.height - gap * (rows.length - 1)) / rows.length;
-    final int hop = (t * spec.fastCores * 2).floor() % math.max(spec.fastCores, 1);
+    final int hop =
+        (t * spec.fastCores * 2).floor() % math.max(spec.fastCores, 1);
     int index = 0;
     for (int r = 0; r < rows.length; r++) {
       final int count = rows[r];
@@ -380,7 +401,10 @@ class _XrayPainter extends CustomPainter {
             0.6 + 0.4 * math.sin((t * 2 + index * 0.37) * math.pi * 2).abs(),
           _ => lit ? 0.45 : 0.0,
         };
-        final RRect shape = RRect.fromRectAndRadius(cell, const Radius.circular(3));
+        final RRect shape = RRect.fromRectAndRadius(
+          cell,
+          const Radius.circular(3),
+        );
         if (a > 0.5) {
           canvas.drawRRect(
             shape.inflate(2),
@@ -390,7 +414,10 @@ class _XrayPainter extends CustomPainter {
           );
         }
         canvas
-          ..drawRRect(shape, Paint()..color = a > 0 ? accent.withValues(alpha: a) : dim)
+          ..drawRRect(
+            shape,
+            Paint()..color = a > 0 ? accent.withValues(alpha: a) : dim,
+          )
           ..drawRRect(shape, _stroke..strokeWidth = 1);
       }
     }
@@ -410,8 +437,9 @@ class _XrayPainter extends CustomPainter {
         double f = (t * 2 + k / 3 + lane * 0.17) % 1.0;
         if (lane == 0) f = 1 - f;
         final Offset at = Offset.lerp(from, to, f)!;
-        final Offset shift =
-            alongX ? Offset(0, lane * spread) : Offset(lane * spread, 0);
+        final Offset shift = alongX
+            ? Offset(0, lane * spread)
+            : Offset(lane * spread, 0);
         canvas.drawRect(
           Rect.fromCenter(center: at + shift, width: 5, height: 5),
           p,

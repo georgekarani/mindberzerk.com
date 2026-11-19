@@ -228,7 +228,10 @@ abstract final class BenchMeanings {
     }
     final int rate = hz.round();
     return rate >= 110
-        ? BenchMeaning(BenchLevel.great, 'Very smooth scrolling, up to $rate Hz')
+        ? BenchMeaning(
+            BenchLevel.great,
+            'Very smooth scrolling, up to $rate Hz',
+          )
         : rate >= 85
         ? BenchMeaning(BenchLevel.good, 'Smooth scrolling, up to $rate Hz')
         : BenchMeaning(BenchLevel.fair, 'Standard scrolling, up to $rate Hz');
