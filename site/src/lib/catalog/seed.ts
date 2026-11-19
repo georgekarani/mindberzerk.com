@@ -123,7 +123,7 @@ export const SEED_APPS: AppEntry[] = [
     playPackage: 'com.mindhunter.flicker',
     appStoreId: '6473903281',
     web: 'https://kenyahomeshub.com',
-    cta: 'Visit',
+    cta: 'Visit site',
   },
   {
     id: 'fructa',

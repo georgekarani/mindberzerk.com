@@ -119,15 +119,16 @@ export function BusinessTile({ app, stats }: TileProps) {
         <h3 className="m-0 font-display text-[22px] font-semibold">{app.name}</h3>
         <p className="m-0 mt-1.5 text-[15px] text-white/75">{app.tagline}</p>
       </div>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        {stats[0] ? (
-          <p className="m-0 text-sm text-white/70">
-            {stats.at(-1)!.value} {stats.at(-1)!.label.toLowerCase()}
-          </p>
-        ) : (
-          <Platforms app={app} />
-        )}
-        <TileLink app={app} look="text" />
+      {/* Fixed footer order on every tile, so the rows line up across the band. */}
+      <div className="flex flex-col gap-4">
+        <p className="m-0 text-sm text-white/70">
+          {platformLine(app.platforms)}
+          {stats[0] ? ` · ${stats[0].value} ${stats[0].label.toLowerCase()}` : ''}
+        </p>
+        <StoreBadges app={app} size="sm" onDark />
+        <div>
+          <TileLink app={app} look="compact" />
+        </div>
       </div>
     </article>
   );

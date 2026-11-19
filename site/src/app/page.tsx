@@ -41,7 +41,7 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
       />
 
-      <section className="mx-auto max-w-[1360px] px-6 pb-14 pt-24">
+      <section className="mx-auto max-w-[1360px] px-6 pb-12 pt-10 md:pt-14">
         <Eyebrow className="mb-5">{copy.eyebrow}</Eyebrow>
         <Display as="h1" size="hero" className="max-w-[1000px]">
           {plain}
@@ -80,7 +80,7 @@ export default async function Home() {
                 Talk to us
               </ButtonLink>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {business.map((a) => (
                 <BusinessTile key={a.id} app={a} stats={statsFor(a)} />
               ))}
