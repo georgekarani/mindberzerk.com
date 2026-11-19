@@ -51,7 +51,7 @@ export function BusinessPage({ app, stats, statsSource }: Props) {
             <StatList stats={stats} size="lg" tone="text-white/70" />
             {stats.length ? (
               <p className="m-0 text-[13px] text-white/60">
-                {statsSource.source}, updated {formatAsOf(statsSource.asOf)}
+                Installs on {statsSource.source}, {formatAsOf(statsSource.asOf)}
               </p>
             ) : null}
             <p className="m-0 text-[15px] text-white/75">{platformLine(app.platforms)}</p>

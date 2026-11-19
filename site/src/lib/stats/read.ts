@@ -4,53 +4,52 @@ import { cache } from 'react';
 import { CDN_BASE, CDN_REVALIDATE_SECONDS } from '@/lib/site';
 
 /**
- * Live per-app numbers.
+ * Total installs per app, the one number the site shows.
  *
- * The panel's scheduled job reads Play and App Store reporting and publishes
- * `site/stats.json`. The site shows only numbers that carry a date and a
- * source, and drops any it cannot read. Nothing here is ever estimated.
+ * The panel's scheduled job publishes `site/stats.json`. Each value is the
+ * store's own install count as it appears on the public listing ("50K+"),
+ * stored as its lower bound, so the site never claims more than the store
+ * does. A number without a date and a source is never shown.
  */
 
 export interface AppStats {
-  /** Installs over the reporting window. */
+  /** Lower bound of the store's install count: 50000 for "50K+". */
   installs?: number;
-  /** Monthly active devices. */
-  activeDevices?: number;
-  /** Store rating, 1 to 5. */
-  rating?: number;
 }
 
 export interface StatsDoc {
   /** ISO date the numbers were read. */
   asOf: string;
-  /** Human label for where they came from: "Google Play, last 28 days". */
+  /** Where they came from: "Google Play". */
   source: string;
   apps: Record<string, AppStats>;
 }
 
-/**
- * A number this small reads as an empty shop rather than a fact worth showing,
- * so it is withheld. It is still in the document for the panel.
- */
-export const MIN_SHOWN = 50;
+/** Below this an install count reads as an empty shop, so it is withheld. */
+export const MIN_SHOWN = 100;
 
 const STATS_URL = `${CDN_BASE}/site/stats.json`;
 
-/** Read from Play Console on 19 Nov 2026 for the revamp handoff. */
+/** Install counts from each public Play listing, 19 Nov 2026. */
 const SEED: StatsDoc = {
   asOf: '2026-11-19',
-  source: 'Google Play, last 28 days',
+  source: 'Google Play',
   apps: {
-    tryst: { installs: 1180, activeDevices: 1060 },
-    'g-launcher': { installs: 1420, activeDevices: 791 },
-    'g-vpn': { installs: 241, activeDevices: 182 },
-    'g-recovery': { installs: 203, activeDevices: 144 },
-    kenyahomeshub: { installs: 100, activeDevices: 149 },
-    fructa: { installs: 147, activeDevices: 118 },
+    tryst: { installs: 50_000 },
+    'g-launcher': { installs: 1_000 },
+    'g-vpn': { installs: 5_000 },
+    'g-recovery': { installs: 5_000 },
+    kenyahomeshub: { installs: 1_000 },
+    fructa: { installs: 500 },
+    culicars: { installs: 10 },
+    'kaaga-water-project': { installs: 10 },
+    monkeyhide: { installs: 5_000 },
+    'sketji-tiles': { installs: 100 },
   },
 };
 
-const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined);
+const num = (v: unknown): number | undefined =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
 
 export const readStats = cache(async (): Promise<StatsDoc> => {
   try {
@@ -60,13 +59,7 @@ export const readStats = cache(async (): Promise<StatsDoc> => {
       if (typeof doc.asOf === 'string' && typeof doc.source === 'string' && doc.apps && typeof doc.apps === 'object') {
         const apps: Record<string, AppStats> = {};
         for (const [id, s] of Object.entries(doc.apps)) {
-          const v = s as Record<string, unknown>;
-          const rating = num(v.rating);
-          apps[id] = {
-            installs: num(v.installs),
-            activeDevices: num(v.activeDevices),
-            rating: rating !== undefined && rating >= 1 && rating <= 5 ? rating : undefined,
-          };
+          apps[id] = { installs: num((s as Record<string, unknown>)?.installs) };
         }
         return { asOf: doc.asOf, source: doc.source, apps };
       }
@@ -82,18 +75,13 @@ export interface ShownStat {
   value: string;
 }
 
-/** The stats worth printing for one app, in display order. */
+/** Total installs, when there are enough to be worth printing. */
 export function shownStats(s: AppStats | undefined): ShownStat[] {
-  if (!s) return [];
-  const out: ShownStat[] = [];
-  if (s.rating !== undefined) out.push({ label: 'Rating', value: s.rating.toFixed(1) });
-  if (s.installs !== undefined && s.installs >= MIN_SHOWN) out.push({ label: 'Installs', value: compact(s.installs) });
-  if (s.activeDevices !== undefined && s.activeDevices >= MIN_SHOWN)
-    out.push({ label: 'Monthly devices', value: compact(s.activeDevices) });
-  return out;
+  if (s?.installs === undefined || s.installs < MIN_SHOWN) return [];
+  return [{ label: 'Installs', value: `${compact(s.installs)}+` }];
 }
 
-/** 1420 -> "1.42K", 791 -> "791". */
+/** 50000 -> "50K", 500 -> "500". */
 export function compact(n: number): string {
   if (n < 1000) return String(Math.round(n));
   const units: [number, string][] = [

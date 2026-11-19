@@ -1,4 +1,5 @@
 import Image from 'next/image';
+import { PlayBadge } from '@/components/store-badges';
 import { Display, Eyebrow } from '@/components/ui';
 import { readStorefront, usd, type Distro } from '@/lib/g-launcher/distros';
 
@@ -85,9 +86,7 @@ export async function GLauncherStore({ playHref }: { playHref: string }) {
               </div>
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <span className="font-display text-[44px] font-semibold">{usd(lead.priceUsd)}</span>
-                <a href={playHref} className="rounded-full bg-white px-6 py-3.5 font-semibold text-[#0a0b0d]">
-                  Get it on Google Play
-                </a>
+                <PlayBadge href={playHref} appName="G Launcher" />
               </div>
             </article>
           ) : null}

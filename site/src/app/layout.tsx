@@ -21,18 +21,13 @@ export const metadata: Metadata = {
   twitter: { card: 'summary_large_image' },
 };
 
-export const viewport: Viewport = {
-  themeColor: [
-    { media: '(prefers-color-scheme: dark)', color: '#0a0b0d' },
-    { media: '(prefers-color-scheme: light)', color: '#fbfbfa' },
-  ],
-};
+export const viewport: Viewport = { themeColor: '#fbfbfa' };
 
 /**
- * Replays the stored theme before first paint so a light-theme visitor never
- * sees a dark flash. Dark is the default; only an explicit choice switches.
+ * Replays the stored theme before first paint so a dark-theme visitor never
+ * sees a light flash. Light is the default; only an explicit choice switches.
  */
-const THEME_BOOT = `try{var t=localStorage.getItem('theme');if(t==='light')document.documentElement.dataset.theme='light'}catch(e){}`;
+const THEME_BOOT = `try{var t=localStorage.getItem('theme');if(t==='dark')document.documentElement.dataset.theme='dark'}catch(e){}`;
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

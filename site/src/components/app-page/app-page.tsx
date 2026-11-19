@@ -27,7 +27,6 @@ export function AppPage({ app, stats, statsSource, extra }: Props) {
   const heroScreens = app.screens?.slice(0, 2) ?? [];
   const soon = soonLine(app.soon);
   const play = playUrl(app);
-  const ctaInk = inkOn(app.tint);
 
   return (
     <>
@@ -54,7 +53,7 @@ export function AppPage({ app, stats, statsSource, extra }: Props) {
               <div className="mt-12 flex flex-col gap-3">
                 <StatList stats={stats} size="lg" tone="text-white/70" />
                 <p className="m-0 text-[13px] text-white/60">
-                  {statsSource.source}, updated {formatAsOf(statsSource.asOf)}
+                  Installs on {statsSource.source}, {formatAsOf(statsSource.asOf)}
                 </p>
               </div>
             ) : null}
@@ -109,16 +108,10 @@ export function AppPage({ app, stats, statsSource, extra }: Props) {
       ) : null}
 
       {play ? (
-        <section className="mt-40" style={{ backgroundColor: app.tint, color: ctaInk }}>
+        <section className="mt-40" style={{ backgroundColor: app.tint, color: inkOn(app.tint) }}>
           <div className="mx-auto flex max-w-[1360px] flex-wrap items-center justify-between gap-8 px-6 py-24">
             <Display className="max-w-[760px]">Get {app.name}.</Display>
-            <a
-              href={play}
-              className="rounded-full px-8 py-[18px] text-lg font-semibold"
-              style={{ backgroundColor: ctaInk, color: ctaInk === '#ffffff' ? '#0a0b0d' : '#ffffff' }}
-            >
-              Get it on Google Play
-            </a>
+            <StoreBadges app={app} />
           </div>
         </section>
       ) : null}

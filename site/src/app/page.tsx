@@ -56,7 +56,7 @@ export default async function Home() {
             Live now
           </h2>
           <p className="m-0 text-sm text-ink-muted">
-            {stats.source}, updated {formatAsOf(stats.asOf)}
+            Installs on {stats.source}, {formatAsOf(stats.asOf)}
           </p>
         </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:auto-rows-[minmax(280px,auto)] lg:grid-cols-4">

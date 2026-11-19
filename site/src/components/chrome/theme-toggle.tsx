@@ -6,7 +6,7 @@ type Theme = 'dark' | 'light';
 
 /** Reads the theme from <html>, which the boot script set before paint. */
 function current(): Theme {
-  return document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
 }
 
 const listeners = new Set<() => void>();
@@ -17,7 +17,7 @@ function subscribe(fn: () => void) {
 }
 
 function apply(theme: Theme) {
-  if (theme === 'light') document.documentElement.dataset.theme = 'light';
+  if (theme === 'dark') document.documentElement.dataset.theme = 'dark';
   else delete document.documentElement.dataset.theme;
   try {
     localStorage.setItem('theme', theme);
@@ -28,8 +28,8 @@ function apply(theme: Theme) {
 }
 
 export function ThemeToggle() {
-  // The server always renders dark; the client corrects after hydration.
-  const theme = useSyncExternalStore(subscribe, current, () => 'dark' as Theme);
+  // The server always renders light; the client corrects after hydration.
+  const theme = useSyncExternalStore(subscribe, current, () => 'light' as Theme);
   const next: Theme = theme === 'dark' ? 'light' : 'dark';
 
   return (

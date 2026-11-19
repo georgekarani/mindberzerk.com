@@ -3,31 +3,15 @@
 /*
  * Immersive minimalism: content first, full bleed, one quiet ground.
  *
- * Every colour is a variable so the two themes swap in one place. Dark is the
- * default; `data-theme="light"` on <html> switches. Per-app accents are not
+ * Every colour is a variable so the two themes swap in one place. Default is
+ * light; `data-theme="dark"` on <html> switches. Per-app accents are not
  * here: they arrive from the registry as inline `--tint` values.
  */
 
-@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *));
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
+/* Light is the default: this is a marketing page. Dark is opt-in. */
 :root {
-  color-scheme: dark;
-  --bg: #0a0b0d;
-  --bg-raised: #101215;
-  --surface: #15181b;
-  --surface-2: #1c1f23;
-  --line: #23272d;
-  --line-strong: #3a3e45;
-  --ink: #f3f4f6;
-  --ink-2: #c9cdd3;
-  --ink-muted: #a0a7b1;
-  --inverse: #f3f4f6;
-  --on-inverse: #0a0b0d;
-  --focus: #8fa3ff;
-  --accent: #8fa3ff;
-}
-
-[data-theme='light'] {
   color-scheme: light;
   --bg: #fbfbfa;
   --bg-raised: #f3f3f1;
@@ -42,6 +26,23 @@
   --on-inverse: #fbfbfa;
   --focus: #3a55e0;
   --accent: #3a55e0;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0a0b0d;
+  --bg-raised: #101215;
+  --surface: #15181b;
+  --surface-2: #1c1f23;
+  --line: #23272d;
+  --line-strong: #3a3e45;
+  --ink: #f3f4f6;
+  --ink-2: #c9cdd3;
+  --ink-muted: #a0a7b1;
+  --inverse: #f3f4f6;
+  --on-inverse: #0a0b0d;
+  --focus: #8fa3ff;
+  --accent: #8fa3ff;
 }
 
 @theme inline {
