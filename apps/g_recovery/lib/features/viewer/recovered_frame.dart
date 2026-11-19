@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../app/theme/tokens.dart';
 import '../../bridge/recovery_api.g.dart';
@@ -13,6 +12,8 @@ import '../../core/messenger/g_message.dart';
 import '../../core/messenger/g_messenger.dart';
 import '../../ui/g_button.dart';
 import '../../ui/g_thumbnail.dart';
+import '../../ui/media/media_stage.dart';
+import '../../ui/media/playable_media.dart';
 import '../recovery/state/recovery_providers.dart';
 import '../../core/i18n/g_strings.dart';
 
@@ -96,136 +97,19 @@ class _Image extends ConsumerWidget {
   }
 }
 
-/// Video and audio, from a content URI.
-///
-/// One widget for both because ExoPlayer treats them the same and the only
-/// difference is whether there is a picture. An audio track gets its cover art
-/// behind the controls instead of a black rectangle.
-class _Play extends ConsumerStatefulWidget {
+/// Video and audio, played in place with the shared player.
+class _Play extends ConsumerWidget {
   const _Play({required this.item});
 
   final RecoverableItem item;
 
   @override
-  ConsumerState<_Play> createState() => _PlayState();
-}
-
-class _PlayState extends ConsumerState<_Play> {
-  VideoPlayerController? _controller;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final String? uri = await ref
-        .read(recoveryBridgeProvider)
-        .itemUri(widget.item.itemId);
-    if (!mounted) return;
-
-    // A loose file has no URI and never will. That is not a failure, it is the
-    // shape of scoped storage, and the fallback shows the preview instead.
-    if (uri == null) {
-      setState(() => _failed = true);
-      return;
-    }
-
-    final VideoPlayerController controller = VideoPlayerController.contentUri(
-      Uri.parse(uri),
-    );
-    try {
-      await controller.initialize();
-    } catch (_) {
-      // A codec this phone lacks, or an OEM refusing to decode from a trashed
-      // row. Both are ordinary and both fall back rather than sitting black.
-      await controller.dispose();
-      if (mounted) setState(() => _failed = true);
-      return;
-    }
-    if (!mounted) {
-      await controller.dispose();
-      return;
-    }
-    setState(() => _controller = controller);
-    await controller.setLooping(true);
-    await controller.play();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    if (_failed) return _Unplayable(item: widget.item);
-
-    final VideoPlayerController? controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      return _Waiting(t: t);
-    }
-
-    final bool audio = widget.item.kind == 'audio';
-
-    return GestureDetector(
-      onTap: () => setState(() {
-        controller.value.isPlaying ? controller.pause() : controller.play();
-      }),
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          if (audio)
-            Center(
-              child: SizedBox(
-                width: 220,
-                height: 220,
-                child: GThumbnail(
-                  itemId: widget.item.itemId,
-                  bridge: ref.watch(recoveryBridgeProvider),
-                  kind: widget.item.kind,
-                  maxPixels: 512,
-                  radius: GRadius.card,
-                ),
-              ),
-            )
-          else
-            Center(
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-            ),
-          if (!controller.value.isPlaying)
-            DecoratedBox(
-              decoration: BoxDecoration(color: t.scrim, shape: BoxShape.circle),
-              child: Padding(
-                padding: const EdgeInsets.all(GSpace.md),
-                child: Icon(Icons.play_arrow_rounded, size: 34, color: t.text),
-              ),
-            ),
-          Positioned(
-            left: GSpace.gutter,
-            right: GSpace.gutter,
-            bottom: 96,
-            child: VideoProgressIndicator(
-              controller,
-              allowScrubbing: true,
-              colors: VideoProgressColors(
-                playedColor: t.accent,
-                bufferedColor: t.panelAlt,
-                backgroundColor: t.panel,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context, WidgetRef ref) => MediaStage(
+    media: PlayableMedia.recoverable(item, ref.watch(recoveryBridgeProvider)),
+    fallback: _Unplayable(item: item),
+    // Clears the viewer's filmstrip and action bar.
+    bottomInset: 150,
+  );
 }
 
 class _Text extends ConsumerWidget {
@@ -422,10 +306,7 @@ class _Unplayable extends ConsumerWidget {
           right: GSpace.gutter,
           bottom: 110,
           child: Text(
-            context.s(
-              'This cannot be played while it is still in the trash. Restore it '
-              'and it will open in your usual player.',
-            ),
+            context.s('Restore to play'),
             textAlign: TextAlign.center,
             style: GType.bodySmall.copyWith(color: t.muted),
           ),
@@ -461,10 +342,7 @@ class _HandOff extends ConsumerWidget {
             ),
             const SizedBox(height: GSpace.sm),
             Text(
-              context.s(
-                'This app shows photos, video, audio, text and PDF. Anything '
-                'else opens in an app built for it.',
-              ),
+              context.s('Opens in another app'),
               textAlign: TextAlign.center,
               style: GType.bodySmall.copyWith(color: t.muted),
             ),

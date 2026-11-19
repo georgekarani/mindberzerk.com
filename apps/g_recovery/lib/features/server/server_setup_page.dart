@@ -1,43 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
+import '../../app/shell.dart';
 import '../../bridge/server_api.g.dart';
 import '../../bridge/server_bridge.dart';
 import '../../core/format.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_button.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_sheet.dart';
 import '../../core/i18n/g_strings.dart';
 
-/// SETTING UP A MACHINE THE USER OWNS.
-///
-/// ─── IT TESTS BEFORE IT SAVES ────────────────────────────────────────────────
-///
-/// A saved server that has never been reached is worse than no server: it
-/// reports itself as configured and then fails at 2am. Save is only offered
-/// after a probe that both signed in AND wrote a file, because a share that
-/// authenticates and refuses writes is the commonest misconfiguration there is.
-///
-/// ─── THE PASSWORD IS NEVER READ BACK ─────────────────────────────────────────
-///
-/// Editing a saved server leaves the field empty, and an empty field means keep
-/// the stored one. Nothing in Dart can retrieve a password, so no screen can
-/// show one and no log can print one.
-///
-/// ─── TWO FORMS, ONE PAGE, AND ALMOST NO SHARED FIELDS ────────────────────────
-///
-/// SMB wants a host, a share and a port. WebDAV wants a URL. Only the user
-/// name, password and folder are common to both, which is why the protocol is
-/// chosen before this screen opens rather than toggled inside it: a single form
-/// with a switch would be mostly empty whichever way it was set.
+/// Adding or editing a home server, as a grouped form: where it is, how to
+/// sign in, which folder, whether to encrypt. Test connection checks it
+/// for real (signs in and writes a file) before Save is offered.
 class ServerSetupPage extends ConsumerStatefulWidget {
   const ServerSetupPage({super.key, this.existing, this.protocol = 'smb'});
 
   final ServerConfig? existing;
 
-  /// Only consulted when [existing] is null. A saved server keeps its own.
+  /// 'smb' or 'webdav', for a new server.
   final String protocol;
 
   static Route<void> route({ServerConfig? existing, String protocol = 'smb'}) =>
@@ -58,41 +37,34 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
   late final TextEditingController _user;
   late final TextEditingController _password;
   late final TextEditingController _path;
+  late final GShellNav _nav;
 
   bool _encrypt = false;
   bool _busy = false;
   ServerProbe? _probe;
-
-  /// What the address field currently means. Null while it is unusable.
   DavAddress? _parsed;
 
-  /// Set only when the user has looked at a fingerprint and accepted it.
+  /// A self-signed certificate the user has chosen to trust.
   String? _certPin;
 
   String get _protocol => widget.existing?.protocol ?? widget.protocol;
-
   bool get _isDav => _protocol == 'webdav';
 
   @override
   void initState() {
     super.initState();
+    _nav = ref.read(gShellNavHiddenProvider.notifier)..hide();
     final ServerConfig? existing = widget.existing;
-
     _host = TextEditingController(text: existing?.host ?? '');
     _share = TextEditingController(text: existing?.share ?? '');
     _port = TextEditingController(text: '${existing?.port ?? 445}');
     _user = TextEditingController(text: existing?.username ?? '');
-    // Empty on purpose, even when editing. See the class note.
     _password = TextEditingController();
     _path = TextEditingController(
       text: existing?.remotePath ?? (_isDav ? 'Backups/Phone' : '/GRecovery'),
     );
     _encrypt = existing?.encrypt ?? false;
     _certPin = existing?.certPin;
-
-    // Rebuilt from the pieces rather than stored whole, so what the user sees
-    // when editing is the address the app will actually use, not the text they
-    // once typed.
     final String rebuilt = existing == null || existing.protocol != 'webdav'
         ? ''
         : DavAddress(
@@ -103,24 +75,43 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
           ).text;
     _address = TextEditingController(text: rebuilt);
     _parsed = DavAddress.parse(rebuilt);
+    for (final TextEditingController c in <TextEditingController>[
+      _host,
+      _share,
+      _port,
+      _user,
+      _password,
+      _path,
+    ]) {
+      // Any edit makes the last test stale.
+      c.addListener(_stale);
+    }
+  }
+
+  void _stale() {
+    if (_probe != null) setState(() => _probe = null);
   }
 
   @override
   void dispose() {
-    _host.dispose();
-    _share.dispose();
-    _port.dispose();
-    _address.dispose();
-    _user.dispose();
-    _password.dispose();
-    _path.dispose();
+    _nav.show();
+    for (final TextEditingController c in <TextEditingController>[
+      _host,
+      _share,
+      _port,
+      _address,
+      _user,
+      _password,
+      _path,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   ServerConfig get _config {
     final ServerConfig? existing = widget.existing;
     final String folder = _path.text.trim();
-
     if (_isDav) {
       final DavAddress? parsed = _parsed;
       return ServerConfig(
@@ -129,8 +120,6 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
         label: parsed?.host ?? '',
         host: parsed?.host ?? '',
         port: parsed?.port ?? 443,
-        // WebDAV has no share. Null rather than empty, so nothing downstream
-        // has to decide whether a blank string meant anything.
         share: null,
         username: _user.text.trim(),
         remotePath: folder.isEmpty ? 'Backups/Phone' : folder,
@@ -143,7 +132,6 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
         certPin: _certPin,
       );
     }
-
     return ServerConfig(
       id: existing?.id ?? 'server',
       protocol: 'smb',
@@ -160,297 +148,157 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
     );
   }
 
-  /// Enough typed in to be worth asking the server about.
   bool get _fillable => _isDav ? _parsed != null : _host.text.trim().isNotEmpty;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
     final ServerProbe? probe = _probe;
     final bool ready = probe != null && probe.reachable && probe.writable;
+    final DavAddress? parsed = _parsed;
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl,
-          ),
-          children: <Widget>[
-            GAppBar(
-              title: _isDav ? 'WebDAV server' : 'Network drive',
-              subtitle: _isDav
-                  ? 'Nextcloud, ownCloud, Synology'
-                  : 'SMB2 and SMB3',
-              leading: GIconButton(
-                icon: Icons.arrow_back_rounded,
-                onTap: () => Navigator.of(context).pop(),
-              ),
-            ),
-
-            if (_isDav) ..._davFields(t) else ..._smbFields(),
-
-            _Field(
-              label: context.s('Username'),
-              controller: _user,
-              hint: 'karani',
-            ),
-            _Field(
-              label: widget.existing == null
-                  ? 'Password'
-                  : 'Password, leave empty to keep the saved one',
-              controller: _password,
-              hint: '',
-              secret: true,
-            ),
-            if (_isDav)
-              Padding(
-                padding: const EdgeInsets.only(bottom: GSpace.md),
-                child: Text(
-                  // The single most valuable sentence on this screen. An
-                  // account with two-step sign in will refuse the real password
-                  // every time, and without saying so it reads as a broken app
-                  // rather than a server rule.
-                  context.s(
-                    'If your account uses two-step sign in, your normal password '
-                    'will be refused. Create an app password on the server and '
-                    'paste that instead.',
-                  ),
-                  style: GType.micro.copyWith(color: t.dim),
-                ),
-              ),
-
-            _Field(
-              label: context.s('Folder on the server'),
-              controller: _path,
-              hint: _isDav ? 'Backups/Phone' : '/GRecovery',
-            ),
-
-            if (probe != null) ...<Widget>[
-              const SizedBox(height: GSpace.sm),
-              _Result(
-                probe: probe,
-                onTrust: probe.certFingerprint == null ? null : _trust,
-              ),
-            ],
-
-            const SizedBox(height: GSpace.md),
-            GButton(
-              label: ready ? 'Save' : 'Test connection',
-              icon: ready ? Icons.check_rounded : Icons.wifi_tethering_rounded,
-              onPressed: _busy || !_fillable
-                  ? null
-                  : () => ready ? _save() : _test(),
-            ),
-
-            const SizedBox(height: GSpace.lg),
-            GCard(
-              onTap: () => _explainSecurity(context),
-              child: Row(
-                children: <Widget>[
-                  Icon(Icons.lock_outline_rounded, size: 19, color: t.docs),
-                  const SizedBox(width: GSpace.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          context.s('Where the password goes'),
-                          style: GType.heading.copyWith(color: t.text),
-                        ),
-                        Text(
-                          context.s(
-                            'Encrypted on this phone, sent only to your server',
-                          ),
-                          style: GType.micro.copyWith(color: t.muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(Icons.chevron_right_rounded, size: 19, color: t.dim),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: GSpace.sm + 1),
-            GCard(
-              onTap: () => setState(() => _encrypt = !_encrypt),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          context.s('Encrypt the files'),
-                          style: GType.heading.copyWith(color: t.text),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          // The trade-off, stated on the switch rather than
-                          // buried. Off by default because the point of a home
-                          // server is that the files stay yours and openable.
-                          _encrypt
-                              ? 'Only this app will be able to open them. Right '
-                                    'for a server you do not fully control.'
-                              : 'Files stay readable on your server, so any '
-                                    'app on your computer can open them.',
-                          style: GType.micro.copyWith(color: t.muted),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: GSpace.md),
-                  _Switch(on: _encrypt),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // The two forms
-  // ───────────────────────────────────────────────────────────────────────────
-
-  List<Widget> _smbFields() => <Widget>[
-    _Field(label: 'Address', controller: _host, hint: '192.168.1.40'),
-    Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Expanded(
-          child: _Field(
-            label: 'Share',
-            controller: _share,
-            hint: 'phone-backup',
-          ),
-        ),
-        const SizedBox(width: GSpace.sm + 1),
-        SizedBox(
-          width: 92,
-          child: _Field(
-            label: 'Port',
-            controller: _port,
-            hint: '445',
-            numeric: true,
-          ),
+    return LargeTitlePage(
+      title: _isDav ? 'WebDAV' : context.s('Windows share'),
+      backLabel: context.s('Home server'),
+      onBack: () => Navigator.of(context).pop(),
+      grouped: true,
+      actions: <Widget>[
+        NavAction.icon(
+          icon: GIcons.lock,
+          semanticLabel: context.s('Where the password goes'),
+          onTap: () => _explainSecurity(context),
         ),
       ],
-    ),
-  ];
-
-  /// One address field, and what the app made of it shown underneath.
-  ///
-  /// ─── ONE FIELD, NOT THREE ────────────────────────────────────────────────
-  ///
-  /// Nextcloud, ownCloud and Synology all hand the user a complete WebDAV
-  /// address to copy. Asking for host, port and path separately would mean the
-  /// user parsing their own URL by eye and retyping it in pieces, which is work
-  /// a machine does perfectly and a person does wrong at least once.
-  ///
-  /// The parse is shown rather than trusted silently, because a mistyped DAV
-  /// root would otherwise surface as an unexplained network error at the end of
-  /// a connection test instead of as a visibly wrong path before it starts.
-  List<Widget> _davFields(GTokens t) {
-    final DavAddress? parsed = _parsed;
-    final bool typed = _address.text.trim().isNotEmpty;
-
-    return <Widget>[
-      _Field(
-        label: 'Server address',
-        controller: _address,
-        hint: 'https://cloud.example.com/remote.php/dav/files/you/',
-        onChanged: (String value) => setState(() {
-          _parsed = DavAddress.parse(value);
-          _probe = null;
-          // A pin belongs to one certificate on one host. Carrying it across an
-          // edit of the address is how a fingerprint checked against one server
-          // ends up silently trusted for another.
-          _certPin = null;
-        }),
+      bottom: ActionBar(
+        center: PrimaryButton(
+          label: ready ? context.s('Save') : context.s('Test connection'),
+          icon: ready ? GIcons.check : GIcons.wifi,
+          busy: _busy,
+          onTap: _busy || !_fillable ? null : (ready ? _save : _test),
+        ),
       ),
-
-      if (parsed == null)
-        Padding(
-          padding: const EdgeInsets.only(bottom: GSpace.md),
-          child: Text(
-            typed
-                ? 'That does not look like a web address yet.'
-                : 'Copy this from the WebDAV section of your server settings. '
-                      'It usually ends with your user name.',
-            style: GType.micro.copyWith(color: typed ? t.warning : t.dim),
-          ),
-        )
-      else ...<Widget>[
-        Padding(
-          padding: const EdgeInsets.only(bottom: GSpace.md),
-          child: GCard(
-            padding: const EdgeInsets.symmetric(
-              horizontal: GSpace.md,
-              vertical: GSpace.sm,
-            ),
-            child: Column(
-              children: <Widget>[
-                _Parsed(label: 'Host', value: parsed.host),
-                _Parsed(label: 'Port', value: '${parsed.port}'),
-                _Parsed(
-                  label: 'Path',
-                  value: parsed.basePath.isEmpty ? '/' : parsed.basePath,
+      bottomExtent: ActionBar.extent(context),
+      slivers: <Widget>[
+        SliverToBoxAdapter(
+          child: GroupedSection(
+            header: context.s('Server'),
+            children: <Widget>[
+              if (_isDav) ...<Widget>[
+                _FieldRow(
+                  label: context.s('Address'),
+                  controller: _address,
+                  hint: 'https://cloud.example.com/dav/',
+                  keyboard: TextInputType.url,
+                  onChanged: (String value) => setState(() {
+                    _parsed = DavAddress.parse(value);
+                    _probe = null;
+                    _certPin = null;
+                  }),
+                  last: parsed == null,
                 ),
-                _Parsed(
-                  label: 'Connection',
-                  value: parsed.secure ? 'Encrypted' : 'Not encrypted',
-                  tone: parsed.secure ? null : t.warning,
+                if (parsed != null) ...<Widget>[
+                  ListRow(title: context.s('Host'), detail: parsed.host),
+                  ListRow(
+                    title: context.s('Connection'),
+                    detail: parsed.secure
+                        ? context.s('Encrypted')
+                        : context.s('Not encrypted'),
+                  ),
+                ],
+              ] else ...<Widget>[
+                _FieldRow(
+                  label: context.s('Address'),
+                  controller: _host,
+                  hint: '192.168.1.40',
+                  keyboard: TextInputType.url,
+                ),
+                _FieldRow(
+                  label: context.s('Share'),
+                  controller: _share,
+                  hint: 'Backups',
+                ),
+                _FieldRow(
+                  label: context.s('Port'),
+                  controller: _port,
+                  hint: '445',
+                  keyboard: TextInputType.number,
+                  last: true,
+                ),
+              ],
+            ],
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: GDesign.space24),
+            child: GroupedSection(
+              header: context.s('Sign in'),
+              footer: _isDav
+                  ? context.s('With two-step sign in, use an app password.')
+                  : null,
+              children: <Widget>[
+                _FieldRow(
+                  label: context.s('Username'),
+                  controller: _user,
+                  hint: context.s('Required'),
+                ),
+                _FieldRow(
+                  label: context.s('Password'),
+                  controller: _password,
+                  hint: widget.existing == null
+                      ? context.s('Required')
+                      : context.s('Unchanged'),
+                  secret: true,
                   last: true,
                 ),
               ],
             ),
           ),
         ),
-        if (!parsed.secure)
-          Padding(
-            padding: const EdgeInsets.only(bottom: GSpace.md),
-            child: Text(
-              // Said plainly rather than blocked. Plain HTTP to a box on the
-              // same desk is a defensible choice; not knowing it is happening
-              // is not.
-              'This address is plain http, so your password and your files '
-              'cross the network unprotected. Use https unless the server is '
-              'on your own network.',
-              style: GType.micro.copyWith(color: t.warning),
-            ),
-          ),
-        if (_certPin != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: GSpace.md),
-            child: Row(
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: GDesign.space24),
+            child: GroupedSection(
+              header: context.s('On the server'),
               children: <Widget>[
-                Icon(Icons.verified_user_outlined, size: 15, color: t.success),
-                const SizedBox(width: GSpace.sm),
-                Expanded(
-                  child: Text(
-                    'You have trusted this server\u0027s own certificate.',
-                    style: GType.micro.copyWith(color: t.muted),
+                _FieldRow(
+                  label: context.s('Folder'),
+                  controller: _path,
+                  hint: _isDav ? 'Backups/Phone' : '/GRecovery',
+                ),
+                ListRow(
+                  title: context.s('Encrypt files'),
+                  subtitle: _encrypt
+                      ? context.s('Only this app can open them')
+                      : context.s('Any computer app can open them'),
+                  trailing: ToggleSwitch(
+                    value: _encrypt,
+                    semanticLabel: context.s('Encrypt files'),
+                    onChanged: (bool on) => setState(() => _encrypt = on),
                   ),
                 ),
               ],
             ),
           ),
+        ),
+        if (probe != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(top: GDesign.space24),
+              child: Reveal(
+                child: _Result(
+                  probe: probe,
+                  onTrust: probe.certFingerprint == null ? null : _trust,
+                ),
+              ),
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: GDesign.space32)),
       ],
-    ];
+    );
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // Actions
-  // ───────────────────────────────────────────────────────────────────────────
-
   Future<void> _test() async {
+    FocusScope.of(context).unfocus();
     setState(() {
       _busy = true;
       _probe = null;
@@ -459,17 +307,14 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
         .read(serverBridgeProvider)
         .test(_config, password: _password.text);
     if (!mounted) return;
+    final bool ok = probe != null && probe.reachable && probe.writable;
+    ok ? Haptics.confirm() : Haptics.destroy();
     setState(() {
       _busy = false;
       _probe = probe;
     });
   }
 
-  /// Accepts one certificate, by fingerprint, and immediately tries again.
-  ///
-  /// The retry is the point. Pinning without reconnecting would leave the user
-  /// looking at the same failure card wondering whether the button did
-  /// anything.
   Future<void> _trust() async {
     final String? fingerprint = _probe?.certFingerprint;
     if (fingerprint == null) return;
@@ -487,36 +332,52 @@ class _ServerSetupPageState extends ConsumerState<ServerSetupPage> {
   }
 
   void _explainSecurity(BuildContext context) {
-    final GTokens t = context.g;
-    showGSheet(
+    presentSheet<void>(
       context: context,
-      title: context.s('Where the password goes'),
-      children: <Widget>[
-        GSheetPoint(
-          icon: Icons.phone_android_rounded,
-          tone: t.docs,
-          text: context.s(
-            'It is encrypted by this phone\u0027s own hardware keystore and '
-            'kept on the device. No other app can read it, and neither can we.',
+      builder: (BuildContext sheet) {
+        final GDesignTheme g = GDesignTheme.of(sheet);
+        Widget point(IconData icon, String text) => Padding(
+          padding: const EdgeInsets.only(bottom: GDesign.space16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Icon(icon, size: 22, color: g.accentText),
+              const SizedBox(width: GDesign.space12),
+              Expanded(
+                child: Text(text, style: g.body(color: g.muted)),
+              ),
+            ],
           ),
-        ),
-        GSheetPoint(
-          icon: Icons.send_rounded,
-          tone: t.docs,
-          text: context.s(
-            'It is sent to one place only: the address you typed above. '
-            'There is no account and no server of ours in between.',
+        );
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            GDesign.gutter,
+            GDesign.space8,
+            GDesign.gutter,
+            GDesign.space24,
           ),
-        ),
-        GSheetPoint(
-          icon: Icons.key_off_rounded,
-          text: context.s(
-            'Changing your screen lock can destroy the key that protects '
-            'it. If that happens the app asks you to type it again rather '
-            'than failing quietly every night.',
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(context.s('Where the password goes'), style: g.title2()),
+              const SizedBox(height: GDesign.space16),
+              point(
+                GIcons.lock,
+                context.s('Encrypted by this phone and kept on it.'),
+              ),
+              point(
+                GIcons.upload,
+                context.s('Sent only to the address above. Nothing of ours.'),
+              ),
+              point(
+                GIcons.key,
+                context.s('A new screen lock may ask you to type it again.'),
+              ),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -619,159 +480,97 @@ _Outcome _outcomeOf(ServerProbe probe) {
     case 'network':
       return _Outcome.network;
     default:
-      // An unrecognised code, or none at all from the SMB path. Both fall back
-      // to showing detail, which is a sentence either way.
       return probe.reachable ? _Outcome.path : _Outcome.network;
   }
 }
 
-/// The probe result, in words rather than a code.
+/// What the test found: one card with a mark, a title, the server's own
+/// words, and for an unknown certificate its fingerprint and Trust.
 class _Result extends StatelessWidget {
   const _Result({required this.probe, this.onTrust});
 
   final ServerProbe probe;
-
-  /// Offered only for an untrusted certificate, the one failure on this screen
-  /// the user can resolve without leaving it.
   final VoidCallback? onTrust;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final _Outcome outcome = _outcomeOf(probe);
+    final bool ok = outcome == _Outcome.connected;
+    final String title = switch (outcome) {
+      _Outcome.connected => context.s('Connected'),
+      _Outcome.auth => context.s('Sign in failed'),
+      _Outcome.cert => context.s('Unknown certificate'),
+      _Outcome.notDav => context.s('Not a WebDAV address'),
+      _Outcome.path => context.s('The folder refused a file'),
+      _Outcome.network => context.s('Could not reach the server'),
+    };
 
-    final Color hue;
-    final IconData glyph;
-    final String title;
-    switch (outcome) {
-      case _Outcome.connected:
-        hue = t.success;
-        glyph = Icons.check_circle_outline_rounded;
-        title = 'Ready to back up';
-      case _Outcome.auth:
-        hue = t.danger;
-        glyph = Icons.person_off_outlined;
-        title = 'Sign in failed';
-      case _Outcome.cert:
-        hue = t.warning;
-        glyph = Icons.gpp_maybe_outlined;
-        title = 'No one vouches for this server';
-      case _Outcome.notDav:
-        hue = t.danger;
-        glyph = Icons.wrong_location_outlined;
-        title = 'That address is not WebDAV';
-      case _Outcome.path:
-        hue = t.warning;
-        glyph = Icons.folder_off_outlined;
-        title = 'The folder would not take a file';
-      case _Outcome.network:
-        hue = t.danger;
-        glyph = Icons.cloud_off_outlined;
-        title = 'Could not reach the server';
-    }
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: hue.withValues(alpha: 0.13),
-        border: Border.all(color: hue.withValues(alpha: 0.35)),
-        borderRadius: GRadius.all(GRadius.card),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(GSpace.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Icon(glyph, size: 19, color: hue),
-                const SizedBox(width: GSpace.md - 2),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(title, style: GType.heading.copyWith(color: hue)),
-                      const SizedBox(height: 2),
-                      Text(
-                        outcome == _Outcome.connected
-                            ? 'Signed in, and the folder accepts files.'
-                            : probe.detail,
-                        style: GType.bodySmall.copyWith(color: t.muted),
-                      ),
-                    ],
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: g.card,
+          borderRadius: BorderRadius.circular(GDesign.cardRadius),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(GDesign.space16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: ok ? g.accent : g.danger.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      ok ? GIcons.check : GIcons.close,
+                      size: 20,
+                      color: ok ? g.onAccent : g.danger,
+                    ),
                   ),
+                  const SizedBox(width: GDesign.space12),
+                  Expanded(child: Text(title, style: g.headline())),
+                ],
+              ),
+              if (!ok && probe.detail.isNotEmpty) ...<Widget>[
+                const SizedBox(height: GDesign.space8),
+                Text(probe.detail, style: g.footnote()),
+              ],
+              if (ok) ...<Widget>[
+                if (probe.freeBytes != null)
+                  _Line(
+                    label: context.s('Free on server'),
+                    value: GFormat.bytes(probe.freeBytes!),
+                  ),
+                if (probe.serverName != null)
+                  _Line(label: context.s('Server'), value: probe.serverName!),
+              ],
+              if (outcome == _Outcome.cert &&
+                  probe.certFingerprint != null) ...<Widget>[
+                const SizedBox(height: GDesign.space12),
+                Text(
+                  _grouped(probe.certFingerprint!),
+                  style: g.figures(g.footnote(color: g.text)),
+                ),
+                const SizedBox(height: GDesign.space12),
+                SecondaryButton(
+                  label: context.s('Trust this certificate'),
+                  onTap: onTrust,
                 ),
               ],
-            ),
-
-            if (outcome == _Outcome.connected) ...<Widget>[
-              // Nullable stats render as absent rows, never as a dash. A server
-              // that reports no quota has not told us zero.
-              if (probe.freeBytes != null)
-                _Detail(
-                  label: context.s('Free on server'),
-                  value: GFormat.bytes(probe.freeBytes!),
-                ),
-              if (probe.serverName != null)
-                _Detail(label: context.s('Server'), value: probe.serverName!),
             ],
-
-            if (outcome == _Outcome.cert &&
-                probe.certFingerprint != null) ...<Widget>[
-              const SizedBox(height: GSpace.md),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GSpace.md,
-                  vertical: GSpace.sm + 2,
-                ),
-                decoration: BoxDecoration(
-                  color: t.ink,
-                  borderRadius: GRadius.all(GRadius.tile),
-                  border: Border.all(color: t.line),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      context.s('SHA-256'),
-                      style: GType.overline.copyWith(color: t.dim),
-                    ),
-                    const SizedBox(height: GSpace.xs + 1),
-                    Text(
-                      _grouped(probe.certFingerprint!),
-                      style: GType.monoSmall.copyWith(
-                        color: t.muted,
-                        height: 1.6,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: GSpace.sm + 2),
-              Text(
-                // Names the check rather than assuming it. A fingerprint nobody
-                // compares is a trust-all switch with extra steps.
-                context.s(
-                  'Run openssl x509 -fingerprint -sha256 on your server, or read '
-                  'it from your server\u0027s admin page, and make sure it matches.',
-                ),
-                style: GType.micro.copyWith(color: t.dim),
-              ),
-              const SizedBox(height: GSpace.md),
-              GButton(
-                label: context.s('Trust this certificate'),
-                icon: Icons.verified_user_outlined,
-                onPressed: onTrust,
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
   }
 
-  /// Hex in byte pairs, ten to a line, the way every tool prints it.
+  /// AB:CD:EF pairs, ten to a line.
   static String _grouped(String hex) {
     final StringBuffer out = StringBuffer();
     for (int i = 0; i + 1 < hex.length; i += 2) {
@@ -782,164 +581,87 @@ class _Result extends StatelessWidget {
   }
 }
 
-class _Detail extends StatelessWidget {
-  const _Detail({required this.label, required this.value});
+class _Line extends StatelessWidget {
+  const _Line({required this.label, required this.value});
 
   final String label;
   final String value;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     return Padding(
-      padding: const EdgeInsets.only(top: GSpace.sm),
+      padding: const EdgeInsets.only(top: GDesign.space8),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: <Widget>[
-          Text(label, style: GType.micro.copyWith(color: t.muted)),
-          Text(value, style: GType.monoSmall.copyWith(color: t.text)),
+          Expanded(child: Text(label, style: g.footnote())),
+          Text(value, style: g.figures(g.footnote(color: g.text))),
         ],
       ),
     );
   }
 }
 
-class _Parsed extends StatelessWidget {
-  const _Parsed({
-    required this.label,
-    required this.value,
-    this.tone,
-    this.last = false,
-  });
-
-  final String label;
-  final String value;
-  final Color? tone;
-  final bool last;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: GSpace.sm - 1),
-      decoration: last
-          ? null
-          : BoxDecoration(
-              border: Border(bottom: BorderSide(color: t.line)),
-            ),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: 84,
-            child: Text(label, style: GType.micro.copyWith(color: t.dim)),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: GType.monoSmall.copyWith(color: tone ?? t.text),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Field extends StatelessWidget {
-  const _Field({
+/// A grouped-list row with its label on the left and the field filling the
+/// rest, as in iOS Settings forms.
+class _FieldRow extends StatelessWidget {
+  const _FieldRow({
     required this.label,
     required this.controller,
     required this.hint,
     this.secret = false,
-    this.numeric = false,
+    this.keyboard = TextInputType.text,
     this.onChanged,
+    this.last = false,
   });
 
+  /// The bottom row of its section draws no separator.
+  final bool last;
   final String label;
   final TextEditingController controller;
   final String hint;
   final bool secret;
-  final bool numeric;
+  final TextInputType keyboard;
   final ValueChanged<String>? onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.md - 2),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Container(
+      constraints: const BoxConstraints(minHeight: GDesign.rowMinHeight),
+      margin: const EdgeInsetsDirectional.only(start: GDesign.space16),
+      padding: const EdgeInsetsDirectional.only(end: GDesign.space16),
+      decoration: BoxDecoration(
+        border: last
+            ? null
+            : Border(bottom: BorderSide(color: g.hairline, width: 0.5)),
+      ),
+      child: Row(
         children: <Widget>[
-          Text(label, style: GType.micro.copyWith(color: t.muted)),
-          const SizedBox(height: GSpace.xs + 1),
-          TextField(
-            controller: controller,
-            obscureText: secret,
-            keyboardType: numeric ? TextInputType.number : TextInputType.text,
-            onChanged: onChanged,
-            // No autocorrect anywhere on this screen. A hostname is not a word,
-            // and a capitalised share name is a failed connection.
-            autocorrect: false,
-            enableSuggestions: false,
-            textCapitalization: TextCapitalization.none,
-            style: GType.monoSmall.copyWith(color: t.text, fontSize: 13),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: GType.monoSmall.copyWith(color: t.dim, fontSize: 13),
-              filled: true,
-              fillColor: t.panel,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: GSpace.md,
-                vertical: GSpace.md - 2,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: GRadius.all(GRadius.tile),
-                borderSide: BorderSide(color: t.line),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: GRadius.all(GRadius.tile),
-                borderSide: BorderSide(color: t.line),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: GRadius.all(GRadius.tile),
-                borderSide: BorderSide(color: t.accent, width: 1.5),
+          SizedBox(width: 104, child: Text(label, style: g.body())),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              obscureText: secret,
+              keyboardType: keyboard,
+              onChanged: onChanged,
+              autocorrect: false,
+              enableSuggestions: false,
+              textCapitalization: TextCapitalization.none,
+              cursorColor: g.accent,
+              style: g.body(),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: g.body(color: g.faint),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: GDesign.space12,
+                ),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _Switch extends StatelessWidget {
-  const _Switch({required this.on});
-
-  final bool on;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return AnimatedContainer(
-      duration: GMotion.fast,
-      width: 44,
-      height: 26,
-      padding: const EdgeInsets.all(3),
-      alignment: on ? Alignment.centerRight : Alignment.centerLeft,
-      decoration: BoxDecoration(
-        color: on ? t.accent : t.panelAlt,
-        borderRadius: GRadius.all(GRadius.chip),
-      ),
-      child: Container(
-        width: 20,
-        height: 20,
-        decoration: BoxDecoration(
-          color: on ? t.onAccent : t.dim,
-          shape: BoxShape.circle,
-        ),
       ),
     );
   }

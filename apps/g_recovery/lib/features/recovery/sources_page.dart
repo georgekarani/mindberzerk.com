@@ -1,33 +1,21 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
 import '../../bridge/recovery_api.g.dart';
 import '../../core/format.dart';
-import '../../ui/g_app_bar.dart';
+import '../../core/i18n/g_strings.dart';
 import '../../ui/g_card.dart';
-import '../../ui/g_enter.dart';
-import '../../ui/g_sheet.dart';
+import '../device/widgets/device_detail.dart';
 import '../learn/limits_page.dart';
 import 'category_page.dart';
 import 'state/recovery_providers.dart';
-import 'widgets/source_tile.dart';
-import '../../core/i18n/g_strings.dart';
 
-/// WHERE ANY OF THIS COMES FROM.
-///
-/// The screen that makes the app's claim inspectable. Every other surface
-/// answers what can be got back; this one answers how we know, place by place,
-/// with the quality stamped on each row before anything is tapped.
-///
-/// No new bridge call. `RecoverySummary.sources` has carried this list since
-/// Phase 4 and the pre-scan has been fetching it on every cold start. The data
-/// was arriving and being discarded, and `SourceTile` was written, documented as
-/// the promise the app is built on, and never once rendered.
-///
-/// Reads the PRE-scan rather than triggering a full one. A ledger of where
-/// things live is a fast counting question, and making the honesty screen the
-/// slowest one in the app would be a poor joke.
+/// Every place on the phone where deleted files can still be, drawn as a
+/// radar with one blip per place, then a row for each saying what quality
+/// it gives back.
 class SourcesPage extends ConsumerWidget {
   const SourcesPage({super.key});
 
@@ -37,281 +25,314 @@ class SourcesPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final RecoverySummary? summary = ref.watch(prescanProvider).value;
     final List<RecoverySource> sources =
-        summary?.sources ?? const <RecoverySource>[];
-
-    // Readable sources first, then by how much they hold. One that cannot be
-    // read is still shown, at the bottom, because a missing row reads as a place
-    // we forgot rather than one this phone refuses.
-    final List<RecoverySource> ordered = List<RecoverySource>.of(sources)
-      ..sort((RecoverySource a, RecoverySource b) {
-        if (a.available != b.available) return a.available ? -1 : 1;
-        return b.itemCount.compareTo(a.itemCount);
-      });
-
-    final int reachable = ordered
-        .where((RecoverySource s) => s.available)
-        .length;
-    final int items = ordered.fold<int>(
+        List<RecoverySource>.of(summary?.sources ?? const <RecoverySource>[])
+          ..sort((RecoverySource a, RecoverySource b) {
+            if (a.available != b.available) return a.available ? -1 : 1;
+            return b.itemCount.compareTo(a.itemCount);
+          });
+    final int items = sources.fold<int>(
       0,
-      (int total, RecoverySource s) => total + s.itemCount,
-    );
-    final int bytes = ordered.fold<int>(
-      0,
-      (int total, RecoverySource s) => total + s.totalBytes,
-    );
-    final int biggest = ordered.fold<int>(
-      0,
-      (int most, RecoverySource s) => s.totalBytes > most ? s.totalBytes : most,
+      (int n, RecoverySource s) => n + s.itemCount,
     );
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl,
-          ),
-          children: <Widget>[
-            GAppBar(
-              title: context.s('Safety nets'),
-              leading: GIconButton(
-                icon: Icons.arrow_back_rounded,
-                onTap: () => Navigator.of(context).pop(),
-              ),
-              actions: <Widget>[
-                GIconButton(
-                  icon: Icons.info_outline_rounded,
-                  onTap: () => _showDetail(context),
+    return GGroundScope(
+      grouped: true,
+      child: LargeTitlePage(
+        title: context.s('Where it looks'),
+        grouped: true,
+        backLabel: context.s('Can come back'),
+        onBack: () => Navigator.of(context).maybePop(),
+        actions: <Widget>[
+          NavAction.icon(
+            icon: GIcons.info,
+            semanticLabel: context.s('Reading this page'),
+            onTap: () => showDeviceNote(
+              context,
+              context.s('Reading this page'),
+              <String>[
+                context.s(
+                  'Full quality: the original file is still here, and '
+                  'restoring gives back exactly what you had.',
+                ),
+                context.s(
+                  'Preview only: the original is gone. What is left is the '
+                  'small copy Android kept to draw your gallery.',
+                ),
+                context.s(
+                  'Off limits: this phone does not let any app look there. '
+                  'It is listed so you know it was checked.',
                 ),
               ],
             ),
-
-            Padding(
-              padding: const EdgeInsets.only(bottom: GSpace.md),
-              child: Text(
-                context.s(
-                  'Every place on this phone where deleted data can still be '
-                  'hiding, and what quality each one gives back.',
+          ),
+        ],
+        slivers: <Widget>[
+          if (summary == null)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator.adaptive()),
+            )
+          else ...<Widget>[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  GDesign.gutter,
+                  GDesign.space8,
+                  GDesign.gutter,
+                  0,
                 ),
-                style: GType.bodySmall.copyWith(color: t.muted),
+                child: Reveal(
+                  child: Column(
+                    children: <Widget>[
+                      _Radar(sources: sources),
+                      const SizedBox(height: GDesign.space12),
+                      CountUpText(
+                        value: items,
+                        format: (num v) => context.s1(
+                          '{} items found',
+                          GFormat.count(v.round()),
+                        ),
+                        style: g.figures(g.headline()),
+                      ),
+                      Text(
+                        context.s1(
+                          'in {} places',
+                          sources
+                              .where((RecoverySource s) => s.available)
+                              .length,
+                        ),
+                        style: g.footnote(),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-
-            if (summary != null) ...<Widget>[
-              GEnter(
-                index: 0,
-                child: _Facts(
-                  reachable: reachable,
-                  total: ordered.length,
-                  items: items,
-                  bytes: bytes,
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: GDesign.space32),
+                child: GroupedSection(
+                  children: <Widget>[
+                    for (final RecoverySource s in sources)
+                      ListRow(
+                        icon: _icon(s),
+                        title: s.label,
+                        subtitle: _quality(context, s),
+                        detail: s.available ? GFormat.count(s.itemCount) : null,
+                        onTap: s.available && s.itemCount > 0
+                            ? () => Navigator.of(context).push(
+                                CategoryPage.route(
+                                  title: s.label,
+                                  sourceIds: <String>[s.sourceId],
+                                  backLabel: context.s('Where it looks'),
+                                ),
+                              )
+                            : null,
+                      ),
+                  ],
                 ),
               ),
-              const SizedBox(height: GSpace.md),
-            ],
-
-            if (summary == null)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: GSpace.xl),
-                child: Center(
-                  child: Text(
-                    context.s('Checking your device'),
-                    style: GType.monoSmall.copyWith(color: t.dim),
-                  ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  0,
+                  GDesign.space32,
+                  0,
+                  GDesign.space48,
                 ),
-              )
-            else
-              for (int i = 0; i < ordered.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: GSpace.sm),
-                  child: GEnter(
-                    index: i + 1,
-                    child: SourceTile(
-                      source: ordered[i],
-                      expanded: false,
-                      share: biggest == 0 ? 0 : ordered[i].totalBytes / biggest,
-                      // Straight into that source alone, every kind. The one
-                      // place in the app where routing by SOURCE is correct
-                      // rather than a bug: the user came here asking about a
-                      // place, not about a kind.
-                      onTap: () => Navigator.of(context).push(
-                        CategoryPage.route(
-                          title: ordered[i].label,
-                          sourceIds: <String>[ordered[i].sourceId],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-
-            const SizedBox(height: GSpace.md),
-            GEnter(
-              index: ordered.length + 1,
-              child: GCard(
-                onTap: () => Navigator.of(context).push(LimitsPage.route()),
-                child: Row(
+                child: GroupedSection(
                   children: <Widget>[
-                    Icon(
-                      Icons.help_outline_rounded,
-                      size: 20,
-                      color: t.accentText,
+                    ListRow(
+                      icon: GIcons.help,
+                      title: context.s('What cannot come back'),
+                      onTap: () =>
+                          Navigator.of(context).push(LimitsPage.route()),
                     ),
-                    const SizedBox(width: GSpace.md),
-                    Expanded(
-                      child: Text(
-                        context.s('What cannot come back, and why'),
-                        style: GType.heading.copyWith(color: t.text),
-                      ),
-                    ),
-                    Icon(Icons.chevron_right_rounded, size: 20, color: t.dim),
                   ],
                 ),
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
 
-  void _showDetail(BuildContext context) {
-    final GTokens t = context.g;
-    showGSheet(
-      context: context,
-      title: context.s('Reading this page'),
-      children: <Widget>[
-        Text(
-          context.s(
-            'A safety net is anywhere on the phone that holds onto something after '
-            'you have deleted it. Each one behaves differently, so each row says '
-            'what you would actually get back.',
+  static IconData _icon(RecoverySource s) {
+    if (!s.available) return GIcons.lock;
+    return s.fidelity == 'preview' ? GIcons.images : GIcons.checkCircle;
+  }
+
+  static String _quality(BuildContext context, RecoverySource s) {
+    if (!s.available) return context.s('Off limits on this phone');
+    final String quality = s.fidelity == 'preview'
+        ? context.s('Preview only')
+        : context.s('Full quality');
+    final int? days = s.retentionDays;
+    return days == null
+        ? quality
+        : '$quality, ${context.s1('kept {} days', days)}';
+  }
+}
+
+/// A radar: rings, a sweeping beam, and one blip per place. Blips sit closer
+/// to the centre the more they hold, grow with their item count, and flare
+/// as the beam passes. Places the phone keeps closed are hollow.
+class _Radar extends StatefulWidget {
+  const _Radar({required this.sources});
+
+  final List<RecoverySource> sources;
+
+  @override
+  State<_Radar> createState() => _RadarState();
+}
+
+class _RadarState extends State<_Radar> with SingleTickerProviderStateMixin {
+  late final AnimationController _sweep = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 3200),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _sweep.stop();
+    } else if (!_sweep.isAnimating) {
+      _sweep.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _sweep.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    int most = 1;
+    for (final RecoverySource s in widget.sources) {
+      most = math.max(most, s.itemCount);
+    }
+    return SizedBox.square(
+      dimension: 220,
+      child: AnimatedBuilder(
+        animation: _sweep,
+        builder: (BuildContext context, Widget? _) => CustomPaint(
+          painter: _RadarPainter(
+            sources: widget.sources,
+            most: most,
+            angle: _sweep.value * math.pi * 2,
+            ring: g.text.withValues(alpha: 0.12),
+            beam: g.accent,
+            blip: g.accent,
+            closed: g.muted,
           ),
-          style: GType.bodySmall.copyWith(color: t.muted),
         ),
-        const GSheetHeading('The stamps'),
-        GSheetPoint(
-          icon: Icons.check_circle_outline_rounded,
-          tone: t.success,
-          text: context.s(
-            'Full quality means the original file is still here. Restoring '
-            'gives you exactly what you had.',
-          ),
-        ),
-        GSheetPoint(
-          icon: Icons.filter_drama_outlined,
-          tone: t.warning,
-          text: context.s(
-            'Preview only means the original is gone and what survives is '
-            'the small copy Android kept to draw your gallery quickly. It is '
-            'a few hundred pixels wide.',
-          ),
-        ),
-        GSheetPoint(
-          icon: Icons.remove_circle_outline_rounded,
-          tone: t.dim,
-          text: context.s(
-            'Gone means this phone will not let any app look there. The row '
-            'stays visible so you know it was checked and not forgotten.',
-          ),
-        ),
-        const GSheetHeading('The bar'),
-        Text(
-          context.s(
-            'Each row carries a bar showing its size against the largest net. It '
-            'answers which one is worth opening first, which a list of numbers on '
-            'its own does not.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        const GSheetHeading('Why the counts move'),
-        Text(
-          context.s(
-            'These come from a fast count taken when the app opens. A full scan '
-            'walks folders that counting cannot reach, so the numbers usually '
-            'grow after one has run.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-      ],
+      ),
     );
   }
 }
 
-/// The ledger in four numbers.
-class _Facts extends StatelessWidget {
-  const _Facts({
-    required this.reachable,
-    required this.total,
-    required this.items,
-    required this.bytes,
+class _RadarPainter extends CustomPainter {
+  const _RadarPainter({
+    required this.sources,
+    required this.most,
+    required this.angle,
+    required this.ring,
+    required this.beam,
+    required this.blip,
+    required this.closed,
   });
 
-  final int reachable;
-  final int total;
-  final int items;
-  final int bytes;
+  final List<RecoverySource> sources;
+  final int most;
+  final double angle;
+  final Color ring;
+  final Color beam;
+  final Color blip;
+  final Color closed;
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final bool complete = reachable == total;
+  void paint(Canvas canvas, Size size) {
+    final Offset c = size.center(Offset.zero);
+    final double r = size.shortestSide / 2;
 
-    return GCard(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          _Fact(
-            value: '$reachable of $total',
-            label: context.s('nets reachable'),
-            // Amber whenever one is out of reach, because that is the reason a
-            // total on another screen is lower than the user expected.
-            tone: complete ? t.text : t.warning,
-          ),
-          _Fact(
-            value: GFormat.count(items),
-            label: context.s('items held'),
-            tone: t.text,
-          ),
-          _Fact(
-            value: GFormat.bytes(bytes),
-            label: context.s('in total'),
-            tone: t.text,
-          ),
-        ],
-      ),
+    final Paint line = Paint()
+      ..color = ring
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (int i = 1; i <= 3; i++) {
+      canvas.drawCircle(c, r * i / 3, line);
+    }
+
+    // The beam: a fading wedge trailing the sweep line.
+    final Rect box = Rect.fromCircle(center: c, radius: r);
+    canvas.drawArc(
+      box,
+      angle - 0.9,
+      0.9,
+      true,
+      Paint()
+        ..shader = SweepGradient(
+          startAngle: angle - 0.9,
+          endAngle: angle,
+          colors: <Color>[
+            beam.withValues(alpha: 0),
+            beam.withValues(alpha: 0.28),
+          ],
+          transform: GradientRotation(0),
+        ).createShader(box),
     );
+
+    final int n = sources.length;
+    for (int i = 0; i < n; i++) {
+      final RecoverySource s = sources[i];
+      final double a = -math.pi / 2 + math.pi * 2 * i / math.max(n, 1) + 0.4;
+      final double share = s.itemCount / most;
+      // Fuller places sit nearer the centre.
+      final double dist = r * (0.82 - 0.5 * share);
+      final Offset at = c + Offset(math.cos(a), math.sin(a)) * dist;
+      final double dot = 4 + 7 * math.sqrt(share);
+
+      // Flare for a moment after the beam passes.
+      double since = (angle - (a % (math.pi * 2))) % (math.pi * 2);
+      if (since < 0) since += math.pi * 2;
+      final double flare = since < 1.2 ? 1 - since / 1.2 : 0;
+
+      if (!s.available) {
+        canvas.drawCircle(
+          at,
+          dot,
+          Paint()
+            ..color = closed
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5,
+        );
+        continue;
+      }
+      if (flare > 0) {
+        canvas.drawCircle(
+          at,
+          dot + 8 * flare,
+          Paint()..color = blip.withValues(alpha: 0.25 * flare),
+        );
+      }
+      canvas.drawCircle(
+        at,
+        dot,
+        Paint()..color = blip.withValues(alpha: 0.6 + 0.4 * flare),
+      );
+    }
   }
-}
-
-class _Fact extends StatelessWidget {
-  const _Fact({required this.value, required this.label, required this.tone});
-
-  final String value;
-  final String label;
-  final Color tone;
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GType.monoNumber.copyWith(color: tone, fontSize: 18),
-          ),
-          Text(label, style: GType.micro.copyWith(color: t.muted)),
-        ],
-      ),
-    );
-  }
+  bool shouldRepaint(_RadarPainter old) =>
+      old.angle != angle || old.sources != sources || old.beam != beam;
 }

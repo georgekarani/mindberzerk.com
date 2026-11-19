@@ -1,32 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/accent.dart';
-import '../../app/theme/app_theme.dart';
 import '../../app/theme/theme_controller.dart';
-import '../../app/theme/tokens.dart';
 import '../../bridge/apps_api.g.dart';
 import '../../bridge/apps_bridge.dart';
 import '../../bridge/hardware_bridge.dart';
-import '../../bridge/recovery_api.g.dart';
 import '../../core/format.dart';
+import '../../core/i18n/g_strings.dart';
 import '../../ui/art/escape_art.dart';
-import '../../ui/g_button.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_logo_mark.dart';
-import '../../ui/g_sheet.dart';
+import '../device/widgets/device_detail.dart';
+import '../more/settings_pages.dart';
 import '../recovery/state/recovery_providers.dart';
 import 'state/onboarding_providers.dart';
-import '../../core/i18n/g_strings.dart';
 
-/// Two screens. No value proposition carousel.
-///
-/// Screen one is the theme picker, which is a delight moment that costs nothing
-/// and buys the seconds the pre-scan needs. Screen two asks for the one
-/// permission that matters and pays for it immediately with a real count.
-///
-/// The ordering is the whole design: by the time anyone reads the permission
-/// ask, the number in it is already true.
+/// First run in three screens that slide into each other: what the app
+/// does, a look, and the access it needs. The quick scan starts on the
+/// first frame, so the last screen can say how much it already found.
 class OnboardingPage extends ConsumerStatefulWidget {
   const OnboardingPage({super.key});
 
@@ -37,22 +27,14 @@ class OnboardingPage extends ConsumerStatefulWidget {
 class _OnboardingPageState extends ConsumerState<OnboardingPage>
     with WidgetsBindingObserver {
   int _step = 0;
+  static const int _steps = 3;
 
   @override
   void initState() {
     super.initState();
-    // The lifecycle hook exists for one reason: All Files Access is granted on
-    // a SETTINGS screen, in another task. There is no result to await and no
-    // callback. The only moment this app can learn the answer is when it comes
-    // back to the foreground.
     WidgetsBinding.instance.addObserver(this);
-
-    // Kick the pre-scan the moment onboarding mounts, not when the permission
-    // screen appears. Reading the provider rather than watching it starts the
-    // work without rebuilding this widget when it lands.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      ref.read(prescanProvider);
+      if (mounted) ref.read(prescanProvider);
     });
   }
 
@@ -62,35 +44,52 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage>
     super.dispose();
   }
 
+  /// Settings screens return here; re-read what was granted.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) return;
-    ref.invalidate(recoveryAccessProvider);
-    // Usage access is granted the same way and read back the same way: a
-    // settings screen in another task, no result, no callback.
-    ref.invalidate(appsStateProvider);
+    ref
+      ..invalidate(recoveryAccessProvider)
+      ..invalidate(appsStateProvider);
+  }
+
+  void _go(int step) {
+    Haptics.select();
+    setState(() => _step = step);
   }
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-          child: Column(
-            children: <Widget>[
-              _Progress(step: _step, of: 3),
-              Expanded(
-                child: switch (_step) {
-                  0 => _AboutStep(onNext: () => setState(() => _step = 1)),
-                  1 => _ThemeStep(onNext: () => setState(() => _step = 2)),
-                  _ => const _AccessStep(),
-                },
-              ),
-            ],
+    final GDesignTheme g = GDesignTheme.of(context);
+    return PopScope(
+      canPop: _step == 0,
+      onPopInvokedWithResult: (bool didPop, Object? _) {
+        if (!didPop && _step > 0) _go(_step - 1);
+      },
+      child: Material(
+        color: g.ground,
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+            child: Column(
+              children: <Widget>[
+                const SizedBox(height: GDesign.space12),
+                _Dots(step: _step, of: _steps),
+                Expanded(
+                  child: DirectionalSwitcher(
+                    index: _step,
+                    child: KeyedSubtree(
+                      key: ValueKey<int>(_step),
+                      child: switch (_step) {
+                        0 => _Welcome(onNext: () => _go(1)),
+                        1 => _Look(onNext: () => _go(2)),
+                        _ => const _Access(),
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -98,589 +97,309 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage>
   }
 }
 
-/// Three marks, one filled.
-///
-/// Onboarding without a length is a corridor with no end in sight, and the
-/// commonest reason someone abandons one is not knowing how much is left.
-class _Progress extends StatelessWidget {
-  const _Progress({required this.step, required this.of});
+/// Progress as dots; the current one stretches into a pill.
+class _Dots extends StatelessWidget {
+  const _Dots({required this.step, required this.of});
 
   final int step;
   final int of;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Padding(
-      padding: const EdgeInsets.only(top: GSpace.md, bottom: GSpace.sm),
-      child: Row(
-        children: <Widget>[
-          for (int i = 0; i < of; i++)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.only(right: GSpace.sm),
-                child: AnimatedContainer(
-                  duration: GMotion.fast,
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: i <= step ? t.accent : t.panelAlt,
-                    borderRadius: GRadius.all(2),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// What this app is, in one screen, before it asks for anything.
-///
-/// It used to ask for a theme first, which is a question about the app rather
-/// than an answer about it. Nobody knows whether they want to customise
-/// something they have not been told the purpose of.
-class _AboutStep extends StatelessWidget {
-  const _AboutStep({required this.onNext});
-
-  final VoidCallback onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final GDesignTheme g = GDesignTheme.of(context);
+    final Duration d = GDesign.motion(context, GDesign.normal);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        const Spacer(),
-        const EscapeArt(),
-        const SizedBox(height: GSpace.lg),
-        Text(
-          context.s('Deleted is not\nalways gone'),
-          style: GType.display.copyWith(color: t.text),
-        ),
-        const SizedBox(height: GSpace.md),
-        Text(
-          // States the scope up front, because every competitor overstates it
-          // and the first screen is where the difference is worth drawing.
-          context.s(
-            'Your phone keeps deleted files in several places before it lets '
-            'them go. G Recovery finds every one of them and tells you exactly '
-            'what quality you would get back.',
+        for (int i = 0; i < of; i++)
+          AnimatedContainer(
+            duration: d,
+            curve: GDesign.enter,
+            margin: const EdgeInsets.symmetric(horizontal: 3),
+            width: i == step ? 22 : 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: i <= step ? g.accent : g.text.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(4),
+            ),
           ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        const Spacer(),
-        GButton(label: context.s('Get started'), onPressed: onNext),
-        const SizedBox(height: GSpace.xl),
       ],
     );
   }
 }
 
-class _ThemeStep extends ConsumerWidget {
-  const _ThemeStep({required this.onNext});
+/// What the app does, in one line under moving art.
+class _Welcome extends StatelessWidget {
+  const _Welcome({required this.onNext});
+
+  final VoidCallback onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        const Spacer(),
+        const EscapeArt(height: 260),
+        const SizedBox(height: GDesign.space32),
+        Reveal(
+          child: Text(
+            context.s('Deleted is not always gone'),
+            style: g.largeTitle(),
+          ),
+        ),
+        const SizedBox(height: GDesign.space8),
+        Reveal(
+          index: 1,
+          child: Text(
+            context.s('Find it, see it, bring it back'),
+            style: g.body(color: g.muted),
+          ),
+        ),
+        const Spacer(),
+        PrimaryButton(label: context.s('Get started'), onTap: onNext),
+        const SizedBox(height: GDesign.space24),
+      ],
+    );
+  }
+}
+
+/// Light or dark, drawn as two small phones, with the quick scan's status
+/// underneath.
+class _Look extends ConsumerWidget {
+  const _Look({required this.onNext});
 
   final VoidCallback onNext;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final GThemeState theme = ref.watch(gThemeProvider);
+    final GDesignTheme g = GDesignTheme.of(context);
+    final ThemeMode mode = ref.watch(gThemeProvider).mode;
     final GThemeController controller = ref.read(gThemeProvider.notifier);
-    final AsyncValue<RecoverySummary?> prescan = ref.watch(prescanProvider);
+    final bool checked = ref.watch(prescanProvider).hasValue;
+    final Brightness shown = mode == ThemeMode.system
+        ? MediaQuery.platformBrightnessOf(context)
+        : (mode == ThemeMode.dark ? Brightness.dark : Brightness.light);
+
+    void pick(ThemeMode next) {
+      Haptics.select();
+      controller.setMode(next);
+    }
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SizedBox(height: GSpace.xl),
+        const SizedBox(height: GDesign.space48),
+        Text(context.s('Pick a look'), style: g.largeTitle()),
+        const SizedBox(height: GDesign.space8),
+        Text(
+          context.s('Change it any time in Settings'),
+          style: g.body(color: g.muted),
+        ),
+        const Spacer(),
         Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: <Widget>[
-            const GLogoMark(size: 40),
-            const SizedBox(width: GSpace.md),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  context.s('G Recovery'),
-                  style: GType.heading.copyWith(color: t.text),
-                ),
-                Text(
-                  context.s('Make it yours'),
-                  style: GType.micro.copyWith(color: t.muted),
-                ),
-              ],
+            Reveal(
+              child: ModeChoice(
+                label: context.s('Light'),
+                dark: false,
+                selected: shown == Brightness.light,
+                onTap: () => pick(ThemeMode.light),
+              ),
+            ),
+            Reveal(
+              index: 1,
+              child: ModeChoice(
+                label: context.s('Dark'),
+                dark: true,
+                selected: shown == Brightness.dark,
+                onTap: () => pick(ThemeMode.dark),
+              ),
             ),
           ],
         ),
-        const SizedBox(height: GSpace.xl),
-        Text(
-          context.s('Pick a look'),
-          style: GType.display.copyWith(color: t.text),
-        ),
-        const SizedBox(height: GSpace.sm),
-        Text(
-          context.s('You can change this any time from settings.'),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        const SizedBox(height: GSpace.lg),
-        Row(
+        const SizedBox(height: GDesign.space24),
+        GroupedSection(
           children: <Widget>[
-            for (final ThemeMode mode in ThemeMode.values)
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.only(right: GSpace.sm),
-                  child: _ModeSwatch(
-                    mode: mode,
-                    selected: theme.mode == mode,
-                    onTap: () => controller.setMode(mode),
-                  ),
+            ListRow(
+              title: context.s('Match the phone'),
+              trailing: ToggleSwitch(
+                value: mode == ThemeMode.system,
+                semanticLabel: context.s('Match the phone'),
+                onChanged: (bool on) => pick(
+                  on
+                      ? ThemeMode.system
+                      : (shown == Brightness.dark
+                            ? ThemeMode.dark
+                            : ThemeMode.light),
                 ),
               ),
-          ],
-        ),
-        const SizedBox(height: GSpace.xl),
-        Text(context.s('Accent'), style: GType.overline.copyWith(color: t.dim)),
-        const SizedBox(height: GSpace.md),
-        Row(
-          children: <Widget>[
-            for (final GAccent accent in gAccentOrder)
-              Expanded(
-                child: GestureDetector(
-                  onTap: () => controller.setAccent(accent),
-                  behavior: HitTestBehavior.opaque,
-                  child: Center(
-                    child: AnimatedContainer(
-                      duration: GMotion.fast,
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: accent.base,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: theme.accent == accent
-                              ? t.text
-                              : const Color(0x00000000),
-                          width: 2,
-                        ),
-                      ),
-                      child: theme.accent == accent
-                          ? Icon(
-                              Icons.check_rounded,
-                              size: 18,
-                              color: t.onAccent,
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-              ),
+            ),
           ],
         ),
         const Spacer(),
-        // The pre-scan status, shown honestly. It is not a fake progress bar:
-        // either it is still counting or it has a number.
-        GCard(
-          child: Row(
-            children: <Widget>[
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: prescan.hasValue
-                    ? Icon(Icons.check_rounded, size: 18, color: t.success)
-                    : CircularProgressIndicator(strokeWidth: 2, color: t.dim),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            if (checked)
+              Icon(GIcons.checkCircle, size: 16, color: g.accentText)
+            else
+              const SizedBox.square(
+                dimension: 14,
+                child: CircularProgressIndicator(strokeWidth: 2),
               ),
-              const SizedBox(width: GSpace.md),
-              Expanded(
-                child: Text(
-                  prescan.hasValue
-                      ? 'Checked your device'
-                      : 'Checking your device',
-                  style: GType.bodySmall.copyWith(color: t.muted),
-                ),
-              ),
-            ],
-          ),
+            const SizedBox(width: GDesign.space8),
+            Text(
+              checked
+                  ? context.s('Your phone is checked')
+                  : context.s('Checking your phone'),
+              style: g.footnote(),
+            ),
+          ],
         ),
-        const SizedBox(height: GSpace.lg),
-        GButton(label: context.s('Continue'), onPressed: onNext),
-        const SizedBox(height: GSpace.xl),
+        const SizedBox(height: GDesign.space16),
+        PrimaryButton(label: context.s('Continue'), onTap: onNext),
+        const SizedBox(height: GDesign.space24),
       ],
     );
   }
 }
 
-class _ModeSwatch extends StatelessWidget {
-  const _ModeSwatch({
-    required this.mode,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final ThemeMode mode;
-  final bool selected;
-  final VoidCallback onTap;
+/// The access the app works best with, as switches, and the count the quick
+/// scan found as the headline.
+class _Access extends ConsumerStatefulWidget {
+  const _Access();
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final String label = switch (mode) {
-      ThemeMode.system => 'Auto',
-      ThemeMode.light => 'Light',
-      ThemeMode.dark => 'Dark',
-    };
-    // Each swatch previews its own mode's surfaces rather than the current
-    // theme's, so the choice is visible before it is made.
-    final GTokens preview = switch (mode) {
-      ThemeMode.light => GTokens.light(t.accentKey),
-      _ => GTokens.dark(t.accentKey),
-    };
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: GMotion.fast,
-        height: 104,
-        padding: const EdgeInsets.all(11),
-        decoration: BoxDecoration(
-          color: preview.ink,
-          borderRadius: GRadius.all(GRadius.card),
-          border: Border.all(
-            color: selected ? t.accent : t.lineStrong,
-            width: selected ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Container(height: 7, width: 46, color: preview.lineStrong),
-            const SizedBox(height: 6),
-            Container(height: 7, width: 30, color: preview.line),
-            const SizedBox(height: 11),
-            Row(
-              children: <Widget>[
-                Expanded(child: Container(height: 26, color: preview.panelAlt)),
-                const SizedBox(width: 5),
-                Expanded(child: Container(height: 26, color: preview.panelAlt)),
-              ],
-            ),
-            const Spacer(),
-            Text(
-              label,
-              style: GType.monoSmall.copyWith(
-                color: selected ? t.accentText : preview.muted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  ConsumerState<_Access> createState() => _AccessState();
 }
 
-class _AccessStep extends ConsumerStatefulWidget {
-  const _AccessStep();
-
-  @override
-  ConsumerState<_AccessStep> createState() => _AccessStepState();
-}
-
-class _AccessStepState extends ConsumerState<_AccessStep> {
-  /// True once the user has been sent to the settings screen at least once.
-  ///
-  /// The skip only appears after that. Offering a way out beside the very first
-  /// ask trains people to take it, and offering none at all traps anyone who has
-  /// decided no. Showing it on the second look is the honest middle.
+class _AccessState extends ConsumerState<_Access> {
+  /// Set once the user has been sent to a settings screen, which is when
+  /// "Continue without it" becomes fair to offer.
   bool _asked = false;
 
+  Future<void> _ask(Future<Object?> Function() request) async {
+    await request();
+    if (mounted) setState(() => _asked = true);
+  }
+
+  Future<void> _finish() async {
+    await ref.read(recoveryBridgeProvider).startBackgroundScan();
+    ref.read(onboardingDoneProvider.notifier).complete();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final RecoveryAccess? access = ref.watch(recoveryAccessProvider).value;
+    final GDesignTheme g = GDesignTheme.of(context);
+    final bool files =
+        ref.watch(recoveryAccessProvider).value?.allFilesAccess ?? false;
     final AppsState? apps = ref.watch(appsStateProvider).value;
-    final bool granted = access?.allFilesAccess ?? false;
-    final RecoverySummary? summary = ref.watch(prescanProvider).value;
-    final int found = summary?.deletedItems ?? 0;
+    final bool sizes = apps?.usageAccess ?? false;
+    final int found = ref.watch(prescanProvider).value?.deletedItems ?? 0;
+
+    void explain(String title, String text) =>
+        showDeviceNote(context, title, <String>[text]);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SizedBox(height: GSpace.lg),
+        const SizedBox(height: GDesign.space48),
+        if (found > 0)
+          CountUpText(
+            value: found,
+            format: (num v) =>
+                context.s1('{} files can come back', GFormat.count(v.round())),
+            style: g.figures(g.largeTitle()),
+          )
+        else
+          Text(context.s('Let it look everywhere'), style: g.largeTitle()),
+        const SizedBox(height: GDesign.space8),
         Text(
-          // A real count converts and a description does not. When it is zero
-          // the copy changes rather than printing a nought, because "We found 0
-          // files" is the worst first impression this app could make and it is
-          // also untrue: nothing has been looked at yet.
-          found > 0
-              ? 'We found ${GFormat.count(found)} files\nyou can bring back'
-              : 'Let us look through\nyour whole phone',
-          style: GType.display.copyWith(color: t.text),
+          context.s('All optional, all changeable later'),
+          style: g.body(color: g.muted),
         ),
-        const SizedBox(height: GSpace.md),
-        Text(
-          // ─── ONE SENTENCE, AND THE REST BEHIND AN ICON ────────────────────
-          //
-          // This screen was four paragraphs of reasoning stacked above four
-          // more inside the rows. All of it true, none of it read: a permission
-          // screen is skimmed for what it wants and whether it can be skipped,
-          // and burying both under an argument makes people tap the first
-          // button to make the wall go away.
-          //
-          // The reasoning has not been deleted. It moved to a sheet, where it
-          // is available to anyone who wants it and invisible to everyone else.
-          context.s(
-            'All of it is optional and all of it can be changed later.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        const SizedBox(height: GSpace.lg),
-
-        _Grant(
-          label: context.s('All files access'),
-          detail: granted ? 'On' : 'Recommended',
-          info:
-              'Android only shows an app the files it deleted itself. '
-              'Without this, everything your other apps left behind stays '
-              'invisible: trash folders, app leftovers and the thumbnail '
-              'cache.',
-          without:
-              'Counts are a floor rather than a total, and most of what '
-              'this phone could recover is never seen.',
-          on: granted,
-          onTap: granted
-              ? null
-              : () async {
-                  await ref
-                      .read(recoveryBridgeProvider)
-                      .requestAllFilesAccess();
-                  if (mounted) setState(() => _asked = true);
-                },
-        ),
-        const SizedBox(height: GSpace.sm + 1),
-        // Third, and last, because it is the only one that is genuinely
-        // optional. File access decides whether recovery works at all; this
-        // decides whether one screen in Storage can answer.
-        _Grant(
-          label: context.s('App sizes'),
-          detail: (apps?.usageAccess ?? false) ? 'On' : 'Optional',
-          info:
-              'Lets the Storage tab show what each app is taking and how '
-              'much of that is cache. It reads sizes only, never what you do '
-              'in them.',
-          without:
-              'The Apps list shows names without sizes. Nothing else '
-              'changes.',
-          on: apps?.usageAccess ?? false,
-          onTap: (apps?.usageAccess ?? false)
-              ? null
-              : () async {
-                  await ref.read(appsBridgeProvider).requestUsageAccess();
-                  if (mounted) setState(() => _asked = true);
-                },
-        ),
-        const SizedBox(height: GSpace.sm + 1),
-        // OPTIONAL, and grouped after the two that are not.
-        //
-        // File access decides whether recovery works at all and app sizes
-        // decide whether one screen can answer. These two unlock rows on a
-        // detail page, so they are offered here and asked for again on the page
-        // itself if skipped.
-        _Grant(
-          label: context.s('Wi-Fi details'),
-          detail: 'Optional',
-          info:
-              'Android treats the network name and MAC address as location '
-              'data, so any app that shows them has to ask for location. This '
-              'app never reads where you are.',
-          without:
-              'The Wi-Fi page shows the connection without naming the '
-              'network.',
-          on: false,
-          onTap: () async {
-            await ref.read(hardwareBridgeProvider).requestLocation();
-            if (mounted) setState(() => _asked = true);
-          },
-        ),
-        const SizedBox(height: GSpace.sm + 1),
-        _Grant(
-          label: context.s('Notifications'),
-          // Not a toggle. Nothing in this app can read whether notifications
-          // are granted without a new native call, and a switch that shows a
-          // state it cannot verify is worse than a sentence that admits it.
-          detail: 'Asked later',
-          info:
-              'Asked for when the first scan starts, so a scan or a video '
-              'encode can report progress while you are looking at something '
-              'else.',
-          without:
-              'Long jobs still run. You just have to come back to the app '
-              'to see how far they have got.',
-          on: null,
-          onTap: null,
-        ),
-
         const Spacer(),
-
-        GButton(
-          label: granted ? 'Scan my phone' : 'Allow file access',
-          onPressed: () async {
-            if (!granted) {
-              // Stays on this screen. The settings screen is a separate task
-              // with no result to await, and the lifecycle observer upstairs
-              // re-reads the grant on resume, so the toggle flips by itself and
-              // the button changes with it.
-              await ref.read(recoveryBridgeProvider).requestAllFilesAccess();
-              if (mounted) setState(() => _asked = true);
-              return;
-            }
-            await ref.read(recoveryBridgeProvider).startBackgroundScan();
-            ref.read(onboardingDoneProvider.notifier).complete();
-          },
-        ),
-
-        SizedBox(height: _asked && !granted ? GSpace.md : 0),
-        if (_asked && !granted)
-          GestureDetector(
-            onTap: () async {
-              // Still scans. Without the grant it reaches the thumbnail cache
-              // and nothing else, which is a thin app rather than a broken one,
-              // and it is better than a home screen of zeroes.
-              await ref.read(recoveryBridgeProvider).startBackgroundScan();
-              ref.read(onboardingDoneProvider.notifier).complete();
-            },
-            behavior: HitTestBehavior.opaque,
-            child: SizedBox(
-              width: double.infinity,
-              child: Text(
-                context.s('Continue without it'),
-                textAlign: TextAlign.center,
-                style: GType.bodySmall.copyWith(color: t.dim),
-              ),
-            ),
-          ),
-        const SizedBox(height: GSpace.xl),
-      ],
-    );
-  }
-}
-
-/// One permission: a name, a word, a switch, and an icon for the rest.
-///
-/// ─── THE EXPLANATION IS ONE TAP AWAY, NOT IN THE WAY ─────────────────────────
-///
-/// Four rows each carrying two sentences turned this screen into a wall, and a
-/// wall is skimmed rather than read. What somebody needs at a glance is which
-/// permission this is and whether they have to give it; what it does and what
-/// declining costs are real questions, and they belong where a real question is
-/// asked rather than in front of everyone who did not ask it.
-class _Grant extends StatelessWidget {
-  const _Grant({
-    required this.label,
-    required this.detail,
-    required this.on,
-    required this.onTap,
-    this.info,
-    this.without,
-  });
-
-  final String label;
-
-  /// One word. "On", "Recommended", "Optional", "Asked later".
-  final String detail;
-
-  /// What it does, in the sheet.
-  final String? info;
-
-  /// What is lost by declining, in the sheet.
-  ///
-  /// Kept separate from [info] because it is the half people actually want and
-  /// the half most apps leave out. A recommendation nobody can price is a
-  /// demand with better manners.
-  final String? without;
-
-  /// Null where the state cannot be read. The row then carries no switch at
-  /// all rather than a switch that is guessing.
-  final bool? on;
-
-  final VoidCallback? onTap;
-
-  void _explain(BuildContext context) {
-    final GTokens t = context.g;
-    showGSheet(
-      context: context,
-      title: label,
-      children: <Widget>[
-        if (info != null)
-          GSheetPoint(
-            icon: Icons.check_circle_outline_rounded,
-            tone: t.accent,
-            text: info!,
-          ),
-        if (without != null)
-          GSheetPoint(
-            icon: Icons.block_rounded,
-            text: 'Without it: ${without!}',
-          ),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return GCard(
-      onTap: onTap,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(label, style: GType.heading.copyWith(color: t.text)),
-                const SizedBox(height: 2),
-                Text(detail, style: GType.micro.copyWith(color: t.muted)),
-              ],
-            ),
-          ),
-          if (info != null) ...<Widget>[
-            const SizedBox(width: GSpace.sm),
-            GestureDetector(
-              onTap: () => _explain(context),
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.all(GSpace.xs),
-                child: Icon(Icons.info_outline_rounded, size: 17, color: t.dim),
-              ),
-            ),
-          ],
-          const SizedBox(width: GSpace.sm),
-          if (on != null)
-            AnimatedContainer(
-              duration: GMotion.fast,
-              width: 44,
-              height: 26,
-              padding: const EdgeInsets.all(3),
-              alignment: on! ? Alignment.centerRight : Alignment.centerLeft,
-              decoration: BoxDecoration(
-                color: on! ? t.accent : t.panelAlt,
-                borderRadius: GRadius.all(GRadius.chip),
-              ),
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: on! ? t.onAccent : t.dim,
-                  shape: BoxShape.circle,
+        GroupedSection(
+          children: <Widget>[
+            ListRow(
+              icon: GIcons.folderOpen,
+              title: context.s('All files'),
+              subtitle: context.s('Finds what other apps deleted'),
+              onTap: () => explain(
+                context.s('All files'),
+                context.s(
+                  'Android only shows an app the files it deleted itself. '
+                  'This lets G Recovery see trash folders, app leftovers and '
+                  'the thumbnail cache, where most deleted files are.',
                 ),
               ),
-            )
-          else
-            Icon(Icons.schedule_rounded, size: 18, color: t.dim),
-        ],
-      ),
+              trailing: ToggleSwitch(
+                value: files,
+                semanticLabel: context.s('All files'),
+                onChanged: files
+                    ? null
+                    : (_) => _ask(
+                        ref.read(recoveryBridgeProvider).requestAllFilesAccess,
+                      ),
+              ),
+            ),
+            ListRow(
+              icon: GIcons.grid,
+              title: context.s('App sizes'),
+              subtitle: context.s('Shows what each app takes'),
+              onTap: () => explain(
+                context.s('App sizes'),
+                context.s(
+                  'Usage access lets the Apps list show sizes and cache. It '
+                  'reads sizes, never what you do in apps.',
+                ),
+              ),
+              trailing: ToggleSwitch(
+                value: sizes,
+                semanticLabel: context.s('App sizes'),
+                onChanged: sizes
+                    ? null
+                    : (_) =>
+                          _ask(ref.read(appsBridgeProvider).requestUsageAccess),
+              ),
+            ),
+            ListRow(
+              icon: GIcons.wifi,
+              title: context.s('Wi-Fi name'),
+              subtitle: context.s('Android files it under location'),
+              onTap: () =>
+                  _ask(ref.read(hardwareBridgeProvider).requestLocation),
+            ),
+          ],
+        ),
+        const Spacer(),
+        PrimaryButton(
+          label: files
+              ? context.s('Scan my phone')
+              : context.s('Allow all files'),
+          onTap: files
+              ? _finish
+              : () => _ask(
+                  ref.read(recoveryBridgeProvider).requestAllFilesAccess,
+                ),
+        ),
+        AnimatedSize(
+          duration: GDesign.motion(context, GDesign.normal),
+          child: _asked && !files
+              ? Padding(
+                  padding: const EdgeInsets.only(top: GDesign.space8),
+                  child: SecondaryButton(
+                    label: context.s('Continue without it'),
+                    onTap: _finish,
+                  ),
+                )
+              : const SizedBox(width: double.infinity),
+        ),
+        const SizedBox(height: GDesign.space24),
+      ],
     );
   }
 }

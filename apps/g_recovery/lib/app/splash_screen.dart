@@ -1,34 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
+import 'package:g_design/g_design.dart';
 
-import '../app/theme/tokens.dart';
-import '../core/i18n/g_strings.dart';
-
-/// THE FIRST TWO SECONDS.
+/// The first second: the app mark, picked up where Android's own launch
+/// screen left it, with a scan ring sweeping once around it before the mark
+/// lifts away into the app.
 ///
-/// ─── WHY LOTTIE HERE AND NOWHERE ELSE ────────────────────────────────────────
-///
-/// Every other animation in this app is drawn in code, because code recolours
-/// with the accent for free and costs no dependency. The splash is the one place
-/// that trade flips: it plays once, it is the first impression, and the hand
-/// animated timing in this file is better than anything a CustomPainter would
-/// produce for the same effort.
-///
-/// The file is 8 KB and pure vector, with no embedded bitmaps, which is why it
-/// can be recoloured at all. The other Lottie in the folder had four image
-/// assets and could not follow the theme.
-///
-/// ─── IT FOLLOWS THE ACCENT ───────────────────────────────────────────────────
-///
-/// The artwork ships red. Every fill is replaced through a value delegate, so a
-/// user on the mint accent sees a mint animation rather than a red one that
-/// matches nothing else on their phone.
-///
-/// ─── IT NEVER BLOCKS ─────────────────────────────────────────────────────────
-///
-/// [onDone] fires when the animation finishes OR when the timeout expires,
-/// whichever comes first. A splash that waits on a decode is a splash that hangs
-/// on the one phone where the decode is slow.
+/// Drawn in code so it follows the accent and the light or dark ground with
+/// no asset to recolour. [onDone] fires when the sweep ends or after a hard
+/// stop, whichever comes first, so a slow phone never waits on the splash.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({required this.onDone, super.key});
 
@@ -40,27 +21,37 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  // Constructed here, never as a late final with an initialiser. The lazy form
-  // can run its initialiser from inside dispose, where createTicker reads
-  // TickerMode off a deactivated element.
-  late final AnimationController _controller;
-
+  late final AnimationController _run;
   bool _finished = false;
+
+  /// Size of the mark, close to where Android's launch icon sits.
+  static const double _mark = 96;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this);
+    _run = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1300),
+    );
+    // The hard stop, in case the ticker is held (a screen off mid launch).
+    Future<void>.delayed(const Duration(milliseconds: 2000), _finish);
+  }
 
-    // The hard stop. Two and a half seconds is longer than the animation and
-    // shorter than a person's patience, and it fires even if the asset fails to
-    // load at all.
-    Future<void>.delayed(const Duration(milliseconds: 2500), _finish);
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_run.isAnimating || _run.isCompleted) return;
+    if (MediaQuery.disableAnimationsOf(context)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _finish());
+      return;
+    }
+    _run.forward().whenComplete(_finish);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _run.dispose();
     super.dispose();
   }
 
@@ -72,57 +63,117 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            SizedBox(
-              width: 250,
-              height: 120,
-              child: Lottie.asset(
-                'assets/lottie/delete_bubble.json',
-                controller: _controller,
-                onLoaded: (LottieComposition composition) {
-                  _controller
-                    ..duration = composition.duration
-                    ..forward().whenComplete(_finish);
-                },
-                // Failing to draw a splash must never fail to start the app.
-                errorBuilder:
-                    (BuildContext context, Object error, StackTrace? s) {
-                      _finish();
-                      return const SizedBox.shrink();
-                    },
-                // ONE delegate, not two.
-                //
-                // The first version set both a colour and a colour filter over
-                // '**'. The filter repaints the whole composition in one flat
-                // tone, which erases the shading the animation depends on and
-                // leaves a moving blob. The colour delegate alone replaces each
-                // fill and keeps the artwork's own structure.
-                delegates: LottieDelegates(
-                  values: <ValueDelegate<dynamic>>[
-                    // '**' matches every layer and shape, so this covers the
-                    // shape fill and the solid layers without needing the
-                    // artwork's internal names, which would break the moment
-                    // the file is re-exported.
-                    ValueDelegate.color(const <String>['**'], value: t.accent),
-                  ],
+    // Three beats on one clock: the ring sweeps, a halo breathes out from
+    // it, then the mark lifts and fades as the app arrives underneath.
+    final Animation<double> sweep = CurvedAnimation(
+      parent: _run,
+      curve: const Interval(0.05, 0.6, curve: Curves.easeInOutCubic),
+    );
+    final Animation<double> halo = CurvedAnimation(
+      parent: _run,
+      curve: const Interval(0.5, 0.85, curve: Curves.easeOut),
+    );
+    final Animation<double> lift = CurvedAnimation(
+      parent: _run,
+      curve: const Interval(0.78, 1, curve: Curves.easeInCubic),
+    );
+
+    return ColoredBox(
+      color: g.ground,
+      child: Center(
+        child: AnimatedBuilder(
+          animation: _run,
+          builder: (BuildContext context, Widget? mark) => Opacity(
+            opacity: 1 - lift.value,
+            child: Transform.scale(
+              scale: 1 + 0.12 * lift.value,
+              child: SizedBox.square(
+                dimension: _mark * 2,
+                child: CustomPaint(
+                  painter: _ScanRing(
+                    sweep: sweep.value,
+                    halo: halo.value,
+                    ink: g.accent,
+                    track: g.text.withValues(alpha: 0.08),
+                  ),
+                  child: Center(child: mark),
                 ),
               ),
             ),
-            const SizedBox(height: GSpace.lg),
-            Text(
-              context.s('G Recovery'),
-              style: GType.title.copyWith(color: t.text),
+          ),
+          child: Semantics(
+            label: 'G Recovery',
+            image: true,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(_mark * 0.24),
+              child: Image.asset(
+                'assets/icons/g_recovery.png',
+                width: _mark,
+                height: _mark,
+                filterQuality: FilterQuality.medium,
+                errorBuilder: (_, _, _) =>
+                    const SizedBox.square(dimension: _mark),
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
   }
+}
+
+/// A thin track around the mark, an accent arc sweeping once round it, and
+/// a fading halo that rings out when the sweep closes.
+class _ScanRing extends CustomPainter {
+  _ScanRing({
+    required this.sweep,
+    required this.halo,
+    required this.ink,
+    required this.track,
+  });
+
+  final double sweep;
+  final double halo;
+  final Color ink;
+  final Color track;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Offset c = size.center(Offset.zero);
+    final double r = size.shortestSide * 0.36;
+    final Paint line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeWidth = 3;
+
+    canvas.drawCircle(c, r, line..color = track);
+    if (sweep > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: c, radius: r),
+        -math.pi / 2,
+        math.pi * 2 * sweep,
+        false,
+        line..color = ink,
+      );
+    }
+    if (halo > 0 && halo < 1) {
+      canvas.drawCircle(
+        c,
+        r + size.shortestSide * 0.14 * halo,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = ink.withValues(alpha: 0.5 * (1 - halo)),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ScanRing old) =>
+      old.sweep != sweep ||
+      old.halo != halo ||
+      old.ink != ink ||
+      old.track != track;
 }

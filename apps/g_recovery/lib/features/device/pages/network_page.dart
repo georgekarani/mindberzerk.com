@@ -1,28 +1,23 @@
-import 'package:device_probe/device_probe.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
 import '../../../bridge/hardware_api.g.dart';
 import '../../../bridge/hardware_bridge.dart';
 import '../../../core/format.dart';
-import '../../../ui/g_detail_page.dart';
-import '../../../ui/g_stat.dart';
+import '../../../core/i18n/g_strings.dart';
 import '../device_format.dart';
 import '../state/device_providers.dart';
-import '../../../core/i18n/g_strings.dart';
+import '../widgets/device_detail.dart';
+import '../widgets/live_visuals.dart';
 
-/// WHAT THE RADIO IS DOING.
-///
-/// ─── THE ONLY LIVE THING ON THE PAGE IS THE CHART ────────────────────────────
-///
-/// Everything else here is a fact that changes when you join a different
-/// network. The throughput line is the reason to open it, so it sits at the top
-/// and it is the one element that moves.
+/// The connection: Wi-Fi arcs lit to the signal, live down and up speeds
+/// over the last minute, then the link and the addresses.
 class NetworkPage extends ConsumerWidget {
   const NetworkPage({required this.hue, super.key});
 
+  /// Kept so existing call sites compile; the page uses the one accent.
   final Color hue;
 
   static Route<void> route({required Color hue}) => MaterialPageRoute<void>(
@@ -31,199 +26,175 @@ class NetworkPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final NetworkInfo? net = ref.watch(networkProvider).value;
     final WifiInfo? wifi = ref.watch(wifiProvider).value;
-
-    // Subscribed here so the poll runs while this page lives and stops with it.
     ref.watch(throughputProvider);
     final List<ThroughputSample> history = ref.watch(throughputHistoryProvider);
     final ThroughputSample? now = history.isEmpty ? null : history.last;
-
-    final ProbeTick? tick = ref.watch(deviceTickProvider).value;
     final String? sinceBoot = DeviceFormat.uptime(
-      tick?.current.elapsedRealtimeMillis,
+      ref.watch(deviceTickProvider).value?.current.elapsedRealtimeMillis,
     );
+    final bool onWifi = wifi != null && wifi.connected;
 
-    return GDetailPage(
-      hue: hue,
-      icon: Icons.wifi_rounded,
+    return DeviceDetail(
       title: context.s('Network'),
-      subtitle: _caption(net, wifi),
-      children: <Widget>[
-        GChartCard(
-          header: Row(
+      hero: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
             children: <Widget>[
-              _Rate(value: now?.rxBytesPerSecond ?? 0, label: 'down', hue: hue),
-              const SizedBox(width: GSpace.lg),
-              _Rate(
-                value: now?.txBytesPerSecond ?? 0,
-                label: 'up',
-                hue: t.photo,
+              WifiArcs(
+                // The measured signal when Android shares it; otherwise full
+                // arcs simply mean "on Wi-Fi", and grey means not.
+                signal: onWifi && wifi.signalPercent != null
+                    ? wifi.signalPercent! / 100
+                    : (net?.type == 'wifi' ? 1 : null),
+              ),
+              const SizedBox(width: GDesign.space16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      onWifi
+                          ? (wifi.ssid ?? 'Wi-Fi')
+                          : _typeName(context, net?.type),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: g.headline(),
+                    ),
+                    Text(
+                      <String>[
+                        if (onWifi && wifi.standard != null) wifi.standard!,
+                        if (onWifi && wifi.signalPercent != null)
+                          context.s1('{}% signal', wifi.signalPercent!),
+                      ].join(', '),
+                      style: g.footnote(),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-          axis: history.length < 2
-              ? const <String>[]
-              : const <String>['60s ago', 'now'],
-          child: SizedBox(
-            height: 110,
+          const SizedBox(height: GDesign.space16),
+          HeroFigures(
+            figures: <(String?, String)>[
+              (
+                '${GFormat.bytes(now?.rxBytesPerSecond ?? 0)}/s',
+                context.s('Down'),
+              ),
+              (
+                '${GFormat.bytes(now?.txBytesPerSecond ?? 0)}/s',
+                context.s('Up'),
+              ),
+            ],
+          ),
+          const SizedBox(height: GDesign.space12),
+          SizedBox(
+            height: 96,
             child: history.length < 2
                 ? Center(
-                    child: Text(
-                      context.s('Measuring'),
-                      style: GType.monoSmall.copyWith(color: t.dim),
-                    ),
+                    child: Text(context.s('Measuring'), style: g.footnote()),
                   )
                 : LineChart(
-                    _throughput(history, t, hue),
-                    // The line grows into place on first paint and eases
-                    // between every reading after it, which is what makes a
-                    // once a second poll read as a live trace rather than a
-                    // chart that jumps.
+                    _chart(history, g),
                     duration: const Duration(milliseconds: 320),
                     curve: Curves.easeOutCubic,
                   ),
           ),
-        ),
-
-        if (now != null && now.rxBytesTotal + now.txBytesTotal > 0) ...<Widget>[
-          const SizedBox(height: GSpace.lg),
-          const GOverline('This session'),
-          const SizedBox(height: GSpace.sm + 1),
-          GSpecCard(
-            rows: <(String, String?)>[
-              ('Received', GFormat.bytes(now.rxBytesTotal)),
-              ('Sent', GFormat.bytes(now.txBytesTotal)),
-              ('Since', sinceBoot == null ? null : 'boot, $sinceBoot'),
+        ],
+      ),
+      sections: <Widget>[
+        if (wifi != null && !wifi.hasLocationPermission)
+          GroupedSection(
+            children: <Widget>[
+              ListRow(
+                icon: GIcons.lock,
+                title: context.s('Show the network name'),
+                subtitle: context.s('Needs location access'),
+                onTap: () async {
+                  await ref.read(hardwareBridgeProvider).requestLocation();
+                  ref.invalidate(wifiProvider);
+                },
+              ),
             ],
           ),
-        ],
-
-        if (wifi != null && wifi.connected) ...<Widget>[
-          const SizedBox(height: GSpace.lg),
-          const GOverline('Link'),
-          const SizedBox(height: GSpace.sm + 1),
-          GSpecCard(
+        if (onWifi)
+          FactSection(
+            header: context.s('Link'),
             rows: <(String, String?)>[
-              ('Network', wifi.ssid),
-              ('Standard', wifi.standard),
-              ('Security', wifi.security),
+              (context.s('Security'), wifi.security),
               (
-                'Link speed',
+                context.s('Link speed'),
                 wifi.linkSpeedMbps == null
                     ? null
                     : '${wifi.linkSpeedMbps} Mbps',
               ),
               (
-                'Receiving at',
-                wifi.rxLinkSpeedMbps == null
-                    ? null
-                    : '${wifi.rxLinkSpeedMbps} Mbps',
+                context.s('Band'),
+                wifi.frequencyMhz == null ? null : _band(wifi.frequencyMhz!),
               ),
-              (
-                'Frequency',
-                wifi.frequencyMhz == null ? null : '${wifi.frequencyMhz} MHz',
-              ),
-              (
-                'Signal',
-                wifi.signalPercent == null ? null : '${wifi.signalPercent}%',
-              ),
-              ('MAC address', wifi.macAddress),
+              (context.s('MAC address'), wifi.macAddress),
             ],
           ),
-
-          // ONE line, only when a permission is actually the reason.
-          //
-          // Not a general disclaimer: hasLocationPermission distinguishes
-          // "Android will not tell us" from "the radio is off", which look
-          // identical from a null.
-          if (!wifi.hasLocationPermission) ...<Widget>[
-            const SizedBox(height: GSpace.sm + 1),
-            GMissNote(
-              text: context.s('Network name and MAC need location access'),
-              onTap: () async {
-                await ref.read(hardwareBridgeProvider).requestLocation();
-                ref.invalidate(wifiProvider);
-              },
-            ),
-          ],
-        ],
-
-        if (net != null) ...<Widget>[
-          const SizedBox(height: GSpace.lg),
-          const GOverline('Connection'),
-          const SizedBox(height: GSpace.sm + 1),
-          GSpecCard(
+        if (net != null)
+          FactSection(
+            header: context.s('Connection'),
             rows: <(String, String?)>[
-              ('Type', _typeName(net.type)),
-              ('Internet', net.connected ? 'Reachable' : 'No'),
-              ('Metered', net.metered ? 'Yes' : 'No'),
-              ('Local IP', net.ipv4),
+              (
+                context.s('Internet'),
+                net.connected ? context.s('Yes') : context.s('No'),
+              ),
+              (
+                context.s('Metered'),
+                net.metered ? context.s('Yes') : context.s('No'),
+              ),
+              (context.s('Local address'), net.ipv4),
               ('IPv6', net.ipv6),
             ],
           ),
-        ],
-
-        if (wifi != null) ...<Widget>[
-          const SizedBox(height: GSpace.lg),
-          const GOverline('Bands'),
-          const SizedBox(height: GSpace.sm + 1),
-          GFlagCard(
+        if (now != null && now.rxBytesTotal + now.txBytesTotal > 0)
+          FactSection(
+            header: sinceBoot == null
+                ? context.s('Since start up')
+                : context.s1('Since start up, {}', sinceBoot),
+            rows: <(String, String?)>[
+              (context.s('Received'), GFormat.bytes(now.rxBytesTotal)),
+              (context.s('Sent'), GFormat.bytes(now.txBytesTotal)),
+            ],
+          ),
+        if (wifi != null)
+          FlagSection(
+            header: context.s('Wi-Fi bands'),
             flags: <(String, bool)>[
+              ('2.4 GHz', true),
               ('5 GHz', wifi.supports5Ghz),
               ('6 GHz', wifi.supports6Ghz),
             ],
           ),
-        ],
       ],
     );
   }
 
-  /// Type, and the Wi-Fi standard where there is one. Two facts on the line
-  /// that a person checks to be sure they are looking at the right radio.
-  static String? _caption(NetworkInfo? net, WifiInfo? wifi) {
-    if (net == null) return null;
-    final String type = _typeName(net.type);
-    final String? standard = (wifi != null && wifi.connected)
-        ? wifi.standard
-        : null;
-    return standard == null ? type : '$type  ·  $standard';
-  }
-
-  static String _typeName(String type) => switch (type) {
+  static String _typeName(BuildContext context, String? type) => switch (type) {
     'wifi' => 'Wi-Fi',
-    'cellular' => 'Mobile data',
+    'cellular' => context.s('Mobile data'),
     'ethernet' => 'Ethernet',
     'vpn' => 'VPN',
-    _ => 'Not connected',
+    _ => context.s('Not connected'),
   };
 
-  /// Down and up, one minute, on one axis.
-  ///
-  /// ─── TWO SERIES ON ONE AXIS, NOT TWO CHARTS ────────────────────────────────
-  ///
-  /// The interesting thing about upload is its size RELATIVE to download, and
-  /// two separately scaled charts hide exactly that: a 2 kB/s upload drawn full
-  /// height beside a 3 MB/s download says the opposite of the truth.
-  LineChartData _throughput(
-    List<ThroughputSample> history,
-    GTokens t,
-    Color down,
-  ) {
-    final List<FlSpot> rx = <FlSpot>[
-      for (int i = 0; i < history.length; i++)
-        FlSpot(i.toDouble(), history[i].rxBytesPerSecond / 1024),
-    ];
-    final List<FlSpot> tx = <FlSpot>[
-      for (int i = 0; i < history.length; i++)
-        FlSpot(i.toDouble(), history[i].txBytesPerSecond / 1024),
-    ];
+  static String _band(int mhz) => mhz >= 5925
+      ? '6 GHz'
+      : mhz >= 5000
+      ? '5 GHz'
+      : '2.4 GHz';
 
-    // A floor on the axis, so an idle radio draws a flat line near the bottom
-    // rather than noise magnified to full height.
+  /// Down as a filled accent line, up as a thin muted one, sharing a scale.
+  static LineChartData _chart(List<ThroughputSample> h, GDesignTheme g) {
     double peak = 1;
-    for (final ThroughputSample s in history) {
+    for (final ThroughputSample s in h) {
       final double kb =
           (s.rxBytesPerSecond > s.txBytesPerSecond
               ? s.rxBytesPerSecond
@@ -231,13 +202,14 @@ class NetworkPage extends ConsumerWidget {
           1024;
       if (kb > peak) peak = kb;
     }
-
-    LineChartBarData bar(
-      List<FlSpot> spots,
+    LineChartBarData line(
+      double Function(ThroughputSample) pick,
       Color colour, {
       required bool fill,
     }) => LineChartBarData(
-      spots: spots,
+      spots: <FlSpot>[
+        for (int i = 0; i < h.length; i++) FlSpot(i.toDouble(), pick(h[i])),
+      ],
       isCurved: true,
       curveSmoothness: 0.24,
       color: colour,
@@ -260,37 +232,22 @@ class NetworkPage extends ConsumerWidget {
       minY: 0,
       maxY: peak * 1.15,
       minX: 0,
-      maxX: (history.length - 1).toDouble(),
+      maxX: (h.length - 1).toDouble(),
       gridData: const FlGridData(show: false),
       titlesData: const FlTitlesData(show: false),
       borderData: FlBorderData(show: false),
       lineTouchData: const LineTouchData(enabled: false),
       lineBarsData: <LineChartBarData>[
-        bar(rx, down, fill: true),
-        bar(tx, t.photo, fill: false),
-      ],
-    );
-  }
-}
-
-class _Rate extends StatelessWidget {
-  const _Rate({required this.value, required this.label, required this.hue});
-
-  final int value;
-  final String label;
-  final Color hue;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          '${GFormat.bytes(value)}/s',
-          style: GType.monoNumber.copyWith(color: hue, fontSize: 17),
+        line(
+          (ThroughputSample s) => s.rxBytesPerSecond / 1024,
+          g.accent,
+          fill: true,
         ),
-        Text(label, style: GType.micro.copyWith(color: t.muted)),
+        line(
+          (ThroughputSample s) => s.txBytesPerSecond / 1024,
+          g.muted,
+          fill: false,
+        ),
       ],
     );
   }

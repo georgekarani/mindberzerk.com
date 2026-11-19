@@ -1,33 +1,21 @@
-import '../../../app/theme/tokens.dart';
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
+
 import '../../../bridge/compress_api.g.dart';
 import '../../../bridge/compress_bridge.dart';
 import '../../../core/format.dart';
-import '../../../ui/g_card.dart';
-import '../../../ui/g_detail_page.dart';
-import '../../../ui/g_enter.dart';
-import '../../../ui/g_stat.dart';
-import '../state/storage_files.dart';
-import 'dart:typed_data';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/g_strings.dart';
+import '../state/storage_files.dart';
 
-/// WHAT HAS ALREADY BEEN MADE SMALLER.
+/// Every file already made smaller, with how long its original can still
+/// come back from the trash.
 ///
-/// ─── A RECORD, NOT A FOLDER ──────────────────────────────────────────────────
-///
-/// Nothing here moved. Every file is still where it was, in the gallery, next
-/// to everything else, findable by every other app on the phone. Sweeping
-/// people's photographs into an app directory is what cleaner apps do and it is
-/// how photographs get lost.
-///
-/// ─── ITS REAL JOB IS THE THIRTY DAYS ─────────────────────────────────────────
-///
-/// A run ends in a message that disappears. This is where someone checks a week
-/// later that their pictures still look right, and it is the only place that
-/// tells them how long they have left to pull an original back out of the
-/// trash. That window is the whole reason the screen is worth building: after
-/// it closes, a bad result is permanent.
+/// Nothing here moved: each file is still in the gallery. The days left on
+/// the original are the one actionable fact on a row, so they get the
+/// trailing slot.
 class CompressedPage extends ConsumerWidget {
   const CompressedPage({super.key});
 
@@ -35,103 +23,118 @@ class CompressedPage extends ConsumerWidget {
     builder: (BuildContext context) => const CompressedPage(),
   );
 
-  /// Android keeps a trashed item for thirty days. Not configurable, not
-  /// reported anywhere, and the same on every device this app runs on.
+  /// Android keeps a trashed item for 30 days on every supported device.
   static const int _trashDays = 30;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final List<CompressedEntry> entries =
         ref.watch(compressHistoryProvider).value ?? const <CompressedEntry>[];
-
     final int freed = entries.fold<int>(
       0,
       (int sum, CompressedEntry e) => sum + (e.originalBytes - e.newBytes),
     );
 
-    return GDetailSliverPage(
-      hue: t.photo,
-      icon: Icons.compress_rounded,
-      title: context.s('Compressed files'),
-      subtitle: entries.isEmpty
-          ? null
-          : '${GFormat.count(entries.length)} files  ·  '
-                '${GFormat.bytes(freed)} freed',
+    return LargeTitlePage(
+      onBack: () => Navigator.of(context).pop(),
+      title: context.s('Made smaller'),
+      backLabel: context.s('Make smaller'),
+      grouped: true,
       slivers: <Widget>[
         if (entries.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(GSpace.xl),
-                child: Text(
-                  context.s(
-                    'Nothing yet. Anything you compress is listed here with '
-                    'what it was before, so you can check it later.',
-                  ),
-                  textAlign: TextAlign.center,
-                  style: GType.bodySmall.copyWith(color: t.muted),
+              child: Reveal(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(GIcons.checkCircle, size: 40, color: g.faint),
+                    const SizedBox(height: GDesign.space12),
+                    Text(
+                      context.s('Nothing made smaller yet'),
+                      style: g.headline(),
+                    ),
+                  ],
                 ),
               ),
             ),
           )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((
-                BuildContext context,
-                int index,
-              ) {
-                if (index == 0) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: GSpace.md),
-                    child: GCard(
-                      child: Row(
-                        children: <Widget>[
-                          Expanded(
-                            child: GStat(
-                              label: context.s('freed in total'),
-                              value: GFormat.bytes(freed),
-                            ),
-                          ),
-                          Expanded(
-                            child: GStat(
-                              label: 'files',
-                              value: GFormat.count(entries.length),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                final CompressedEntry entry = entries[index - 1];
-                return GEnter(
-                  index: index,
-                  child: _Entry(entry: entry, trashDays: _trashDays),
-                );
-              }, childCount: entries.length + 1),
+        else ...<Widget>[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                GDesign.gutter,
+                GDesign.space8,
+                GDesign.gutter,
+                GDesign.space24,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  CountUpText(
+                    value: freed,
+                    format: (num v) =>
+                        context.s1('{} freed', GFormat.bytes(v.round())),
+                    style: g.figures(g.largeTitle()),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    context.s1('{} files', GFormat.count(entries.length)),
+                    style: g.figures(g.footnote()),
+                  ),
+                ],
+              ),
             ),
           ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+            sliver: SliverList.builder(
+              itemCount: entries.length,
+              itemBuilder: (BuildContext context, int i) => Reveal(
+                index: i,
+                rise: 8,
+                child: _Entry(
+                  entry: entries[i],
+                  first: i == 0,
+                  last: i == entries.length - 1,
+                ),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                GDesign.gutter + GDesign.space16,
+                GDesign.space8,
+                GDesign.gutter,
+                GDesign.space48,
+              ),
+              child: Text(
+                context.s('Originals stay in the trash for 30 days.'),
+                style: g.footnote(),
+              ),
+            ),
+          ),
+        ],
       ],
     );
   }
 }
 
+/// One file: thumbnail, before and after, and days left on the original.
 class _Entry extends ConsumerWidget {
-  const _Entry({required this.entry, required this.trashDays});
+  const _Entry({required this.entry, required this.first, required this.last});
 
   final CompressedEntry entry;
-  final int trashDays;
+  final bool first;
+  final bool last;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-
-    final Uint8List? bytes = ref
+    final GDesignTheme g = GDesignTheme.of(context);
+    final Uint8List? thumb = ref
         .watch(
           storageThumbProvider(
             ThumbRequest(fileId: entry.fileId, kind: 'image', maxPixels: 256),
@@ -139,89 +142,88 @@ class _Entry extends ConsumerWidget {
         )
         .value;
 
-    // Days remaining on the original, not the date it was compressed.
-    //
-    // The date is trivia; the window is the only actionable fact on the row,
-    // because it is how long a result that turned out badly can still be undone.
     final DateTime gone = DateTime.fromMillisecondsSinceEpoch(
       entry.whenMillis,
-    ).add(Duration(days: trashDays));
+    ).add(const Duration(days: CompressedPage._trashDays));
     final int left = gone.difference(DateTime.now()).inDays;
-    final bool recoverable = left > 0;
+    const Radius r = Radius.circular(GDesign.cardRadius);
 
-    final int saved = entry.originalBytes - entry.newBytes;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.sm),
-      child: GCard(
-        padding: const EdgeInsets.all(GSpace.sm + 2),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: g.card,
+        borderRadius: BorderRadius.vertical(
+          top: first ? r : Radius.zero,
+          bottom: last ? r : Radius.zero,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsetsDirectional.only(start: GDesign.space12),
         child: Row(
           children: <Widget>[
             ClipRRect(
-              borderRadius: GRadius.all(GRadius.tile),
-              child: SizedBox(
-                width: 46,
-                height: 46,
-                child: bytes == null
+              borderRadius: BorderRadius.circular(GDesign.tileRadius - 4),
+              child: SizedBox.square(
+                dimension: 44,
+                child: thumb == null
                     ? ColoredBox(
-                        color: t.panelAlt,
-                        child: Center(
-                          child: Icon(
-                            Icons.photo_outlined,
-                            size: 17,
-                            color: t.dim,
-                          ),
-                        ),
+                        color: g.fill,
+                        child: Icon(GIcons.photos, size: 18, color: g.faint),
                       )
-                    : Image.memory(bytes, fit: BoxFit.cover),
+                    : Image.memory(thumb, fit: BoxFit.cover),
               ),
             ),
-            const SizedBox(width: GSpace.md - 2),
+            const SizedBox(width: GDesign.space12),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    entry.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GType.bodySmall.copyWith(color: t.text),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: last
+                      ? null
+                      : Border(
+                          bottom: BorderSide(color: g.hairline, width: 0.5),
+                        ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.fromSTEB(
+                    0,
+                    GDesign.space12,
+                    GDesign.space16,
+                    GDesign.space12,
                   ),
-                  const SizedBox(height: 3),
-                  Text(
-                    // Before, after, and how. Lossless and quality 85 are
-                    // different promises, and a week later nobody remembers
-                    // which a given file got.
-                    '${GFormat.bytes(entry.originalBytes)} to '
-                    '${GFormat.bytes(entry.newBytes)}  ·  '
-                    '${entry.lossless ? 'lossless' : 'quality ${entry.quality}'}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GType.monoSmall.copyWith(color: t.dim),
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              entry.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: g.body(),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${GFormat.bytes(entry.originalBytes)} to '
+                              '${GFormat.bytes(entry.newBytes)}',
+                              style: g.figures(g.footnote()),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: GDesign.space8),
+                      Text(
+                        left > 0
+                            ? context.s1(
+                                left == 1 ? '{} day left' : '{} days left',
+                                left,
+                              )
+                            : context.s('Original gone'),
+                        style: g.figures(g.footnote()),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(width: GSpace.sm),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  '-${GFormat.bytes(saved)}',
-                  style: GType.monoSmall.copyWith(
-                    color: t.accent,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  recoverable ? '$left DAYS' : 'GONE',
-                  style: GType.badge.copyWith(
-                    color: recoverable ? t.dim : t.dim.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
             ),
           ],
         ),

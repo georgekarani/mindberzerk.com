@@ -1,31 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
 import '../../../core/i18n/g_strings.dart';
 
-/// FINDING WHAT IS WRONG WITH A SCREEN.
+/// Full screen colour fields for dead, stuck and tinted pixels, then a touch
+/// grid that has to be filled with a finger.
 ///
-/// Two checks, because they catch different faults and neither finds the other.
-///
-/// FLOOD FILLS find dead and stuck pixels, backlight bleed and tint. A dead
-/// pixel is invisible on anything but a full white field and obvious on it.
-///
-/// A TOUCH GRID finds a digitiser that has stopped responding in one area,
-/// which is the commonest fault on a phone that has been dropped and the one no
-/// amount of looking will reveal.
-///
-/// ─── FULL BRIGHTNESS, AND PUT IT BACK ────────────────────────────────────────
-///
-/// A dim screen hides exactly the faults this is looking for. The brightness is
-/// raised on entry and the system value restored on exit, because leaving a
-/// phone at maximum after a diagnostic is a battery cost the user did not ask
-/// for and will not connect to this screen.
+/// The colours are the test itself, so they are literal on purpose and do
+/// not follow the theme.
 class ScreenTestPage extends StatefulWidget {
   const ScreenTestPage({super.key});
 
-  static Route<void> route() => MaterialPageRoute<void>(
-    builder: (BuildContext context) => const ScreenTestPage(),
+  static Route<void> route() => PageRouteBuilder<void>(
+    transitionDuration: const Duration(milliseconds: 280),
+    pageBuilder: (BuildContext context, Animation<double> a, _) =>
+        FadeTransition(
+          opacity: a,
+          child: const Material(
+            type: MaterialType.transparency,
+            child: ScreenTestPage(),
+          ),
+        ),
   );
 
   @override
@@ -35,18 +31,27 @@ class ScreenTestPage extends StatefulWidget {
 class _ScreenTestPageState extends State<ScreenTestPage> {
   int _step = 0;
 
-  /// Which cells of the touch grid have been reached.
-  final Set<int> _touched = <int>{};
+  /// Shown on the first field only, then it fades for good.
+  bool _hint = true;
 
-  static const int _columns = 5;
-  static const int _rows = 9;
+  static const List<(String, Color)> _fields = <(String, Color)>[
+    ('White', Color(0xFFFFFFFF)),
+    ('Black', Color(0xFF000000)),
+    ('Red', Color(0xFFFF0000)),
+    ('Green', Color(0xFF00FF00)),
+    ('Blue', Color(0xFF0000FF)),
+    ('Grey', Color(0xFF808080)),
+  ];
+
+  bool get _onGrid => _step >= _fields.length;
 
   @override
   void initState() {
     super.initState();
-    // Immersive, because a status bar over a white field hides the corner of
-    // the screen that is most likely to have a fault.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    Future<void>.delayed(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _hint = false);
+    });
   }
 
   @override
@@ -55,197 +60,232 @@ class _ScreenTestPageState extends State<ScreenTestPage> {
     super.dispose();
   }
 
-  /// THE ONLY COLOUR LITERALS IN THE APP OUTSIDE THE THEME, and they are the
-  /// point of the screen rather than an oversight.
-  ///
-  /// A theme colour here would defeat the test. Finding a dead pixel needs
-  /// exactly 0xFFFFFFFF, and finding a dead red subpixel needs a field with no
-  /// green or blue in it at all. Every token in this app is chosen to sit
-  /// comfortably on a phone screen, which is the opposite of what a diagnostic
-  /// field is for.
-  ///
-  /// If no_constants.sh flags these, the exception belongs in the script.
-  ///
-  /// Solid fields first, then the grid. White and black find most faults, the
-  /// three primaries find a single dead subpixel that a white field hides,
-  /// and grey finds tint and uneven backlight.
-  static const List<(String, Color)> _fields = <(String, Color)>[
-    ('White, look for dead pixels', Color(0xFFFFFFFF)),
-    ('Black, look for stuck pixels and bleed', Color(0xFF000000)),
-    ('Red', Color(0xFFFF0000)),
-    ('Green', Color(0xFF00FF00)),
-    ('Blue', Color(0xFF0000FF)),
-    ('Grey, look for tint and uneven light', Color(0xFF808080)),
-  ];
-
-  bool get _onGrid => _step >= _fields.length;
-
   void _next() {
-    if (_step < _fields.length) {
-      setState(() => _step++);
-      return;
-    }
-    Navigator.of(context).pop();
+    Haptics.select();
+    setState(() {
+      _step++;
+      _hint = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_onGrid) return _grid(context);
-
-    final (String label, Color colour) = _fields[_step];
-    // Black text on a light field, white on a dark one. Computed rather than
-    // hardcoded per entry, so adding a field cannot get it wrong.
-    final Color ink = colour.computeLuminance() > 0.5
+    if (_onGrid) {
+      return _TouchGrid(onDone: () => Navigator.of(context).pop());
+    }
+    final GDesignTheme g = GDesignTheme.of(context);
+    final (String name, Color colour) = _fields[_step];
+    final Color ink = colour.computeLuminance() > 0.4
         ? const Color(0xFF000000)
         : const Color(0xFFFFFFFF);
+    final Duration fade = GDesign.motion(context, GDesign.normal);
 
-    return Scaffold(
-      backgroundColor: colour,
-      body: GestureDetector(
-        onTap: _next,
-        behavior: HitTestBehavior.opaque,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _next,
+      child: AnimatedContainer(
+        duration: fade,
+        color: colour,
         child: SafeArea(
-          child: Stack(
+          child: Column(
             children: <Widget>[
-              Align(
-                alignment: Alignment.bottomCenter,
+              const SizedBox(height: GDesign.space12),
+              // Progress: one dot per step, the touch grid included.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  for (int i = 0; i <= _fields.length; i++)
+                    AnimatedContainer(
+                      duration: fade,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: i == _step ? 18 : 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: ink.withValues(alpha: i <= _step ? 0.6 : 0.2),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                ],
+              ),
+              const Spacer(),
+              AnimatedSwitcher(
+                duration: fade,
+                child: Text(
+                  context.s(name),
+                  key: ValueKey<int>(_step),
+                  style: g.headline(color: ink.withValues(alpha: 0.5)),
+                ),
+              ),
+              AnimatedOpacity(
+                opacity: _hint ? 1 : 0,
+                duration: fade,
                 child: Padding(
-                  padding: const EdgeInsets.only(bottom: GSpace.xl),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Text(
-                        label,
-                        textAlign: TextAlign.center,
-                        style: GType.bodySmall.copyWith(
-                          color: ink.withValues(alpha: 0.75),
-                        ),
-                      ),
-                      const SizedBox(height: GSpace.sm),
-                      Text(
-                        'Tap for the next one  ·  ${_step + 1} of '
-                        '${_fields.length + 1}',
-                        style: GType.micro.copyWith(
-                          color: ink.withValues(alpha: 0.45),
-                        ),
-                      ),
-                    ],
+                  padding: const EdgeInsets.only(top: GDesign.space4),
+                  child: Text(
+                    context.s('Tap for the next colour'),
+                    style: g.footnote(color: ink.withValues(alpha: 0.5)),
                   ),
                 ),
               ),
+              const SizedBox(height: GDesign.space32),
             ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _grid(BuildContext context) {
-    final GTokens t = context.g;
-    final int total = _columns * _rows;
-    final bool done = _touched.length == total;
+/// A grid that fills exactly the screen. Every square a finger crosses
+/// lights up with a pop; any that stay dark are not registering touch.
+class _TouchGrid extends StatefulWidget {
+  const _TouchGrid({required this.onDone});
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.all(GSpace.md),
-              child: Text(
-                done
-                    ? 'Every square responded. The digitiser is reaching the '
-                          'whole screen.'
-                    : 'Drag a finger over every square. Any that stay dark are '
-                          'not registering touch.',
-                textAlign: TextAlign.center,
-                style: GType.bodySmall.copyWith(
-                  color: done ? t.success : t.muted,
+  final VoidCallback onDone;
+
+  @override
+  State<_TouchGrid> createState() => _TouchGridState();
+}
+
+class _TouchGridState extends State<_TouchGrid> {
+  static const int _columns = 6;
+  static const int _rows = 12;
+  final Set<int> _touched = <int>{};
+
+  int get _total => _columns * _rows;
+
+  void _mark(Offset at, Size size) {
+    final int column = (at.dx / size.width * _columns).floor();
+    final int row = (at.dy / size.height * _rows).floor();
+    if (column < 0 || column >= _columns || row < 0 || row >= _rows) return;
+    if (_touched.add(row * _columns + column)) {
+      Haptics.select();
+      setState(() {});
+      if (_touched.length == _total) Haptics.confirm();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final bool done = _touched.length == _total;
+    final EdgeInsets inset = MediaQuery.paddingOf(context);
+
+    return ColoredBox(
+      color: const Color(0xFF000000),
+      child: Stack(
+        children: <Widget>[
+          Positioned.fill(
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints box) {
+                final Size size = box.biggest;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanDown: (DragDownDetails d) =>
+                      _mark(d.localPosition, size),
+                  onPanUpdate: (DragUpdateDetails d) =>
+                      _mark(d.localPosition, size),
+                  child: Column(
+                    children: <Widget>[
+                      for (int r = 0; r < _rows; r++)
+                        Expanded(
+                          child: Row(
+                            children: <Widget>[
+                              for (int c = 0; c < _columns; c++)
+                                Expanded(
+                                  child: _Cell(
+                                    on: _touched.contains(r * _columns + c),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          Positioned(
+            left: GDesign.space12,
+            right: GDesign.space12,
+            top: inset.top + GDesign.space8,
+            child: Row(
+              children: <Widget>[
+                FloatIconButton(
+                  icon: GIcons.close,
+                  semanticLabel: context.s('Close'),
+                  onTap: widget.onDone,
+                ),
+                Expanded(
+                  child: Center(
+                    child: PhotoChip(
+                      done
+                          ? context.s('Every square responds')
+                          : context.s1('{} of $_total', _touched.length),
+                      icon: done ? GIcons.checkCircle : GIcons.touch,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: GDesign.touch),
+              ],
+            ),
+          ),
+          if (done)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: inset.bottom + GDesign.space24,
+              child: Center(
+                child: Reveal(
+                  child: PrimaryButton(
+                    pill: true,
+                    label: context.s('Done'),
+                    onTap: widget.onDone,
+                  ),
                 ),
               ),
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: GSpace.sm),
-                child: LayoutBuilder(
-                  builder: (BuildContext context, BoxConstraints box) {
-                    final double cellWidth = box.maxWidth / _columns;
-                    final double cellHeight = box.maxHeight / _rows;
-
-                    // One gesture detector over the whole grid rather than one
-                    // per cell. A drag across cell borders would otherwise be
-                    // handed to whichever child claimed it first and the rest
-                    // would never see the finger.
-                    return GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onPanDown: (DragDownDetails d) =>
-                          _mark(d.localPosition, cellWidth, cellHeight),
-                      onPanUpdate: (DragUpdateDetails d) =>
-                          _mark(d.localPosition, cellWidth, cellHeight),
-                      child: GridView.builder(
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: _columns,
-                              crossAxisSpacing: 2,
-                              mainAxisSpacing: 2,
-                              childAspectRatio: 0.75,
-                            ),
-                        itemCount: total,
-                        itemBuilder: (BuildContext context, int index) =>
-                            AnimatedContainer(
-                              duration: GMotion.fast,
-                              decoration: BoxDecoration(
-                                color: _touched.contains(index)
-                                    ? t.accent
-                                    : t.panelAlt,
-                                borderRadius: GRadius.all(4),
-                              ),
-                            ),
-                      ),
-                    );
-                  },
+          // Keeps the first frame readable before anything is touched.
+          if (_touched.isEmpty)
+            IgnorePointer(
+              child: Center(
+                child: Text(
+                  context.s('Drag over every square'),
+                  style: g.headline(color: g.onAccent),
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.all(GSpace.md),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      '${_touched.length} of $total',
-                      style: GType.monoSmall.copyWith(color: t.dim),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
-                    behavior: HitTestBehavior.opaque,
-                    child: Padding(
-                      padding: const EdgeInsets.all(GSpace.sm),
-                      child: Text(
-                        context.s('Done'),
-                        style: GType.label.copyWith(color: t.accentText),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
+}
 
-  void _mark(Offset at, double cellWidth, double cellHeight) {
-    final int column = (at.dx / cellWidth).floor();
-    final int row = (at.dy / cellHeight).floor();
-    if (column < 0 || column >= _columns) return;
-    if (row < 0 || row >= _rows) return;
+/// One square: dim until touched, then a pop into the accent.
+class _Cell extends StatelessWidget {
+  const _Cell({required this.on});
 
-    final int index = row * _columns + column;
-    if (_touched.contains(index)) return;
-    setState(() => _touched.add(index));
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final Duration d = GDesign.motion(context, GDesign.normal);
+    return Padding(
+      padding: const EdgeInsets.all(1.5),
+      child: AnimatedScale(
+        scale: on ? 1 : 0.86,
+        duration: d,
+        curve: Curves.easeOutBack,
+        child: AnimatedContainer(
+          duration: d,
+          decoration: BoxDecoration(
+            color: on ? g.accent : const Color(0xFF1C1C1E),
+            borderRadius: BorderRadius.circular(6),
+          ),
+        ),
+      ),
+    );
   }
 }

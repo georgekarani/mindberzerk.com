@@ -1,37 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
 import '../../../bridge/compress_api.g.dart';
 import '../../../bridge/compress_bridge.dart';
 import '../../../core/format.dart';
-import '../../../ui/g_button.dart';
 import '../../../core/i18n/g_strings.dart';
 
-/// LOOKING BEFORE AGREEING TO SOMETHING PERMANENT.
+/// Before and after, full screen, on black.
 ///
-/// ─── THE PIECE WITHOUT WHICH THIS FEATURE SHOULD NOT SHIP ────────────────────
-///
-/// Photo compression is lossy and the original goes to the trash. Every other
-/// destructive screen in this app puts the file in front of the user first: the
-/// compare pages got a full screen viewer for a decision that only trashes
-/// copies. Compression rewrites the picture itself and had nothing, which meant
-/// people were approving artefacts they had never been shown.
-///
-/// ─── HOLD TO SEE THE ORIGINAL ────────────────────────────────────────────────
-///
-/// A press and hold swap rather than a split wipe. A wipe puts the two versions
-/// side by side, so no part of the picture is ever seen in both states, and a
-/// JPEG artefact is invisible unless you can watch the same pixels change. The
-/// swap is also one handed, which matters when the other hand is holding the
-/// phone up to the light.
-///
-/// ─── ONE TRANSFORM, SHARED ───────────────────────────────────────────────────
-///
-/// Both versions render inside a single InteractiveViewer rather than one each.
-/// Two viewers would reset the zoom on every swap, and a comparison that cannot
-/// be held at 1:1 while toggling shows nothing at all. This is the detail that
-/// makes the screen work.
+/// A photo shows the original on the left of a draggable divider and the
+/// re-saved file on the right, both decoded from the same encode the saving
+/// was measured on. A screenshot is re-saved losslessly, so there is only
+/// one picture to show and a chip saying it is identical. Swiping pages
+/// between files; the divider follows a tap anywhere, or a drag on its
+/// handle.
 class CompressViewerPage extends ConsumerStatefulWidget {
   const CompressViewerPage({
     required this.fileIds,
@@ -46,13 +29,10 @@ class CompressViewerPage extends ConsumerStatefulWidget {
   final List<String> fileIds;
   final int index;
   final int quality;
-
-  /// Screenshots. The two versions are identical, so no comparison is offered.
   final bool lossless;
 
-  /// Live set from the list, so the button reads correctly on arrival.
+  /// The list page's left-out set, read live so the button stays in step.
   final Set<String> excluded;
-
   final void Function(String fileId)? onExclude;
 
   static Route<void> route({
@@ -62,15 +42,21 @@ class CompressViewerPage extends ConsumerStatefulWidget {
     required bool lossless,
     required Set<String> excluded,
     void Function(String)? onExclude,
-  }) => MaterialPageRoute<void>(
-    builder: (BuildContext context) => CompressViewerPage(
-      fileIds: fileIds,
-      index: index,
-      quality: quality,
-      lossless: lossless,
-      excluded: excluded,
-      onExclude: onExclude,
-    ),
+  }) => PageRouteBuilder<void>(
+    opaque: false,
+    transitionDuration: const Duration(milliseconds: 280),
+    pageBuilder: (BuildContext context, Animation<double> a, _) =>
+        FadeTransition(
+          opacity: a,
+          child: CompressViewerPage(
+            fileIds: fileIds,
+            index: index,
+            quality: quality,
+            lossless: lossless,
+            excluded: excluded,
+            onExclude: onExclude,
+          ),
+        ),
   );
 
   @override
@@ -78,18 +64,11 @@ class CompressViewerPage extends ConsumerStatefulWidget {
 }
 
 class _CompressViewerPageState extends ConsumerState<CompressViewerPage> {
-  late final PageController _pages;
-  late int _at;
+  late final PageController _pages = PageController(initialPage: widget.index);
+  late int _at = widget.index;
 
-  /// True while a finger is down.
-  bool _showingOriginal = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _at = widget.index;
-    _pages = PageController(initialPage: widget.index);
-  }
+  /// Where the divider sits, 0 (all after) to 1 (all original).
+  double _split = 0.5;
 
   @override
   void dispose() {
@@ -99,10 +78,9 @@ class _CompressViewerPageState extends ConsumerState<CompressViewerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final EdgeInsets inset = MediaQuery.paddingOf(context);
     final String current = widget.fileIds[_at];
-    final bool excluded = widget.excluded.contains(current);
-
+    final bool left = widget.excluded.contains(current);
     final CompressComparison? shot = ref
         .watch(
           compressComparisonProvider((
@@ -112,373 +90,259 @@ class _CompressViewerPageState extends ConsumerState<CompressViewerPage> {
         )
         .value;
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.all(GSpace.sm),
-              child: Row(
-                children: <Widget>[
-                  _Round(
-                    icon: Icons.close_rounded,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                  const SizedBox(width: GSpace.md),
-                  Expanded(
-                    child: Text(
-                      '${_at + 1} of ${widget.fileIds.length}',
-                      style: GType.bodySmall.copyWith(color: t.muted),
-                    ),
-                  ),
-                ],
+    return Material(
+      // Photos are judged on black, as in the gallery.
+      color: const Color(0xFF000000),
+      child: Stack(
+        children: <Widget>[
+          PageView.builder(
+            controller: _pages,
+            itemCount: widget.fileIds.length,
+            onPageChanged: (int i) => setState(() {
+              _at = i;
+              _split = 0.5;
+            }),
+            itemBuilder: (BuildContext context, int i) => Padding(
+              padding: EdgeInsets.only(
+                top: inset.top + 64,
+                bottom: inset.bottom + 132,
+              ),
+              child: _Stage(
+                fileId: widget.fileIds[i],
+                quality: widget.quality,
+                lossless: widget.lossless,
+                split: i == _at ? _split : 0.5,
+                onSplit: (double v) => setState(() => _split = v),
               ),
             ),
-
-            Expanded(
-              child: PageView.builder(
-                controller: _pages,
-                itemCount: widget.fileIds.length,
-                onPageChanged: (int i) => setState(() {
-                  _at = i;
-                  // Released implicitly by the swipe. Leaving it true would put
-                  // the next picture under an ORIGINAL label with no finger
-                  // down to explain it.
-                  _showingOriginal = false;
-                }),
-                itemBuilder: (BuildContext context, int i) => _Frame(
-                  fileId: widget.fileIds[i],
-                  quality: widget.quality,
-                  lossless: widget.lossless,
-                  showingOriginal: _showingOriginal && i == _at,
-                  onHold: (bool down) =>
-                      setState(() => _showingOriginal = down),
+          ),
+          Positioned(
+            left: GDesign.space12,
+            right: GDesign.space12,
+            top: inset.top + GDesign.space8,
+            child: Row(
+              children: <Widget>[
+                FloatIconButton(
+                  icon: GIcons.back,
+                  semanticLabel: MaterialLocalizations.of(
+                    context,
+                  ).backButtonTooltip,
+                  onTap: () => Navigator.of(context).pop(),
                 ),
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                GSpace.gutter,
-                GSpace.md,
-                GSpace.gutter,
-                GSpace.lg,
-              ),
-              child: Column(
-                children: <Widget>[
-                  if (widget.lossless)
-                    _Identical(saved: _delta(shot))
-                  else
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: _Side(
-                            label: context.s('Original'),
-                            value: GFormat.bytesOrNull(shot?.originalBytes),
-                            highlight: false,
-                          ),
-                        ),
-                        const SizedBox(width: GSpace.sm + 1),
-                        Expanded(
-                          child: _Side(
-                            label: context.s('After'),
-                            value: GFormat.bytesOrNull(shot?.newBytes),
-                            highlight: true,
-                          ),
-                        ),
-                      ],
+                Expanded(
+                  child: Center(
+                    child: PhotoChip(
+                      context.s1(
+                        '{} of ${GFormat.count(widget.fileIds.length)}',
+                        GFormat.count(_at + 1),
+                      ),
                     ),
-                  if (widget.onExclude != null) ...<Widget>[
-                    const SizedBox(height: GSpace.md),
-                    GButton(
-                      label: excluded
-                          ? 'Include this one'
-                          : 'Leave this one alone',
-                      icon: excluded
-                          ? Icons.check_rounded
-                          : Icons.block_rounded,
-                      kind: GButtonKind.ghost,
-                      onPressed: () {
-                        widget.onExclude!(current);
-                        setState(() {});
-                      },
-                    ),
-                  ],
-                ],
-              ),
+                  ),
+                ),
+                const SizedBox(width: GDesign.touch),
+              ],
             ),
-          ],
-        ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                AnimatedSwitcher(
+                  duration: GDesign.motion(context, GDesign.normal),
+                  child: shot == null
+                      ? const SizedBox(height: GDesign.chipHeight)
+                      : PhotoChip(
+                          key: ValueKey<String>(current),
+                          '${GFormat.bytes(shot.originalBytes)} to '
+                          '${GFormat.bytes(shot.newBytes)}',
+                        ),
+                ),
+                ActionBar(
+                  floating: true,
+                  center: widget.onExclude == null
+                      ? null
+                      : PrimaryButton(
+                          pill: true,
+                          label: left
+                              ? context.s('Include this one')
+                              : context.s('Leave this one out'),
+                          onTap: () {
+                            Haptics.select();
+                            widget.onExclude!(current);
+                            setState(() {});
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
-
-  int? _delta(CompressComparison? shot) =>
-      shot == null ? null : shot.originalBytes - shot.newBytes;
 }
 
-/// One picture, in both its versions, under one transform.
-class _Frame extends ConsumerWidget {
-  const _Frame({
+/// One file: both decodes stacked, the original clipped to the divider.
+class _Stage extends ConsumerWidget {
+  const _Stage({
     required this.fileId,
     required this.quality,
     required this.lossless,
-    required this.showingOriginal,
-    required this.onHold,
+    required this.split,
+    required this.onSplit,
   });
 
   final String fileId;
   final int quality;
   final bool lossless;
-  final bool showingOriginal;
-  final void Function(bool down) onHold;
+  final double split;
+  final ValueChanged<double> onSplit;
+
+  /// Width of the divider's drag handle, the only area that takes
+  /// horizontal drags away from the page swipe.
+  static const double _handle = GDesign.touch;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-
+    final GDesignTheme g = GDesignTheme.of(context);
     final CompressComparison? shot = ref
         .watch(compressComparisonProvider((fileId: fileId, quality: quality)))
         .value;
 
     if (shot == null) {
       return Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(color: t.accent, strokeWidth: 2.2),
+        child: SizedBox.square(
+          dimension: 28,
+          child: CircularProgressIndicator(color: g.accent, strokeWidth: 2.2),
         ),
       );
     }
 
-    return Stack(
-      children: <Widget>[
-        Positioned.fill(
-          child: InteractiveViewer(
-            minScale: 1,
-            maxScale: 6,
-            child: Center(
-              child: Stack(
-                children: <Widget>[
-                  // Both are laid out, and one is hidden with Opacity rather
-                  // than swapped out of the tree. Rebuilding the child would
-                  // decode the image again on every press and drop frames on a
-                  // picture this size; it would also collapse the Stack's own
-                  // size for an instant and make the whole thing jump.
-                  Image.memory(shot.encoded, fit: BoxFit.contain),
-                  if (!lossless)
-                    Positioned.fill(
-                      child: Opacity(
-                        opacity: showingOriginal ? 1 : 0,
-                        child: Image.memory(shot.original, fit: BoxFit.contain),
+    final Widget after = Image.memory(
+      shot.encoded,
+      fit: BoxFit.contain,
+      gaplessPlayback: true,
+    );
+
+    if (lossless) {
+      return Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          after,
+          Align(
+            alignment: Alignment.topCenter,
+            child: PhotoChip(
+              context.s1(
+                'Identical, {} smaller',
+                GFormat.bytes(shot.originalBytes - shot.newBytes),
+              ),
+              icon: GIcons.checkCircle,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints box) {
+        final double x = box.maxWidth * split;
+        return Stack(
+          fit: StackFit.expand,
+          children: <Widget>[
+            // A tap anywhere moves the divider there.
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTapUp: (TapUpDetails d) {
+                Haptics.select();
+                onSplit((d.localPosition.dx / box.maxWidth).clamp(0.0, 1.0));
+              },
+              child: after,
+            ),
+            ClipRect(
+              clipper: _LeftOf(x),
+              child: IgnorePointer(
+                child: Image.memory(
+                  shot.original,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                ),
+              ),
+            ),
+            // The divider line.
+            Positioned(
+              left: x - 1,
+              top: 0,
+              bottom: 0,
+              child: const IgnorePointer(
+                child: SizedBox(
+                  width: 2,
+                  child: ColoredBox(color: Color(0xE6FFFFFF)),
+                ),
+              ),
+            ),
+            // The handle: a glass knob centred on the line.
+            Positioned(
+              left: x - _handle / 2,
+              top: 0,
+              bottom: 0,
+              width: _handle,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (_) => Haptics.select(),
+                onHorizontalDragUpdate: (DragUpdateDetails d) =>
+                    onSplit(((x + d.delta.dx) / box.maxWidth).clamp(0.0, 1.0)),
+                child: Center(
+                  child: GlassSurface(
+                    borderRadius: BorderRadius.circular(20),
+                    child: SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: RotatedBox(
+                        quarterTurns: 1,
+                        child: Icon(GIcons.sort, size: 18, color: g.text),
                       ),
                     ),
-                ],
+                  ),
+                ),
               ),
             ),
-          ),
-        ),
-
-        if (!lossless)
-          Positioned.fill(
-            child: GestureDetector(
-              // Opaque so the whole frame is a hold target, and behind the
-              // InteractiveViewer's own gestures so a pinch still zooms.
-              behavior: HitTestBehavior.translucent,
-              onTapDown: (_) => onHold(true),
-              onTapUp: (_) => onHold(false),
-              onTapCancel: () => onHold(false),
-              onLongPressDown: (_) => onHold(true),
-              onLongPressEnd: (_) => onHold(false),
-              onLongPressCancel: () => onHold(false),
-            ),
-          ),
-
-        Positioned(
-          top: GSpace.md,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: _Pill(
-              label: lossless
-                  ? 'Identical'
-                  : showingOriginal
-                  ? 'Original'
-                  : 'After, quality $quality',
-              tone: lossless
-                  ? t.muted
-                  : showingOriginal
-                  ? t.warning
-                  : t.accent,
-            ),
-          ),
-        ),
-
-        if (!lossless)
-          Positioned(
-            bottom: GSpace.md,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _Pill(
-                label: context.s('Hold to see the original'),
-                tone: t.muted,
+            PositionedDirectional(
+              start: GDesign.space12,
+              top: GDesign.space12,
+              child: AnimatedOpacity(
+                opacity: split > 0.12 ? 1 : 0,
+                duration: GDesign.motion(context, GDesign.fast),
+                child: PhotoChip(context.s('Original')),
               ),
             ),
-          ),
-      ],
-    );
-  }
-}
-
-class _Identical extends StatelessWidget {
-  const _Identical({required this.saved});
-
-  final int? saved;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: t.accent.withValues(alpha: 0.10),
-        border: Border.all(color: t.accent.withValues(alpha: 0.32)),
-        borderRadius: GRadius.all(GRadius.card),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(GSpace.md),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Icon(Icons.verified_outlined, size: 18, color: t.accent),
-            const SizedBox(width: GSpace.md - 2),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    context.s('Nothing to compare'),
-                    style: GType.heading.copyWith(color: t.accent),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    saved == null
-                        ? 'A screenshot is re-saved losslessly, so the new '
-                              'file is identical to this one.'
-                        : 'A screenshot is re-saved losslessly, so the new '
-                              'file is identical to this one, at '
-                              '${GFormat.bytes(saved!)} less.',
-                    style: GType.bodySmall.copyWith(color: t.muted),
-                  ),
-                ],
+            PositionedDirectional(
+              end: GDesign.space12,
+              top: GDesign.space12,
+              child: AnimatedOpacity(
+                opacity: split < 0.88 ? 1 : 0,
+                duration: GDesign.motion(context, GDesign.fast),
+                child: PhotoChip(context.s('After')),
               ),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
 
-class _Side extends StatelessWidget {
-  const _Side({
-    required this.label,
-    required this.value,
-    required this.highlight,
-  });
+/// Clips to everything left of [x].
+class _LeftOf extends CustomClipper<Rect> {
+  const _LeftOf(this.x);
 
-  final String label;
-
-  /// Null while the comparison is still being made. Renders as an absent value
-  /// rather than a zero, the same rule the rest of the app follows.
-  final String? value;
-
-  final bool highlight;
+  final double x;
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: t.panel,
-        border: Border.all(
-          color: highlight ? t.accent.withValues(alpha: 0.4) : t.line,
-        ),
-        borderRadius: GRadius.all(GRadius.tile),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(GSpace.md - 1),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text(
-              label.toUpperCase(),
-              style: GType.badge.copyWith(color: t.dim),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value ?? '',
-              style: GType.monoNumber.copyWith(
-                color: highlight ? t.accent : t.text,
-                fontSize: 15,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Pill extends StatelessWidget {
-  const _Pill({required this.label, required this.tone});
-
-  final String label;
-  final Color tone;
+  Rect getClip(Size size) => Rect.fromLTWH(0, 0, x, size.height);
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: GSpace.md,
-        vertical: GSpace.sm - 2,
-      ),
-      decoration: BoxDecoration(
-        color: t.ink.withValues(alpha: 0.72),
-        borderRadius: GRadius.all(GRadius.chip),
-        border: Border.all(color: t.line),
-      ),
-      child: Text(label, style: GType.micro.copyWith(color: tone)),
-    );
-  }
-}
-
-class _Round extends StatelessWidget {
-  const _Round({required this.icon, required this.onTap});
-
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Material(
-      color: t.panelAlt,
-      borderRadius: GRadius.all(GRadius.tile),
-      child: InkWell(
-        borderRadius: GRadius.all(GRadius.tile),
-        onTap: onTap,
-        child: SizedBox(
-          width: 36,
-          height: 36,
-          child: Icon(icon, size: 18, color: t.muted),
-        ),
-      ),
-    );
-  }
+  bool shouldReclip(_LeftOf old) => old.x != x;
 }

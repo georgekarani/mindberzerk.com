@@ -2,6 +2,7 @@ package com.mindhunter.g_recovery
 
 import com.mindhunter.g_recovery.apps.AppsHostApi
 import com.mindhunter.g_recovery.apps.AppsHostApiImpl
+import com.mindhunter.g_recovery.bench.Benchmark
 import com.mindhunter.g_recovery.compare.CompareFlutterApi
 import com.mindhunter.g_recovery.compare.CompareHostApi
 import com.mindhunter.g_recovery.compare.CompareHostApiImpl
@@ -20,10 +21,20 @@ import com.mindhunter.g_recovery.server.ServerHostApi
 import com.mindhunter.g_recovery.server.ServerHostApiImpl
 import com.mindhunter.g_recovery.storage.StorageHostApi
 import com.mindhunter.g_recovery.storage.StorageHostApiImpl
+import android.os.Bundle
+import androidx.core.view.WindowCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 
 class MainActivity : FlutterActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        // Edge to edge on every Android version, not only 15 and later where
+        // it is forced. Flutter draws under the bars and every screen pads
+        // itself from the reported insets.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        super.onCreate(savedInstanceState)
+    }
 
     private var recovery: RecoveryHostApiImpl? = null
     private var storage: StorageHostApiImpl? = null
@@ -34,6 +45,7 @@ class MainActivity : FlutterActivity() {
     private var apps: AppsHostApiImpl? = null
     private var hardware: HardwareHostApiImpl? = null
     private var compress: CompressHostApiImpl? = null
+    private var benchmark: Benchmark? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -86,6 +98,8 @@ class MainActivity : FlutterActivity() {
         compareImpl.attachFlutterApi(CompareFlutterApi(messenger))
         CompareHostApi.setUp(messenger, compareImpl)
         compare = compareImpl
+
+        benchmark = Benchmark(applicationContext, messenger)
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
@@ -112,6 +126,8 @@ class MainActivity : FlutterActivity() {
         apps?.dispose()
         hardware?.dispose()
         compress?.dispose()
+        benchmark?.dispose()
+        benchmark = null
         recovery = null
         storage = null
         content = null

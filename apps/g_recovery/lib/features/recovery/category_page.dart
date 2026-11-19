@@ -1,46 +1,64 @@
+import 'dart:math' as math;
+
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:g_design/g_design.dart' show showConfirmSheet;
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
+import '../../app/shell.dart';
 import '../../bridge/recovery_api.g.dart';
+import '../../bridge/recovery_bridge.dart';
+import '../../bridge/storage_api.g.dart';
+import '../../bridge/storage_bridge.dart';
 import '../../core/date_groups.dart';
 import '../../core/format.dart';
-import '../../core/messenger/g_message.dart';
-import '../../core/messenger/g_messenger.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_bar.dart';
-import '../../ui/g_button.dart';
-import '../../ui/g_empty_state.dart';
-import '../../ui/g_group_header.dart';
-import '../../ui/g_sheet.dart';
-import '../../ui/g_sort.dart';
-import '../../ui/g_view_switch.dart';
-import '../review/review_page.dart';
-import '../review/state/review_providers.dart';
-import '../viewer/media_viewer.dart';
-import 'state/recovery_providers.dart';
-import 'widgets/item_grid_tile.dart';
-import 'widgets/item_row.dart';
 import '../../core/i18n/g_strings.dart';
+import '../../ui/file_thumbnail.dart';
+import '../../ui/g_sort.dart';
+import '../../ui/g_thumbnail.dart';
+import '../../ui/media/media_peek.dart';
+import '../../ui/media/media_stage.dart';
+import '../../ui/media/playable_media.dart';
+import '../home/widgets/empty_scenes.dart';
+import '../review/review_page.dart';
+import '../viewer/media_viewer.dart';
+import '../storage/state/storage_files.dart';
+import '../storage/state/storage_providers.dart';
+import 'state/recovery_actions.dart';
+import 'state/recovery_providers.dart';
+import 'state/view_prefs.dart';
+import 'widgets/grid_tools.dart';
 
-/// One source, browsable and restorable.
+/// One category of what can come back: an edge-to-edge photo grid for
+/// pictures and video, rows on a card for everything else, grouped by the
+/// day each item was deleted.
 ///
-/// Replaces the Phase 3 proving surface, which is deleted with this phase.
+/// Select turns the tab bar into a toolbar with one primary action. Restore
+/// flies each photo home; Delete for good turns it to dust.
 class CategoryPage extends ConsumerStatefulWidget {
-  const CategoryPage({required this.query, required this.title, super.key});
+  const CategoryPage({
+    required this.query,
+    required this.title,
+    super.key,
+    this.backLabel,
+  });
 
   final RecoveryQuery query;
   final String title;
+
+  /// The previous screen's title, shown beside the back chevron.
+  final String? backLabel;
 
   static Route<void> route({
     required String title,
     String? kind,
     List<String> sourceIds = kAllSourceIds,
     Set<String> roles = kRolesDeleted,
+    String? backLabel,
   }) => MaterialPageRoute<void>(
     builder: (BuildContext context) => CategoryPage(
       title: title,
+      backLabel: backLabel,
       query: RecoveryQuery(sourceIds: sourceIds, kind: kind, roles: roles),
     ),
   );
@@ -52,63 +70,123 @@ class CategoryPage extends ConsumerStatefulWidget {
   ConsumerState<CategoryPage> createState() => _CategoryPageState();
 }
 
-class _CategoryPageState extends ConsumerState<CategoryPage> {
-  /// Grid or list.
-  ///
-  /// Local state, not a preference, and that is a considered choice: the right
-  /// view depends on WHAT is being looked at, not on who is looking. Photos
-  /// want a grid, documents want names. Persisting it would force the wrong
-  /// view on the next category the user opens.
+/// The three groups a photo or video can belong to, as segments.
+enum _Group {
+  deleted(kRolesDeleted),
+  previews(<String>{kRoleCache}),
+  inApps(<String>{kRoleMedia});
+
+  const _Group(this.roles);
+
+  final Set<String> roles;
+
+  String label(BuildContext context) => switch (this) {
+    _Group.deleted => context.s('Deleted'),
+    _Group.previews => context.s('Previews'),
+    _Group.inApps => context.s('In chat apps'),
+  };
+}
+
+/// How a picture category is laid out.
+enum _View { grid, list, shelf }
+
+class _CategoryPageState extends ConsumerState<CategoryPage>
+    with TickerProviderStateMixin {
+  bool _selecting = false;
+
+  /// Held from initState: ref may not be used once the widget is disposing.
+  late final GShellNav _nav;
+  late _Group? _group = _initialGroup();
+
+  /// Snapshot targets for the flight and the dust, one per item on screen.
+  final Map<String, GlobalKey> _keys = <String, GlobalKey>{};
+
+  /// Section headers, so opening a case on the shelf can scroll to it.
+  final Map<String, GlobalKey> _headers = <String, GlobalKey>{};
+
+  /// Drives the timeline scrubber.
+  final ScrollController _scroll = ScrollController();
+
+  /// Grid, list of rows, or sections as stacked cases.
+  _View _view = _View.grid;
+
+  /// The thumbnail inside each list row, so the morph knows where it lands.
+  final Map<String, GlobalKey> _thumbs = <String, GlobalKey>{};
+
+  /// Items whose own picture is hidden while a flying copy moves over it.
+  Set<String> _flying = <String>{};
+
+  /// Photos and video by kind, plus statuses and previews, which are
+  /// pictures whatever their kind field says.
+  bool get _visual =>
+      _pictureKind ||
+      widget.query.roles.contains(kRoleStatus) ||
+      widget.query.roles.contains(kRoleCache);
+
+  bool get _pictureKind =>
+      widget.query.kind == 'image' || widget.query.kind == 'video';
+
+  /// Statuses are tall phone-screen pictures, so they get two tall columns.
+  bool get _statuses => _query.roles.contains(kRoleStatus);
+
+  /// Segments only make sense for pictures opened from their deleted set.
+  _Group? _initialGroup() {
+    if (!_pictureKind) return null;
+    for (final _Group g in _Group.values) {
+      if (setEquals(g.roles, widget.query.roles)) return g;
+    }
+    return null;
+  }
+
+  RecoveryQuery get _query => _group == null
+      ? widget.query
+      : RecoveryQuery(
+          sourceIds: widget.query.sourceIds,
+          kind: widget.query.kind,
+          roles: _group!.roles,
+        );
+
+  bool get _viewOnly => _query.roles.every((String r) => r == kRoleMedia);
+
+  GlobalKey _keyFor(String itemId) =>
+      _keys.putIfAbsent(itemId, () => GlobalKey(debugLabel: itemId));
 
   @override
   void initState() {
     super.initState();
-    // A category opened from home has never been scanned, so the native index
-    // is empty and the list would be too. `ensure` scans only the sources that
-    // have not been walked yet, which is what makes the SECOND category open
-    // work: checking whether any scan had run would see the first one's summary
-    // and skip.
+    _nav = ref.read(gShellNavHiddenProvider.notifier);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // Cleared on the way IN. Selection is app wide, so one left behind by
-      // search or by another category would arm the action bar here over items
-      // that are not in this list. Clearing on dispose is the version that
-      // crashes: ref is unusable once the element is deactivated.
       ref.read(selectionProvider.notifier).clear();
       ref.read(scanControllerProvider.notifier).ensure(widget.query.sourceIds);
     });
   }
 
   @override
+  void dispose() {
+    if (_selecting) _nav.show();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _setSelecting(bool on) {
+    if (on == _selecting) return;
+    if (on) {
+      _nav.hide();
+    } else {
+      _nav.show();
+    }
+    if (!on) ref.read(selectionProvider.notifier).clear();
+    setState(() => _selecting = on);
+  }
+
+  void _toggle(String itemId) {
+    Haptics.select();
+    ref.read(selectionProvider.notifier).toggle(itemId);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final AsyncValue<List<RecoverableItem>> async = ref.watch(
-      recoveryItemsProvider(widget.query),
-    );
-    final ScanProgress? progress = ref.watch(scanProgressProvider).value;
-    final Set<String> selected = ref.watch(selectionProvider);
-    final AsyncValue<RecoverySummary?> scan = ref.watch(scanControllerProvider);
-    final GViewMode mode = ref.watch(gViewModeProvider);
-    final GSortMode sort = ref.watch(gSortProvider);
-
-    // WATCHED, not merely invalidated.
-    //
-    // The whole phone scan runs in a service that outlives this engine, so it
-    // reports through a polled provider rather than through scanProgressProvider.
-    // Two places started that scan and nothing on this screen listened, so the
-    // button looked broken: it really was scanning, and the page had no way to
-    // say so.
-    final BackgroundScanState? deep = ref.watch(backgroundScanProvider).value;
-    final bool deepScanning = deep?.running ?? false;
-
-    // A short foreground service gets about three minutes, and a large
-    // thumbnail cache can outlast it. What it found is kept, and saying so is
-    // the difference between an incomplete answer and a false one.
-    final bool deepTimedOut = deep != null && !deep.running && deep.timedOut;
-
-    // The service populates the native index while this page is open, so the
-    // list has to be asked again once it stops. Without this the scan finishes
-    // into an empty screen.
     ref.listen<AsyncValue<BackgroundScanState?>>(backgroundScanProvider, (
       AsyncValue<BackgroundScanState?>? previous,
       AsyncValue<BackgroundScanState?> next,
@@ -118,339 +196,829 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
       if (was && !now) ref.invalidate(recoveryItemsProvider);
     });
 
-    final bool busy = scan.isLoading || deepScanning;
+    final AsyncValue<List<RecoverableItem>> async = ref.watch(
+      recoveryItemsProvider(_query),
+    );
+    final Set<String> selected = ref.watch(selectionProvider);
+    final GSortMode sort = ref.watch(gSortProvider);
+    final List<RecoverableItem> items = _ordered(
+      async.value ?? const <RecoverableItem>[],
+      sort,
+    );
+    final List<String> chosen = <String>[
+      for (final RecoverableItem item in items)
+        if (selected.contains(item.itemId)) item.itemId,
+    ];
+    final int columns = ref.watch(gridColumnsProvider);
+    final GroupBy groupBy = ref.watch(groupByProvider);
+    final List<DateGroup<RecoverableItem>> groups = _grouped(
+      items,
+      sort,
+      groupBy,
+    );
+    final bool shelf =
+        _view == _View.shelf && _visual && !_selecting && groups.length > 1;
 
-    final List<RecoverableItem> items =
-        async.value ?? const <RecoverableItem>[];
-    final List<String> chosen = items
-        .map((RecoverableItem item) => item.itemId)
-        .where(selected.contains)
-        .toList();
+    final String title = _selecting
+        ? (chosen.isEmpty
+              ? context.s('Select items')
+              : context.s1('{} selected', GFormat.count(chosen.length)))
+        : widget.title;
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-              child: GAppBar(
-                title: widget.title,
-                leading: GIconButton(
-                  icon: Icons.arrow_back_rounded,
-                  onTap: () => Navigator.of(context).pop(),
-                ),
-                // TWO GLYPHS AT MOST, and both act on the screen rather than on
-                // how it is laid out. Everything else moved down. The title had
-                // roughly 80 dp before this and "Everything" was breaking in
-                // the middle of a word.
-                actions: <Widget>[
-                  // Review is only offered when there is something to review
-                  // AND at least one item can actually be drawn. A swipe deck
-                  // of grey document glyphs is worse than a list.
-                  if (items.any(_reviewable))
-                    Padding(
-                      padding: const EdgeInsets.only(right: GSpace.sm),
-                      child: GIconButton(
-                        icon: Icons.swipe_rounded,
-                        tone: t.accentText,
-                        onTap: () {
-                          ref
-                              .read(reviewProvider.notifier)
-                              .start(items.where(_reviewable).toList());
-                          Navigator.of(context).push(ReviewPage.route());
-                        },
-                      ),
-                    ),
-                  // Stays in the title row rather than in the controls below,
-                  // because the controls only appear once there is a list and
-                  // an empty screen is exactly when someone reaches for rescan.
-                  GIconButton(
-                    icon: Icons.refresh_rounded,
-                    onTap: () => ref
-                        .read(scanControllerProvider.notifier)
-                        .run(widget.query.sourceIds),
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (bool didPop, Object? _) {
+        if (!didPop) _setSelecting(false);
+      },
+      child: Stack(
+        children: <Widget>[
+          PinchColumns(
+            onStep: ({required bool fewer}) => _visual && _view == _View.grid
+                ? ref.read(gridColumnsProvider.notifier).step(fewer: fewer)
+                : false,
+            child: LargeTitlePage(
+              controller: _scroll,
+              title: title,
+              onBack: () {
+                if (_selecting) {
+                  _setSelecting(false);
+                } else {
+                  Navigator.of(context).maybePop();
+                }
+              },
+              backLabel: widget.backLabel,
+              actions: <Widget>[
+                if (!_selecting && items.isNotEmpty)
+                  NavAction.icon(
+                    icon: GIcons.more,
+                    semanticLabel: context.s('More options'),
+                    onTap: () => _options(context, items),
                   ),
-                ],
-                below: items.isEmpty
-                    ? null
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: <Widget>[
-                          _Facts(items: items),
-                          const SizedBox(height: GSpace.md),
-                          Row(
-                            children: <Widget>[
-                              // Recovery gets one order storage cannot have:
-                              // soonest to be lost. It is the only sort in the
-                              // app that can prevent a loss rather than merely
-                              // find something.
-                              const GSortButton(allowExpiring: true),
-                              const Spacer(),
-                              const GViewSwitch(),
-                            ],
-                          ),
-                        ],
-                      ),
-              ),
-            ),
-            if (busy && (deepScanning || (progress != null && !progress.done)))
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  GSpace.gutter,
-                  0,
-                  GSpace.gutter,
-                  GSpace.md,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    GBar(
-                      fraction: deepScanning
-                          ? (deep!.total > 0 ? deep.scanned / deep.total : null)
-                          : progress!.total > 0
-                          ? progress.scanned / progress.total
-                          : null,
-                      colour: t.accent,
-                    ),
-                    const SizedBox(height: GSpace.sm),
-                    Text(
-                      // A real entry count, and the same sentence for both
-                      // scans. Two different phrasings for the same fact would
-                      // read as two different operations.
-                      deepScanning
-                          ? '${GFormat.count(deep!.found)} found in '
-                                '${GFormat.count(deep.scanned)} of '
-                                '${GFormat.count(deep.total)} entries'
-                          : '${GFormat.count(progress!.found)} found in '
-                                '${GFormat.count(progress.scanned)} of '
-                                '${GFormat.count(progress.total)} entries',
-                      style: GType.monoSmall.copyWith(color: t.dim),
-                    ),
-                  ],
-                ),
-              ),
-            if (deepTimedOut)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  GSpace.gutter,
-                  0,
-                  GSpace.gutter,
-                  GSpace.md,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Icon(Icons.schedule_rounded, size: 16, color: t.warning),
-                    const SizedBox(width: GSpace.sm + 2),
-                    Expanded(
-                      child: Text(
-                        context.s(
-                          'The scan ran out of time. What it found is here, and '
-                          'the picture is incomplete.',
-                        ),
-                        style: GType.micro.copyWith(color: t.muted),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            Expanded(
-              child: items.isEmpty
-                  ? GEmptyState(
-                      shape: shapeForKind(widget.query.kind),
-                      title: busy ? 'Looking' : 'Nothing deleted here',
-                      // ONE sentence. The three reasons an empty grid can
-                      // happen used to be a paragraph on this screen; they are
-                      // in the sheet now, where someone who wants them can ask.
-                      body: deepScanning
-                          ? 'Walking ${_sourceLabel(deep!.sourceId)}'
-                          : scan.isLoading
-                          ? 'Working through this source'
-                          : deepTimedOut
-                          ? 'The scan ran out of time before it finished.'
-                          : 'That is a real answer, not a failed scan.',
-                      actionLabel: busy
-                          ? null
-                          : deepTimedOut
-                          ? 'Scan again'
-                          : 'Scan my phone',
-                      onAction: busy
-                          ? null
-                          : () async {
-                              await ref
-                                  .read(recoveryBridgeProvider)
-                                  .startBackgroundScan();
-                              ref.invalidate(backgroundScanProvider);
-                            },
-                      onExplain: () => _explainEmpty(context),
-                    )
-                  : _Grouped(
-                      groups: _grouped(_ordered(items, sort), sort),
-                      all: _ordered(items, sort),
-                      mode: mode,
-                      sort: sort,
-                      selected: selected,
-                      onOpen: (RecoverableItem item) =>
-                          _open(context, items, items.indexOf(item)),
-                      onToggle: (String id) =>
-                          ref.read(selectionProvider.notifier).toggle(id),
-                      onToggleGroup: (List<String> ids) {
-                        final SelectionController controller = ref.read(
-                          selectionProvider.notifier,
-                        );
-                        final bool all = ids.every(selected.contains);
-                        for (final String id in ids) {
-                          final bool has = selected.contains(id);
-                          if (all == has) controller.toggle(id);
-                        }
+                if (_selecting)
+                  NavAction.text(
+                    label: context.s('Done'),
+                    onTap: () => _setSelecting(false),
+                  ),
+              ],
+              pinned: _group == null
+                  ? null
+                  : Segmented<_Group>(
+                      segments: <(_Group, String)>[
+                        for (final _Group g in _Group.values)
+                          (g, g.label(context)),
+                      ],
+                      value: _group!,
+                      onChanged: (_Group next) {
+                        _setSelecting(false);
+                        setState(() => _group = next);
                       },
                     ),
+              pinnedExtent: _group == null ? 0 : Segmented.extent,
+              onRefresh: () async {
+                ref.read(scanControllerProvider.notifier).run(_query.sourceIds);
+                ref.invalidate(recoveryItemsProvider(_query));
+                await ref.read(recoveryItemsProvider(_query).future);
+              },
+              bottom: _selecting
+                  ? ActionBar(
+                      leading: BarIconButton(
+                        icon: GIcons.checkCircle,
+                        semanticLabel: chosen.length == items.length
+                            ? context.s('Deselect all')
+                            : context.s('Select all'),
+                        onTap: () => _selectAll(items, chosen),
+                      ),
+                      center: PrimaryButton(
+                        pill: true,
+                        label: chosen.isEmpty
+                            ? _verb(context, items, chosen)
+                            : '${_verb(context, items, chosen)} '
+                                  '${GFormat.count(chosen.length)}',
+                        onTap: chosen.isEmpty ? null : () => _restore(chosen),
+                      ),
+                      trailing: BarIconButton(
+                        icon: GIcons.trash,
+                        semanticLabel: context.s('Delete for good'),
+                        onTap: chosen.isEmpty ? null : () => _delete(chosen),
+                      ),
+                    )
+                  : null,
+              bottomExtent: _selecting ? ActionBar.extent(context) : 0,
+              slivers: <Widget>[
+                const SliverToBoxAdapter(child: _Progress()),
+                if (items.isEmpty)
+                  SliverToBoxAdapter(
+                    child: _Empty(loading: async.isLoading, query: _query),
+                  )
+                else ...<Widget>[
+                  SliverToBoxAdapter(child: _Facts(items: items)),
+                  if (shelf)
+                    _shelfSliver(context, groups)
+                  else
+                    for (final DateGroup<RecoverableItem> group in groups)
+                      ..._groupSlivers(
+                        context,
+                        group,
+                        items,
+                        selected,
+                        columns,
+                      ),
+                ],
+              ],
             ),
-            if (chosen.isNotEmpty && !widget.viewOnly)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  GSpace.gutter,
-                  0,
-                  GSpace.gutter,
-                  GSpace.lg,
+          ),
+          if (!shelf)
+            Positioned.fill(
+              child: TimelineScrubber(
+                controller: _scroll,
+                top: MediaQuery.paddingOf(context).top + GDesign.navBarHeight,
+                bottom:
+                    MediaQuery.paddingOf(context).bottom +
+                    (_selecting
+                        ? ActionBar.extent(context)
+                        : GDesign.tabBarHeight + GDesign.space16),
+                labelAt: (double f) => groups.isEmpty
+                    ? null
+                    : groups[sectionAt(f, <int>[
+                            for (final DateGroup<RecoverableItem> g in groups)
+                              g.count,
+                          ])]
+                          .label,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Every section as a case of stacked prints, two to a row. Opening one
+  /// goes back to the grid, scrolled to that section.
+  Widget _shelfSliver(
+    BuildContext context,
+    List<DateGroup<RecoverableItem>> groups,
+  ) {
+    final RecoveryBridge bridge = ref.watch(recoveryBridgeProvider);
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space16,
+        GDesign.gutter,
+        GDesign.space32,
+      ),
+      sliver: SliverGrid(
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 2,
+          mainAxisSpacing: GDesign.space24,
+          crossAxisSpacing: GDesign.space16,
+          childAspectRatio: 0.7,
+        ),
+        delegate: SliverChildBuilderDelegate((BuildContext context, int i) {
+          final DateGroup<RecoverableItem> group = groups[i];
+          return Reveal(
+            index: i,
+            child: ShelfCase(
+              label: group.label,
+              detail:
+                  '${GFormat.count(group.count)}, ${GFormat.bytes(group.bytes)}',
+              images: <ImageProvider>[
+                for (final RecoverableItem item in group.items.take(3))
+                  ItemThumbnail(
+                    itemId: item.itemId,
+                    bridge: bridge,
+                    maxPixels: 360,
+                  ),
+              ],
+              onOpen: () => _openSection(group.label),
+            ),
+          );
+        }, childCount: groups.length),
+      ),
+    );
+  }
+
+  /// Where a keyed box sits on screen, or null when it is not laid out.
+  static Rect? _rectOf(GlobalKey? key) {
+    final RenderObject? box = key?.currentContext?.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  /// Every keyed box that is at least partly on screen.
+  Map<String, Rect> _onScreen(Map<String, GlobalKey> keys) {
+    final Size screen = MediaQuery.sizeOf(context);
+    final Rect bounds = Offset.zero & screen;
+    return <String, Rect>{
+      for (final MapEntry<String, GlobalKey> e in keys.entries)
+        if (_rectOf(e.value) case final Rect r when r.overlaps(bounds))
+          e.key: r,
+    };
+  }
+
+  /// Changes the layout. Between grid and list, every picture on screen
+  /// flies from its tile to its row's thumbnail (or back) while the new
+  /// layout settles under it; anything else simply swaps.
+  Future<void> _switchView(_View next) async {
+    if (next == _view || !mounted) return;
+    Haptics.select();
+    final bool morph =
+        !MediaQuery.disableAnimationsOf(context) &&
+        _view != _View.shelf &&
+        next != _View.shelf;
+    if (!morph) {
+      setState(() => _view = next);
+      return;
+    }
+
+    final bool toList = next == _View.list;
+    final Map<String, Rect> from = _onScreen(toList ? _keys : _thumbs);
+    // In list mode _keys holds whole rows; only the grid's _keys are tiles.
+    if (from.isEmpty) {
+      setState(() => _view = next);
+      return;
+    }
+    // The picture nearest the top stays put, so the user keeps their place.
+    final String anchor = from.entries
+        .reduce(
+          (MapEntry<String, Rect> a, MapEntry<String, Rect> b) =>
+              a.value.top <= b.value.top ? a : b,
+        )
+        .key;
+
+    setState(() {
+      _view = next;
+      _flying = from.keys.toSet();
+    });
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) return;
+
+    final Map<String, GlobalKey> targets = toList ? _thumbs : _keys;
+    final Rect? landed = _rectOf(targets[anchor]);
+    if (landed != null && _scroll.hasClients) {
+      final ScrollPosition p = _scroll.position;
+      final double to = (p.pixels + landed.top - from[anchor]!.top).clamp(
+        p.minScrollExtent,
+        p.maxScrollExtent,
+      );
+      if (to != p.pixels) {
+        p.jumpTo(to);
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+      }
+    }
+
+    final Map<String, Rect> to = _onScreen(targets);
+    final List<String> ids = <String>[
+      for (final String id in from.keys)
+        if (to.containsKey(id)) id,
+    ];
+    if (ids.isEmpty) {
+      setState(() => _flying = <String>{});
+      return;
+    }
+    await _fly(ids, from, to, toList: toList);
+    if (mounted) setState(() => _flying = <String>{});
+  }
+
+  /// Draws a copy of each picture over the page and moves it between two
+  /// rects, rounding its corners on the way into a row.
+  Future<void> _fly(
+    List<String> ids,
+    Map<String, Rect> from,
+    Map<String, Rect> to, {
+    required bool toList,
+  }) async {
+    final OverlayState overlay = Overlay.of(context);
+    final RenderBox host = overlay.context.findRenderObject()! as RenderBox;
+    final Offset origin = host.localToGlobal(Offset.zero);
+    final RecoveryBridge bridge = ref.read(recoveryBridgeProvider);
+    final AnimationController run = AnimationController(
+      vsync: this,
+      duration: GDesign.slow,
+    );
+    final Animation<double> t = CurvedAnimation(
+      parent: run,
+      curve: Springs.standardCurve,
+    );
+    final OverlayEntry entry = OverlayEntry(
+      builder: (BuildContext _) => IgnorePointer(
+        child: AnimatedBuilder(
+          animation: t,
+          builder: (BuildContext _, Widget? _) => Stack(
+            children: <Widget>[
+              for (final String id in ids)
+                Positioned.fromRect(
+                  rect: Rect.lerp(from[id], to[id], t.value)!.shift(-origin),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(
+                      _PhotoRow.radius * (toList ? t.value : 1 - t.value),
+                    ),
+                    child: SizedPhoto(
+                      image: ItemThumbnail(
+                        itemId: id,
+                        bridge: bridge,
+                        maxPixels: 360,
+                      ),
+                    ),
+                  ),
                 ),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: GButton(
-                        label: 'Delete ${chosen.length}',
-                        icon: Icons.delete_forever_rounded,
-                        kind: GButtonKind.danger,
-                        onPressed: () => _confirmDelete(chosen),
-                      ),
-                    ),
-                    const SizedBox(width: GSpace.md - 2),
-                    Expanded(
-                      child: GButton(
-                        // Save, not Restore, when the selection is status
-                        // media. Restoring something that was never deleted is
-                        // nonsense, and the button has to say what it does.
-                        label: '${_verb(items, chosen)} ${chosen.length}',
-                        icon: Icons.restore_rounded,
-                        onPressed: () => _act(chosen, purge: false),
-                      ),
-                    ),
-                  ],
+            ],
+          ),
+        ),
+      ),
+    );
+    overlay.insert(entry);
+    try {
+      await run.forward();
+    } finally {
+      entry.remove();
+      run.dispose();
+    }
+  }
+
+  /// Leaves the shelf and brings the chosen section's header into view.
+  void _openSection(String label) {
+    setState(() => _view = _View.grid);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final BuildContext? header = _headers[label]?.currentContext;
+      if (header == null) return;
+      Scrollable.ensureVisible(
+        header,
+        duration: GDesign.motion(context, GDesign.slow),
+        curve: GDesign.enter,
+      );
+    });
+  }
+
+  /// A day's header, then its photos as a grid or its files as rows.
+  List<Widget> _groupSlivers(
+    BuildContext context,
+    DateGroup<RecoverableItem> group,
+    List<RecoverableItem> all,
+    Set<String> selected,
+    int columns,
+  ) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final RecoveryBridge bridge = ref.watch(recoveryBridgeProvider);
+    final List<String> ids = <String>[
+      for (final RecoverableItem item in group.items) item.itemId,
+    ];
+    final bool allOn = ids.every(selected.contains);
+
+    final Widget header = Padding(
+      key: _headers.putIfAbsent(
+        group.label,
+        () => GlobalKey(debugLabel: group.label),
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space24,
+        GDesign.gutter,
+        GDesign.space8,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Semantics(
+              header: true,
+              child: Text(
+                group.label,
+                style: g.headline(color: group.dated ? g.text : g.muted),
+              ),
+            ),
+          ),
+          if (_selecting)
+            Pressable(
+              onTap: () => _selectGroup(ids, allOn),
+              child: SizedBox(
+                height: GDesign.touch,
+                child: Center(
+                  child: Text(
+                    allOn ? context.s('Deselect') : context.s('Select'),
+                    style: g.footnote(color: g.text, weight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            )
+          else
+            Text(
+              '${GFormat.count(group.count)}, ${GFormat.bytes(group.bytes)}',
+              style: g.figures(g.footnote()),
+            ),
+        ],
+      ),
+    );
+
+    if (_visual && _view == _View.list) {
+      return <Widget>[
+        SliverToBoxAdapter(child: header),
+        SliverList.builder(
+          itemCount: group.items.length,
+          itemBuilder: (BuildContext context, int i) {
+            final RecoverableItem item = group.items[i];
+            return RepaintBoundary(
+              key: _keyFor(item.itemId),
+              child: _PhotoRow(
+                item: item,
+                image: ItemThumbnail(
+                  itemId: item.itemId,
+                  bridge: bridge,
+                  maxPixels: 360,
+                ),
+                thumbKey: _thumbs.putIfAbsent(
+                  item.itemId,
+                  () => GlobalKey(debugLabel: 'thumb-${item.itemId}'),
+                ),
+                hidden: _flying.contains(item.itemId),
+                selected: _selecting ? selected.contains(item.itemId) : null,
+                onTap: () => _tap(context, all, item),
+                onLongPress: _selecting
+                    ? () => _toggle(item.itemId)
+                    : () => _peek(context, all, item),
+              ),
+            );
+          },
+        ),
+      ];
+    }
+
+    if (_visual) {
+      return <Widget>[
+        SliverToBoxAdapter(child: header),
+        SliverGrid(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            // Statuses are tall, so they run one column fewer.
+            crossAxisCount: _statuses ? math.max(2, columns - 1) : columns,
+            childAspectRatio: _statuses ? 9 / 16 : 1,
+            mainAxisSpacing: 2,
+            crossAxisSpacing: 2,
+          ),
+          delegate: SliverChildBuilderDelegate((BuildContext context, int i) {
+            final RecoverableItem item = group.items[i];
+            final bool on = selected.contains(item.itemId);
+            return RepaintBoundary(
+              key: _keyFor(item.itemId),
+              child: Opacity(
+                opacity: _flying.contains(item.itemId) ? 0 : 1,
+                child: PhotoGridTile(
+                  image: ItemThumbnail(
+                    itemId: item.itemId,
+                    bridge: bridge,
+                    maxPixels: 360,
+                  ),
+                  heroTag: 'item-${item.itemId}',
+                  selected: _selecting ? on : null,
+                  badge: item.durationMillis == null
+                      ? null
+                      : PhotoChip(
+                          GFormat.duration(
+                            Duration(milliseconds: item.durationMillis!),
+                          ),
+                        ),
+                  onTap: () => _tap(context, all, item),
+                  onLongPress: _selecting
+                      ? () => _toggle(item.itemId)
+                      : () => _peek(context, all, item),
+                ),
+              ),
+            );
+          }, childCount: group.items.length),
+        ),
+      ];
+    }
+
+    return <Widget>[
+      SliverToBoxAdapter(child: header),
+      SliverToBoxAdapter(
+        child: GroupedSection(
+          children: <Widget>[
+            for (final RecoverableItem item in group.items)
+              RepaintBoundary(
+                key: _keyFor(item.itemId),
+                child: ListRow(
+                  icon:
+                      PlayableMedia.canPlay(item.kind, item.mimeType) &&
+                          !_selecting
+                      ? null
+                      : _kindIcon(item.kind),
+                  leading:
+                      PlayableMedia.canPlay(item.kind, item.mimeType) &&
+                          !_selecting
+                      ? PlayRing(media: PlayableMedia.recoverable(item, bridge))
+                      : null,
+                  title: item.name,
+                  subtitle: GFormat.bytes(item.sizeBytes),
+                  trailing: _selecting
+                      ? SelectMark(selected: selected.contains(item.itemId))
+                      : null,
+                  onTap: () => _tap(context, all, item),
                 ),
               ),
           ],
         ),
       ),
-    );
+    ];
   }
 
-  void _open(BuildContext context, List<RecoverableItem> items, int index) {
-    final List<RecoverableItem> viewable = items.where(_reviewable).toList();
-    final int start = viewable.indexOf(items[index]);
-    if (start < 0) return;
-    // rootNavigator, because the viewer is the one screen that must cover the
-    // bottom bar. Everything else belongs inside its tab's stack.
-    Navigator.of(
-      context,
-      rootNavigator: true,
-    ).push(MediaViewer.route(items: viewable, index: start));
-  }
-
-  /// "Save" when everything selected is status media, "Restore" otherwise.
-  static String _verb(List<RecoverableItem> items, List<String> chosen) {
-    final Set<String> ids = chosen.toSet();
-    final Iterable<RecoverableItem> picked = items.where(
-      (RecoverableItem item) => ids.contains(item.itemId),
-    );
-    if (picked.isEmpty) return 'Restore';
-    return picked.every((RecoverableItem item) => item.role == 'status')
-        ? 'Save'
-        : 'Restore';
-  }
-
-  /// Only things with a preview. Audio and documents belong in the list, where
-  /// a name and a size are the whole story, not in a deck built around looking
-  /// at a picture.
-  static bool _reviewable(RecoverableItem item) =>
-      item.kind == 'image' || item.kind == 'video';
-
-  /// Which source the service is walking right now.
-  ///
-  /// Reads better than a percentage alone: "walking the thumbnail cache" tells
-  /// someone why a scan is taking minutes, where a bar at 40 percent does not.
-  String _sourceLabel(String? sourceId) {
-    switch (sourceId) {
-      case 'media_trash':
-        return 'the system bins';
-      case 'app_trash':
-        return 'the folders apps keep';
-      case 'thumbnails':
-        return 'the thumbnail cache';
-      default:
-        return 'every folder on this phone';
-    }
-  }
-
-  /// Why the grid is empty, and the one thing that can change the answer.
-  ///
-  /// The action is the same call the empty state's own button makes. Two
-  /// buttons on one screen that both promise a scan must run the same scan.
-  void _explainEmpty(BuildContext context) {
-    showGSheet(
-      context: context,
-      title: context.s('Why this is empty'),
-      action: GSheetAction(
-        label: context.s('Run a full scan'),
-        detail:
-            'Walks folders that counting cannot reach. Takes a few minutes.',
-        onTap: () async {
-          await ref.read(recoveryBridgeProvider).startBackgroundScan();
-          ref.invalidate(backgroundScanProvider);
-        },
+  /// A closer look on long press: the photo large, or the video playing
+  /// silently, with Select and Open under it.
+  void _peek(
+    BuildContext context,
+    List<RecoverableItem> all,
+    RecoverableItem item,
+  ) {
+    final RecoveryBridge bridge = ref.read(recoveryBridgeProvider);
+    final Widget still = SizedPhoto(
+      image: ItemThumbnail(
+        itemId: item.itemId,
+        bridge: bridge,
+        maxPixels: 1080,
       ),
-      footnote: 'IF THAT FINDS NOTHING',
-      children: <Widget>[
-        GSheetPoint(
-          text: context.s('Nothing of this kind was deleted recently.'),
+    );
+    final int? w = item.width;
+    final int? h = item.height;
+    showMediaPeek(
+      context,
+      aspectRatio: w != null && h != null && w > 0 && h > 0 ? w / h : 3 / 4,
+      preview: item.kind == 'video'
+          ? MediaStage(
+              media: PlayableMedia.recoverable(item, bridge),
+              fallback: still,
+              compact: true,
+            )
+          : still,
+      actions: <PeekAction>[
+        PeekAction(
+          label: context.s('Open'),
+          icon: GIcons.external,
+          onTap: () => _open(context, all, item),
         ),
-        GSheetPoint(
-          text: context.s(
-            'Or it was deleted outside a bin, by a cleaner app or a file '
-            'manager, and nothing kept a copy.',
+        if (!_viewOnly)
+          PeekAction(
+            label: context.s('Select'),
+            icon: GIcons.checkCircle,
+            onTap: () {
+              _setSelecting(true);
+              _toggle(item.itemId);
+            },
           ),
-        ),
       ],
     );
   }
 
-  /// SORTED IN DART, unlike storage, and the difference is worth knowing.
-  ///
-  /// Storage sends the order to native because its query is capped at 400 rows
-  /// out of a library of thousands, so ordering afterwards would sort the page
-  /// rather than the phone. Recovery items are already fully in memory: the scan
-  /// index holds every find and the provider returns all of them, so ordering
-  /// here sorts everything there is.
-  ///
-  /// If the per source cap ever starts biting on a phone with an enormous trash,
-  /// this becomes wrong in exactly the way the storage version would have been,
-  /// and it moves native.
+  /// Toggles while selecting, opens the viewer otherwise.
+  void _tap(
+    BuildContext context,
+    List<RecoverableItem> all,
+    RecoverableItem item,
+  ) {
+    if (_selecting) {
+      _toggle(item.itemId);
+    } else {
+      _open(context, all, item);
+    }
+  }
+
+  void _selectGroup(List<String> ids, bool allOn) {
+    Haptics.select();
+    final SelectionController controller = ref.read(selectionProvider.notifier);
+    final Set<String> selected = ref.read(selectionProvider);
+    for (final String id in ids) {
+      if (selected.contains(id) == allOn) controller.toggle(id);
+    }
+  }
+
+  void _selectAll(List<RecoverableItem> items, List<String> chosen) {
+    final bool clear = chosen.length == items.length;
+    _selectGroup(<String>[
+      for (final RecoverableItem i in items) i.itemId,
+    ], clear);
+  }
+
+  void _open(
+    BuildContext context,
+    List<RecoverableItem> all,
+    RecoverableItem item,
+  ) {
+    // A lone photo opens on its string rather than as a viewer of one.
+    if (_visual && all.length == 1 && !_viewOnly) {
+      openHangingReview(context, ref, all);
+      return;
+    }
+    Navigator.of(context).push(
+      MediaViewer.route(
+        items: all,
+        index: all.indexOf(item),
+        heroPrefix: 'item',
+        viewOnly: _viewOnly,
+      ),
+    );
+  }
+
+  /// Restores, then flies each confirmed photo home before the list
+  /// refreshes. Only the first two dozen fly; the rest are restored all the
+  /// same, and a flock of hundreds would only hide the screen.
+  Future<void> _restore(List<String> ids) async {
+    final RecoveryActionResult result = await runRecoveryAction(
+      ref,
+      ids,
+      purge: false,
+    );
+    if (!mounted) return;
+    int n = 0;
+    for (final String id in ids) {
+      final GlobalKey? key = _keys[id];
+      if (!result.done.contains(id) || key == null || n >= 24) continue;
+      await Flight.home(
+        context,
+        key,
+        stagger: Duration(milliseconds: 30 * n++),
+      );
+      if (!mounted) return;
+    }
+    reportRecoveryProblem(context, result);
+    _setSelecting(false);
+    refreshRecovery(ref);
+  }
+
+  /// Asks first, deletes, then turns each confirmed item to dust.
+  Future<void> _delete(List<String> ids) async {
+    final bool go = await showConfirmSheet(
+      context: context,
+      title: ids.length == 1
+          ? context.s('Delete 1 item for good')
+          : context.s1('Delete {} items for good', GFormat.count(ids.length)),
+      message: context.s(
+        'These leave the trash for good. This app cannot bring them back '
+        'afterwards, and neither can anything else.',
+      ),
+      confirmLabel: context.s('Delete'),
+      cancelLabel: context.s('Keep'),
+    );
+    if (!go || !mounted) return;
+
+    final RecoveryActionResult result = await runRecoveryAction(
+      ref,
+      ids,
+      purge: true,
+    );
+    if (!mounted) return;
+    int n = 0;
+    for (final String id in ids) {
+      final GlobalKey? key = _keys[id];
+      if (!result.done.contains(id) || key == null || n++ >= 24) continue;
+      await Dust.scatter(context, key);
+      if (!mounted) return;
+    }
+    reportRecoveryProblem(context, result);
+    _setSelecting(false);
+    refreshRecovery(ref);
+  }
+
+  /// Sort order and the one-by-one review, kept off the bar.
+  Future<void> _options(BuildContext context, List<RecoverableItem> items) {
+    final List<RecoverableItem> reviewable = items
+        .where((RecoverableItem i) => i.kind == 'image' || i.kind == 'video')
+        .toList();
+    return presentSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) {
+        final GSortMode sort = ref.read(gSortProvider);
+        return ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.only(bottom: GDesign.space16),
+          children: <Widget>[
+            if (_visual)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  GDesign.gutter,
+                  GDesign.space8,
+                  GDesign.gutter,
+                  GDesign.space24,
+                ),
+                child: Segmented<_View>(
+                  semanticLabel: context.s('View'),
+                  segments: <(_View, String)>[
+                    (_View.grid, context.s('Grid')),
+                    (_View.list, context.s('List')),
+                    (_View.shelf, context.s('Shelf')),
+                  ],
+                  value: _view,
+                  onChanged: (_View next) {
+                    Navigator.of(sheet).pop();
+                    // After the sheet starts closing, so the morph is seen.
+                    WidgetsBinding.instance.addPostFrameCallback(
+                      (_) => _switchView(next),
+                    );
+                  },
+                ),
+              ),
+            if (!_viewOnly) ...<Widget>[
+              GroupedSection(
+                children: <Widget>[
+                  ListRow(
+                    icon: GIcons.checkCircle,
+                    title: context.s('Select'),
+                    onTap: () {
+                      Navigator.of(sheet).pop();
+                      _setSelecting(true);
+                    },
+                  ),
+                  if (reviewable.isNotEmpty)
+                    ListRow(
+                      icon: GIcons.images,
+                      title: context.s('Review one by one'),
+                      onTap: () {
+                        Navigator.of(sheet).pop();
+                        openHangingReview(context, ref, reviewable);
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: GDesign.space24),
+            ],
+            GroupedSection(
+              header: context.s('Group by'),
+              children: <Widget>[
+                for (final GroupBy mode in GroupBy.values)
+                  ListRow(
+                    title: context.s(mode.label),
+                    trailing: mode == ref.read(groupByProvider)
+                        ? Icon(
+                            GIcons.check,
+                            size: 20,
+                            color: GDesignTheme.of(sheet).accentText,
+                          )
+                        : const SizedBox(width: 20),
+                    onTap: () {
+                      ref.read(groupByProvider.notifier).select(mode);
+                      Navigator.of(sheet).pop();
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: GDesign.space24),
+            GroupedSection(
+              header: context.s('Sort by'),
+              children: <Widget>[
+                for (final GSortMode mode in GSortMode.values)
+                  ListRow(
+                    title: context.s(mode.label),
+                    trailing: mode == sort
+                        ? Icon(
+                            GIcons.check,
+                            size: 20,
+                            color: GDesignTheme.of(sheet).accentText,
+                          )
+                        : const SizedBox(width: 20),
+                    onTap: () {
+                      ref.read(gSortProvider.notifier).select(mode);
+                      Navigator.of(sheet).pop();
+                    },
+                  ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// "Save" when everything selected is status media, "Restore" otherwise.
+  static String _verb(
+    BuildContext context,
+    List<RecoverableItem> items,
+    List<String> chosen,
+  ) {
+    final Set<String> ids = chosen.toSet();
+    final Iterable<RecoverableItem> picked = items.where(
+      (RecoverableItem item) => ids.contains(item.itemId),
+    );
+    final bool statuses =
+        picked.isNotEmpty &&
+        picked.every((RecoverableItem item) => item.role == kRoleStatus);
+    return statuses ? context.s('Save') : context.s('Restore');
+  }
+
+  static IconData _kindIcon(String kind) => switch (kind) {
+    'image' => GIcons.photos,
+    'video' => GIcons.video,
+    'audio' => GIcons.audio,
+    'document' => GIcons.docs,
+    _ => GIcons.folder,
+  };
+
   static List<RecoverableItem> _ordered(
     List<RecoverableItem> items,
     GSortMode sort,
   ) {
     final List<RecoverableItem> out = List<RecoverableItem>.of(items);
+    int byDeleted(RecoverableItem a, RecoverableItem b) =>
+        (b.dateDeletedMillis ?? 0).compareTo(a.dateDeletedMillis ?? 0);
     switch (sort) {
       case GSortMode.newest:
-        out.sort(
-          (RecoverableItem a, RecoverableItem b) =>
-              (b.dateDeletedMillis ?? 0).compareTo(a.dateDeletedMillis ?? 0),
-        );
+        out.sort(byDeleted);
       case GSortMode.oldest:
-        out.sort(
-          (RecoverableItem a, RecoverableItem b) =>
-              (a.dateDeletedMillis ?? 0).compareTo(b.dateDeletedMillis ?? 0),
-        );
+        out.sort((RecoverableItem a, RecoverableItem b) => byDeleted(b, a));
       case GSortMode.largest:
         out.sort(
           (RecoverableItem a, RecoverableItem b) =>
@@ -467,9 +1035,6 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
               a.name.toLowerCase().compareTo(b.name.toLowerCase()),
         );
       case GSortMode.expiring:
-        // No expiry sorts LAST, not first. A null is not urgent, and treating
-        // it as zero days would put every thumbnail cache entry above the photo
-        // that really does vanish on Thursday.
         out.sort((RecoverableItem a, RecoverableItem b) {
           final int left = a.expiresInDays ?? 1 << 30;
           final int right = b.expiresInDays ?? 1 << 30;
@@ -479,11 +1044,26 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
     return out;
   }
 
-  /// Days always, ordered by date or by size depending on the sort.
   static List<DateGroup<RecoverableItem>> _grouped(
     List<RecoverableItem> items,
     GSortMode sort,
+    GroupBy by,
   ) {
+    switch (by) {
+      case GroupBy.app:
+        return groupByApp<RecoverableItem>(
+          items,
+          pathOf: (RecoverableItem i) => i.relativePath,
+          sizeOf: (RecoverableItem i) => i.sizeBytes,
+        );
+      case GroupBy.size:
+        return groupBySize<RecoverableItem>(
+          items,
+          sizeOf: (RecoverableItem i) => i.sizeBytes,
+        );
+      case GroupBy.date:
+        break;
+    }
     final List<DateGroup<RecoverableItem>> groups =
         groupByDate<RecoverableItem>(
           items,
@@ -491,107 +1071,100 @@ class _CategoryPageState extends ConsumerState<CategoryPage> {
           sizeOf: (RecoverableItem item) => item.sizeBytes,
           prefix: 'Deleted',
         );
-
-    // Under a size sort the days are ranked by their largest file rather than
-    // by date. Same rule as the storage grid, so the two pages behave alike.
     if (!sort.ranksGroups) return groups;
     return rankGroupsBySize<RecoverableItem>(
       groups,
       smallestFirst: sort == GSortMode.smallest,
     );
   }
+}
 
-  /// The one irreversible action in the app, and until now the cheapest.
-  ///
-  /// Restoring a file can be undone by deleting it again. Purging empties the
-  /// trash, and the only copy the user had is gone for good. It had one tap and
-  /// no question, which made it easier to destroy files than to recover them.
-  Future<void> _confirmDelete(List<String> itemIds) async {
-    final bool go = await showConfirmSheet(
-      context: context,
-      title: 'Delete ${GFormat.count(itemIds.length)} permanently',
-      message: // States the consequence, not the mechanism. "Are you sure" asks a
-          // question the user cannot answer without knowing what happens next.
-          context.s(
-            'These leave the trash for good. This app cannot bring them back '
-            'afterwards, and neither can anything else.',
-          ),
-      confirmLabel: context.s('Delete'),
-      cancelLabel: context.s('Keep'),
+/// One line on what this list holds, measured from the items themselves.
+/// A picture as a list row: its thumbnail, name, and size.
+class _PhotoRow extends StatelessWidget {
+  const _PhotoRow({
+    required this.item,
+    required this.image,
+    required this.thumbKey,
+    required this.hidden,
+    required this.selected,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final RecoverableItem item;
+  final ImageProvider image;
+
+  /// Marks the thumbnail so the grid and list morph can find it.
+  final GlobalKey thumbKey;
+
+  /// True while a flying copy is landing on this thumbnail.
+  final bool hidden;
+
+  /// Null outside selection.
+  final bool? selected;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  static const double size = 56;
+  static const double radius = 10;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final int? millis = item.durationMillis;
+    return Pressable(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      semanticLabel: item.name,
+      scale: 0.98,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: GDesign.gutter,
+          vertical: 4,
+        ),
+        child: Row(
+          children: <Widget>[
+            Opacity(
+              opacity: hidden ? 0 : 1,
+              child: ClipRRect(
+                key: thumbKey,
+                borderRadius: BorderRadius.circular(radius),
+                child: SizedBox.square(
+                  dimension: size,
+                  child: SizedPhoto(image: image),
+                ),
+              ),
+            ),
+            const SizedBox(width: GDesign.space12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    item.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: g.body(),
+                  ),
+                  Text(
+                    millis == null
+                        ? GFormat.bytes(item.sizeBytes)
+                        : '${GFormat.bytes(item.sizeBytes)}, '
+                              '${GFormat.duration(Duration(milliseconds: millis))}',
+                    style: g.figures(g.footnote()),
+                  ),
+                ],
+              ),
+            ),
+            if (selected != null) SelectMark(selected: selected!),
+          ],
+        ),
+      ),
     );
-
-    if (!go || !mounted) return;
-    await _act(itemIds, purge: true);
-  }
-
-  Future<void> _act(List<String> itemIds, {required bool purge}) async {
-    final List<RestoreOutcome> outcomes = purge
-        ? await ref.read(recoveryBridgeProvider).purge(itemIds)
-        : await ref.read(recoveryBridgeProvider).restore(itemIds);
-    if (!mounted) return;
-
-    final int ok = outcomes
-        .where((RestoreOutcome outcome) => outcome.status == 'restored')
-        .length;
-    RestoreOutcome? problem;
-    for (final RestoreOutcome outcome in outcomes) {
-      if (outcome.status != 'restored') {
-        problem = outcome;
-        break;
-      }
-    }
-
-    // The first non-success is reported verbatim. The statuses were designed to
-    // be different because the user's next action differs, and collapsing them
-    // into "some items failed" throws that away.
-    GMessenger.show(
-      context,
-      problem == null
-          ? GMessage.success(purge ? '$ok deleted' : '$ok restored')
-          : GMessage.warning('$ok done. ${problem.detail}'),
-    );
-
-    ref.read(selectionProvider.notifier).clear();
-
-    // forget() BEFORE the invalidations, and it is not optional.
-    //
-    // The controller still lists these sources as scanned, so `ensure` would
-    // decline to walk them again and the next open would show a list built
-    // before the restore happened.
-    //
-    // It takes no argument and clears ALL sources, which is deliberate on its
-    // part: a restore moves files between sources, so forgetting only the one
-    // being viewed would leave the others holding rows that have moved.
-    ref.read(scanControllerProvider.notifier).forget();
-    ref.invalidate(recoveryItemsProvider);
-    ref.invalidate(prescanProvider);
   }
 }
 
-/// WHAT IS ACTUALLY IN HERE, above the grid.
-///
-/// The header was a title and the word "found" beside a number. Everything else
-/// a person wants before they start tapping was somewhere else or nowhere: how
-/// much space this is, how far back it goes, and how much of it is about to
-/// expire.
-///
-/// Derived from the list on screen, never from the summary. The summary counts
-/// what a scan found; this list is what survived the query and the four hundred
-/// item cap, and a header that disagrees with the grid under it is worse than no
-/// header at all.
-/// THE NUMBERS, AS A SENTENCE RATHER THAN THREE COLUMNS.
-///
-/// ─── THE THIRD COLUMN WAS DOING THE TILE'S JOB ───────────────────────────────
-///
-/// It showed expiring, else preview only, else the span: three unrelated facts
-/// sharing one slot behind a precedence, two of them amber. On the screen this
-/// replaces, "400 preview only" sat in exactly the position and colour that
-/// "12 expiring soon" would have taken, meaning something entirely different.
-/// A person could not tell whether the amber number was good news or bad.
-///
-/// Prose has no fixed number of slots, so nothing has to lose. The deadline and
-/// the preview count can both be present, in the order they matter, and each
-/// one says what it means for the person rather than naming a category.
 class _Facts extends StatelessWidget {
   const _Facts({required this.items});
 
@@ -599,281 +1172,239 @@ class _Facts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    int recoverable = 0;
-    int expiring = 0;
-    int preview = 0;
-    int? oldest;
-    int? newest;
-
+    final GDesignTheme g = GDesignTheme.of(context);
+    int bytes = 0;
+    int previews = 0;
     for (final RecoverableItem item in items) {
-      final int? days = item.expiresInDays;
-      if (days != null && days <= 3) expiring++;
-
-      // COUNTED SEPARATELY, and the headline only adds up the first kind. A
-      // preview's size is the size of a thumbnail, so folding it into a figure
-      // labelled "can be recovered" would be counting bytes that no restore
-      // will ever produce. Small in practice and wrong in principle.
       if (item.fidelity == 'preview') {
-        preview++;
+        previews++;
       } else {
-        recoverable += item.sizeBytes;
+        bytes += item.sizeBytes;
       }
-
-      final int? at = item.dateDeletedMillis;
-      if (at == null || at <= 0) continue;
-      if (oldest == null || at < oldest) oldest = at;
-      if (newest == null || at > newest) newest = at;
     }
+    final String count = items.length == 1
+        ? context.s('1 item')
+        : context.s1('{} items', GFormat.count(items.length));
+    final String line = bytes > 0 ? '$count, ${GFormat.bytes(bytes)}' : count;
 
-    // A phone whose finds are all previews would otherwise open on 0 B under
-    // the words "can be recovered", which is true, useless, and reads as a
-    // broken screen. The count is the honest headline in that case.
-    final bool anyBytes = recoverable > 0;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: <Widget>[
-            Text(
-              anyBytes
-                  ? GFormat.bytes(recoverable)
-                  : GFormat.count(items.length),
-              style: GType.monoNumber.copyWith(color: t.text, fontSize: 26),
-            ),
-            const SizedBox(width: GSpace.sm + 1),
-            Expanded(
-              child: Text(
-                anyBytes
-                    ? 'can be recovered, from '
-                          '${GFormat.count(items.length)} items'
-                    : items.length == 1
-                    ? 'item found'
-                    : 'items found',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: GType.bodySmall.copyWith(color: t.muted),
-              ),
-            ),
-          ],
-        ),
-
-        // Amber, and the only amber on the screen. It is the one fact here that
-        // is about to stop being true.
-        if (expiring > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: GSpace.xs + 1),
-            child: Text(
-              expiring == 1
-                  ? 'One leaves the trash within three days.'
-                  : '${GFormat.count(expiring)} leave the trash within three '
-                        'days.',
-              style: GType.micro.copyWith(color: t.warning, fontSize: 12.5),
-            ),
-          ),
-
-        // Muted, because it is permanent. Four hundred files that will never be
-        // anything more than a thumbnail is a fact about this phone, not a
-        // warning, and colouring it as one taught people to ignore the colour.
-        if (preview > 0)
-          Padding(
-            padding: const EdgeInsets.only(top: GSpace.xs + 1),
-            child: Text(
-              '${GFormat.count(preview)} of those are previews only, so only '
-              'the thumbnail comes back.',
-              style: GType.micro.copyWith(color: t.muted, fontSize: 12.5),
-            ),
-          ),
-
-        // Only when there is nothing more pressing to say. How far back a list
-        // reaches is interesting; it is never urgent.
-        if (expiring == 0 && preview == 0 && oldest != null && newest != null)
-          Padding(
-            padding: const EdgeInsets.only(top: GSpace.xs + 1),
-            child: Text(
-              'Reaching back ${_span(oldest, newest)}.',
-              style: GType.micro.copyWith(color: t.muted, fontSize: 12.5),
-            ),
-          ),
-      ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space4,
+        GDesign.gutter,
+        0,
+      ),
+      child: Text(
+        previews > 0
+            ? '$line. ${context.s1('{} are previews only.', GFormat.count(previews))}'
+            : line,
+        style: g.figures(g.footnote()),
+      ),
     );
-  }
-
-  /// How far back this list reaches, in the coarsest unit that still says
-  /// something. "43 days" is a fact; "6 weeks" is the same fact a person can
-  /// picture.
-  static String _span(int oldest, int newest) {
-    final int days = DateTime.fromMillisecondsSinceEpoch(
-      newest,
-    ).difference(DateTime.fromMillisecondsSinceEpoch(oldest)).inDays;
-    if (days <= 1) return 'to today';
-    if (days < 14) return '$days days';
-    if (days < 60) return '${(days / 7).round()} weeks';
-    return '${(days / 30).round()} months';
   }
 }
 
-/// The grid, cut into days.
-///
-/// A CustomScrollView rather than a ListView of sections, because a pinned
-/// sliver header is the only thing that survives being scrolled past, and
-/// knowing which day is on screen is the whole reason to group a long grid.
-///
-/// Each day is a SliverMainAxisGroup, and that is load bearing rather than
-/// tidiness. Pinning is scoped to the nearest sliver container, so a flat list
-/// of headers and grids pins every header to the viewport and never releases
-/// one: at six days found the headers owned the top 230 dp and the grid ran
-/// behind them. Grouped, the next day's header evicts the previous one and only
-/// the day being looked at is ever on screen.
-///
-/// One code path serves both view modes. List mode groups identically, because a
-/// documents category is unreadable as squares but is not thereby exempt from
-/// needing to know which day it is looking at.
-class _Grouped extends StatelessWidget {
-  const _Grouped({
-    required this.groups,
-    required this.all,
-    required this.mode,
-    required this.sort,
-    required this.selected,
-    required this.onOpen,
-    required this.onToggle,
-    required this.onToggleGroup,
-  });
-
-  final List<DateGroup<RecoverableItem>> groups;
-
-  /// The flat list, for the viewer. A deck that stopped at the end of a day
-  /// would strand the user mid swipe for a reason they cannot see.
-  final List<RecoverableItem> all;
-
-  final GViewMode mode;
-  final GSortMode sort;
-  final Set<String> selected;
-  final void Function(RecoverableItem) onOpen;
-  final void Function(String) onToggle;
-
-  /// Takes a whole day, or gives it back. Adds when any are missing, clears
-  /// only when all of them were already picked, which is what a person means by
-  /// tapping it twice.
-  final void Function(List<String>) onToggleGroup;
+/// The scan that is filling this list, while it runs.
+class _Progress extends ConsumerWidget {
+  const _Progress();
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final bool selecting = selected.isNotEmpty;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final BackgroundScanState? deep = ref.watch(backgroundScanProvider).value;
+    final ScanProgress? quick = ref.watch(scanProgressProvider).value;
+    final bool scanning = ref.watch(scanControllerProvider).isLoading;
 
-    return CustomScrollView(
-      slivers: <Widget>[
-        // ONE GROUP, ONE SLIVER GROUP, and that is the whole fix for the bug
-        // where six headers ended up stacked over a grid that was scrolling
-        // invisibly behind them.
-        //
-        // A pinned header pins for the length of whatever contains it. Laid out
-        // flat, that container is the whole scroll view, so every header a
-        // user scrolled past stayed on screen forever and the stack grew by
-        // 38 dp per day. SliverMainAxisGroup makes the containing extent the
-        // group itself, so the next day's header pushes the previous one off
-        // the top and exactly one is ever pinned: the one whose items are on
-        // screen.
-        for (final DateGroup<RecoverableItem> group in groups)
-          SliverMainAxisGroup(
-            slivers: <Widget>[
-              SliverPersistentHeader(
-                pinned: true,
-                delegate: GGroupHeader(
-                  label: group.label,
-                  meta:
-                      '${GFormat.count(group.count)}  ·  '
-                      '${GFormat.bytes(group.bytes)}',
-                  tokens: t,
-                  muted: !group.dated,
-                  // Only once something is selected. Offering a select all
-                  // before the user has expressed any intent puts a destructive
-                  // shortcut on a browsing screen.
-                  selected: selecting
-                      ? group.items.every(
-                          (RecoverableItem item) =>
-                              selected.contains(item.itemId),
-                        )
-                      : null,
-                  onToggleAll: selecting
-                      ? () => onToggleGroup(
-                          group.items
-                              .map((RecoverableItem item) => item.itemId)
-                              .toList(),
-                        )
-                      : null,
-                ),
-              ),
-              if (mode == GViewMode.grid)
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: GSpace.gutter,
-                  ),
-                  sliver: SliverGrid(
-                    // A fixed EXTENT, not a fixed column count. Three columns
-                    // look right at 360 dp and absurd on a foldable, and this
-                    // keeps the tile size stable across both.
-                    gridDelegate:
-                        const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 128,
-                          crossAxisSpacing: 6,
-                          mainAxisSpacing: 6,
+    final (int found, int scanned, int total)? at = (deep?.running ?? false)
+        ? (deep!.found, deep.scanned, deep.total)
+        : (scanning && quick != null && !quick.done)
+        ? (quick.found, quick.scanned, quick.total)
+        : null;
+    if (at == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space8,
+        GDesign.gutter,
+        GDesign.space8,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: at.$3 > 0 ? (at.$2 / at.$3).clamp(0.0, 1.0) : null,
+              minHeight: 4,
+              color: g.accent,
+              backgroundColor: g.fill,
+            ),
+          ),
+          const SizedBox(height: GDesign.space8),
+          Text(
+            context.s1('{} found so far', GFormat.count(at.$1)),
+            style: g.figures(g.footnote()),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The user's newest photos, for the empty scene. Same scope as the home
+/// page's, so the list is fetched once and shared.
+const StorageScope _recentPhotos = StorageScope(
+  title: 'Recent photos',
+  kind: 'image',
+  sort: GSortMode.newest,
+);
+
+/// Nothing to list: a small moving scene of what would be here, one line,
+/// the full scan, and the reason behind a quiet link.
+class _Empty extends ConsumerWidget {
+  const _Empty({required this.loading, required this.query});
+
+  final bool loading;
+  final RecoveryQuery query;
+
+  /// The scene that matches what this page holds.
+  EmptyKind get _kind {
+    if (query.roles.contains(kRoleStatus)) return EmptyKind.statuses;
+    if (query.roles.contains(kRoleCache)) return EmptyKind.previews;
+    return switch (query.kind) {
+      'video' => EmptyKind.video,
+      'audio' => EmptyKind.audio,
+      'document' => EmptyKind.docs,
+      _ => EmptyKind.photos,
+    };
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final BackgroundScanState? deep = ref.watch(backgroundScanProvider).value;
+    final bool busy =
+        loading ||
+        (deep?.running ?? false) ||
+        ref.watch(scanControllerProvider).isLoading;
+    final bool timedOut = deep != null && !deep.running && deep.timedOut;
+
+    final StorageBridge storage = ref.watch(storageBridgeProvider);
+    final List<StorageFile> recent =
+        ref.watch(storageFilesProvider(_recentPhotos)).value?.files ??
+        const <StorageFile>[];
+    final List<ImageProvider> photos = <ImageProvider>[
+      for (final StorageFile f in recent.take(4))
+        FileThumbnail(fileId: f.fileId, bridge: storage, maxPixels: 360),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space24,
+        GDesign.gutter,
+        GDesign.space32,
+      ),
+      child: Reveal(
+        child: Column(
+          children: <Widget>[
+            EmptyScene(kind: _kind, photos: photos),
+            const SizedBox(height: GDesign.space24),
+            Text(
+              busy ? context.s('Looking') : context.s('Nothing deleted here'),
+              style: g.headline(),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: GDesign.space4),
+            Text(
+              busy
+                  ? context.s('Working through this source')
+                  : timedOut
+                  ? context.s('The scan ran out of time')
+                  : context.s('A real answer, not a failed scan'),
+              style: g.footnote(),
+              textAlign: TextAlign.center,
+            ),
+            // Fades in and out with the scan instead of jumping.
+            AnimatedSize(
+              duration: GDesign.motion(context, GDesign.normal),
+              curve: GDesign.enter,
+              child: busy
+                  ? const SizedBox(width: double.infinity)
+                  : Column(
+                      children: <Widget>[
+                        const SizedBox(height: GDesign.space24),
+                        PrimaryButton(
+                          pill: true,
+                          label: timedOut
+                              ? context.s('Scan again')
+                              : context.s('Scan my phone'),
+                          icon: GIcons.scan,
+                          onTap: () async {
+                            await ref
+                                .read(recoveryBridgeProvider)
+                                .startBackgroundScan();
+                            ref.invalidate(backgroundScanProvider);
+                          },
                         ),
-                    delegate: SliverChildBuilderDelegate((
-                      BuildContext context,
-                      int index,
-                    ) {
-                      final RecoverableItem item = group.items[index];
-                      return ItemGridTile(
-                        item: item,
-                        selected: selected.contains(item.itemId),
-                        selecting: selecting,
-                        // Tap views, long press selects, and once anything is
-                        // selected tap selects too. Standard gallery behaviour,
-                        // and it is what stops the most common action on a
-                        // photo grid, looking at a photo, from being
-                        // unreachable.
-                        onTap: () =>
-                            selecting ? onToggle(item.itemId) : onOpen(item),
-                        onLongPress: () => onToggle(item.itemId),
-                      );
-                    }, childCount: group.items.length),
-                  ),
-                )
-              else
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: GSpace.gutter,
-                  ),
-                  sliver: SliverList(
-                    delegate: SliverChildBuilderDelegate((
-                      BuildContext context,
-                      int index,
-                    ) {
-                      final RecoverableItem item = group.items[index];
-                      return ItemRow(
-                        item: item,
-                        selected: selected.contains(item.itemId),
-                        detailed: mode == GViewMode.details,
-                        onTap: () =>
-                            selecting ? onToggle(item.itemId) : onOpen(item),
-                        onLongPress: () => onToggle(item.itemId),
-                      );
-                    }, childCount: group.items.length),
-                  ),
+                        const SizedBox(height: GDesign.space8),
+                        Pressable(
+                          onTap: () => _explain(context),
+                          semanticLabel: context.s('Why this is empty'),
+                          child: SizedBox(
+                            height: GDesign.touch,
+                            child: Center(
+                              child: Text(
+                                context.s('Why this is empty'),
+                                style: g.footnote(color: g.accentText),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _explain(BuildContext context) {
+    presentSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) {
+        final GDesignTheme g = GDesignTheme.of(sheet);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            GDesign.gutter,
+            GDesign.space8,
+            GDesign.gutter,
+            GDesign.space24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(context.s('Why this is empty'), style: g.title2()),
+              const SizedBox(height: GDesign.space12),
+              Text(
+                context.s('Nothing of this kind was deleted recently.'),
+                style: g.body(),
+              ),
+              const SizedBox(height: GDesign.space8),
+              Text(
+                context.s(
+                  'Or it was deleted outside a bin, by a cleaner app or a file '
+                  'manager, and nothing kept a copy.',
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: GSpace.md)),
+                style: g.body(color: g.muted),
+              ),
             ],
           ),
-        // Clears the action bar, which floats over the last row.
-        const SliverToBoxAdapter(child: SizedBox(height: 120)),
-      ],
+        );
+      },
     );
   }
 }

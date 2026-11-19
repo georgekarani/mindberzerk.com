@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:g_design/g_design.dart' show GDesign;
 
 import 'accent.dart';
 import 'typeface.dart';
@@ -78,60 +79,72 @@ class GTokens extends ThemeExtension<GTokens> {
 
   final Color scrim;
 
+  /// The one accent. Fills the primary action and selection marks.
+  ///
+  /// The accent picker is gone: the design language allows one warm accent,
+  /// so [accentKey] is kept only for the persisted state's shape and no longer
+  /// changes any colour. White text on it passes 4.5:1.
+  static const Color brand = Color(0xFFD93D00);
+
+  /// The accent as text on light surfaces (darker) and dark ones (lighter),
+  /// each 4.5:1 or better against its own card colour.
+  static const Color brandOnLight = Color(0xFFC23500);
+  static const Color brandOnDark = Color(0xFFFF6A33);
+
   factory GTokens.dark(GAccent accentKey) => GTokens._(
     brightness: Brightness.dark,
     accentKey: accentKey,
-    ink: const Color(0xFF0B0F14),
-    panel: const Color(0xFF151C24),
-    panelAlt: const Color(0xFF1C2630),
-    panelHigh: const Color(0xFF24313D),
-    line: const Color(0xFF243039),
-    lineStrong: const Color(0xFF33434F),
-    text: const Color(0xFFE4EBF1),
-    muted: const Color(0xFF8496A4),
-    dim: const Color(0xFF5A6B78),
-    accent: accentKey.base,
-    onAccent: GAccent.ink,
-    accentSoft: accentKey.base.withValues(alpha: 0.16),
-    accentText: accentKey.base,
+    ink: const Color(0xFF000000),
+    panel: const Color(0xFF1C1C1E),
+    panelAlt: const Color(0xFF2C2C2E),
+    panelHigh: const Color(0xFF3A3A3C),
+    line: const Color(0xFF2C2C2E),
+    lineStrong: const Color(0xFF3A3A3C),
+    text: const Color(0xFFF5F5F7),
+    muted: const Color(0xFFA1A1A6),
+    dim: const Color(0xFF8E8E93),
+    accent: brand,
+    onAccent: const Color(0xFFFFFFFF),
+    accentSoft: brand.withValues(alpha: 0.18),
+    accentText: brandOnDark,
     photo: GAccent.violet.base,
     video: GAccent.cyan.base,
     audio: GAccent.amber.base,
     docs: GAccent.mint.base,
     chat: GAccent.blue.base,
     apps: GAccent.coral.base,
-    success: GAccent.mint.base,
-    warning: GAccent.amber.base,
-    danger: GAccent.coral.base,
-    scrim: const Color(0xCC06090C),
+    success: const Color(0xFF30D158),
+    warning: const Color(0xFFFF9F0A),
+    danger: const Color(0xFFFF453A),
+    scrim: const Color(0x99000000),
   );
 
   factory GTokens.light(GAccent accentKey) => GTokens._(
     brightness: Brightness.light,
     accentKey: accentKey,
-    ink: const Color(0xFFF5F7FA),
+    ink: const Color(0xFFF5F5F5),
     panel: const Color(0xFFFFFFFF),
-    panelAlt: const Color(0xFFF0F3F7),
-    panelHigh: const Color(0xFFE4E9EF),
-    line: const Color(0xFFE4E9EF),
-    lineStrong: const Color(0xFFD2DAE3),
-    text: const Color(0xFF101820),
-    muted: const Color(0xFF65747F),
-    dim: const Color(0xFF8D9BA6),
-    accent: accentKey.base,
-    onAccent: GAccent.ink,
-    accentSoft: accentKey.base.withValues(alpha: 0.14),
-    accentText: accentKey.onLight,
+    panelAlt: const Color(0xFFF2F2F2),
+    panelHigh: const Color(0xFFEBEBEB),
+    line: const Color(0xFFEBEBEB),
+    lineStrong: const Color(0xFFDDDDDD),
+    text: const Color(0xFF222222),
+    muted: const Color(0xFF6A6A6A),
+    dim: const Color(0xFF717171),
+    accent: brand,
+    onAccent: const Color(0xFFFFFFFF),
+    accentSoft: brand.withValues(alpha: 0.12),
+    accentText: brandOnLight,
     photo: GAccent.violet.onLight,
     video: GAccent.cyan.onLight,
     audio: GAccent.amber.onLight,
     docs: GAccent.mint.onLight,
     chat: GAccent.blue.onLight,
     apps: GAccent.coral.onLight,
-    success: GAccent.mint.onLight,
-    warning: GAccent.amber.onLight,
-    danger: GAccent.coral.onLight,
-    scrim: const Color(0x99101820),
+    success: const Color(0xFF1E8E3E),
+    warning: const Color(0xFFB25E00),
+    danger: const Color(0xFFD92D20),
+    scrim: const Color(0x66000000),
   );
 
   factory GTokens.of(Brightness brightness, GAccent accentKey) =>
@@ -280,7 +293,11 @@ class GTypeSet {
   factory GTypeSet.of(GTypeface face) {
     final String? sans = face.sansFamily;
     final String? mono = face.monoFamily;
-    TextStyle s(TextStyle base) => applyFace(base, sans);
+    // System now means the bundled Inter from g_design: one family across the
+    // app, and nothing downloaded on first launch.
+    TextStyle s(TextStyle base) => face.isSystem
+        ? base.copyWith(fontFamily: GDesign.fontFamily)
+        : applyFace(base, sans);
     TextStyle m(TextStyle base) => applyFace(base, mono);
 
     return GTypeSet._(

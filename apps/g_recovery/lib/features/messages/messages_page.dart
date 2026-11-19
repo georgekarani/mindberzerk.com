@@ -1,88 +1,184 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:g_design/g_design.dart' show showConfirmSheet;
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
 import '../../bridge/messages_api.g.dart';
-import '../../core/date_groups.dart';
 import '../../core/format.dart';
-import '../../ui/art/escape_art.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_button.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_group_header.dart';
-import 'state/messages_providers.dart';
 import '../../core/i18n/g_strings.dart';
+import 'state/messages_providers.dart';
+import 'thread_page.dart';
 
-/// THE MESSAGE ARCHIVE.
+/// The message archive as a list of chats, newest first, the way a phone's
+/// own messages app shows them. Pills along the top filter by app once more
+/// than one app has been kept. A chat opens into its thread.
 ///
-/// This page used to open with six paragraphs and a bulleted list of everything
-/// the feature could not do. All of it was true and none of it belonged on the
-/// first screen: a wall of caveats before a person understands what they are
-/// looking at reads as an apology, not as honesty.
-///
-/// The limits have not been softened, only moved. They are one tap away behind
-/// the info icon, in a sheet, in the same words. What is left on the page is the
-/// art, one sentence, and the button.
-class MessagesPage extends ConsumerWidget {
-  const MessagesPage({super.key});
+/// Only received messages exist here: they were copied from notifications as
+/// they arrived. A removed notification is not proof of deletion, so only an
+/// edited message (the sender replaced it) is ever called deleted.
+class MessagesPage extends ConsumerStatefulWidget {
+  const MessagesPage({super.key, this.backLabel});
 
-  static Route<void> route() => MaterialPageRoute<void>(
-    builder: (BuildContext context) => const MessagesPage(),
+  final String? backLabel;
+
+  static Route<void> route({String? backLabel}) => MaterialPageRoute<void>(
+    builder: (BuildContext context) => MessagesPage(backLabel: backLabel),
   );
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+  ConsumerState<MessagesPage> createState() => _MessagesPageState();
+}
+
+class _MessagesPageState extends ConsumerState<MessagesPage> {
+  /// The app filter, by package name. Null shows every app.
+  String? _app;
+
+  @override
+  Widget build(BuildContext context) {
     final MessageCapture? capture = ref.watch(messageCaptureProvider).value;
-    final List<ArchivedMessage> messages =
+    final List<ArchivedMessage> all =
         ref.watch(archivedMessagesProvider).value ?? const <ArchivedMessage>[];
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-              child: GAppBar(
-                title: context.s('Messages'),
-                subtitle: capture == null || capture.messageCount == 0
-                    ? null
-                    : '${GFormat.count(capture.messageCount)} kept from '
-                          '${GFormat.count(capture.conversationCount)} chats',
-                leading: GIconButton(
-                  icon: Icons.arrow_back_rounded,
-                  onTap: () => Navigator.of(context).pop(),
+    final Map<String, String> apps = <String, String>{
+      for (final ArchivedMessage m in all) m.packageName: m.appLabel,
+    };
+    final String? app = apps.containsKey(_app) ? _app : null;
+    final List<ArchivedMessage> shown = app == null
+        ? all
+        : all.where((ArchivedMessage m) => m.packageName == app).toList();
+    final List<Chat> chats = Chat.group(shown);
+
+    return LargeTitlePage(
+      title: context.s('Messages'),
+      onBack: () => Navigator.of(context).maybePop(),
+      backLabel: widget.backLabel,
+      actions: <Widget>[
+        NavAction.icon(
+          icon: GIcons.more,
+          semanticLabel: context.s('More options'),
+          onTap: () => _options(context, capture, all.isNotEmpty),
+        ),
+      ],
+      pinned: apps.length > 1
+          ? ChoicePills<String?>(
+              options: <(String?, String)>[
+                (null, context.s('All')),
+                for (final MapEntry<String, String> e in apps.entries)
+                  (e.key, e.value),
+              ],
+              value: app,
+              onChanged: (String? next) => setState(() => _app = next),
+            )
+          : null,
+      pinnedExtent: apps.length > 1 ? ChoicePills.extent : 0,
+      onRefresh: () async {
+        ref.invalidate(messageCaptureProvider);
+        ref.invalidate(archivedMessagesProvider);
+        await ref.read(archivedMessagesProvider.future);
+      },
+      slivers: <Widget>[
+        if (all.isEmpty)
+          SliverToBoxAdapter(child: _Intro(capture: capture))
+        else ...<Widget>[
+          SliverToBoxAdapter(
+            child: _Summary(messages: shown, chats: chats),
+          ),
+          SliverList.builder(
+            itemCount: chats.length,
+            itemBuilder: (BuildContext context, int i) => _ChatRow(
+              chat: chats[i],
+              last: i == chats.length - 1,
+              onTap: () => Navigator.of(context).push(
+                ThreadPage.route(
+                  chat: chats[i],
+                  backLabel: context.s('Messages'),
                 ),
-                actions: <Widget>[
-                  if (messages.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: GSpace.sm),
-                      child: GIconButton(
-                        icon: Icons.delete_outline_rounded,
-                        onTap: () => _confirmClear(context, ref),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Capture on or off, how it works, and deleting the archive.
+  Future<void> _options(
+    BuildContext context,
+    MessageCapture? capture,
+    bool hasArchive,
+  ) {
+    return presentSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) => Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? _) {
+          final MessageCapture? now =
+              ref.watch(messageCaptureProvider).value ?? capture;
+          final bool listener = now?.listenerEnabled ?? false;
+          return ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.only(bottom: GDesign.space16),
+            children: <Widget>[
+              GroupedSection(
+                children: <Widget>[
+                  if (listener)
+                    ListRow(
+                      icon: GIcons.messages,
+                      title: context.s('Keep new messages'),
+                      trailing: ToggleSwitch(
+                        value: now?.capturing ?? false,
+                        semanticLabel: context.s('Keep new messages'),
+                        onChanged: (bool value) async {
+                          await ref
+                              .read(messagesBridgeProvider)
+                              .setCapturing(value: value);
+                          ref.invalidate(messageCaptureProvider);
+                        },
                       ),
+                    )
+                  else
+                    ListRow(
+                      icon: GIcons.bell,
+                      title: context.s('Allow notification access'),
+                      onTap: () => _allow(ref),
                     ),
-                  GIconButton(
-                    icon: Icons.info_outline_rounded,
-                    onTap: () => _showLimits(context),
+                  ListRow(
+                    icon: GIcons.info,
+                    title: context.s('How this works'),
+                    onTap: () {
+                      Navigator.of(sheet).pop();
+                      _howItWorks(context);
+                    },
                   ),
                 ],
               ),
-            ),
-            Expanded(
-              child: messages.isEmpty
-                  ? _Intro(capture: capture)
-                  : _Archive(messages: messages, capture: capture),
-            ),
-          ],
-        ),
+              if (hasArchive) ...<Widget>[
+                const SizedBox(height: GDesign.space24),
+                GroupedSection(
+                  children: <Widget>[
+                    ListRow(
+                      icon: GIcons.trash,
+                      title: context.s('Delete the archive'),
+                      destructive: true,
+                      onTap: () {
+                        Navigator.of(sheet).pop();
+                        _confirmClear(context);
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
 
-  Future<void> _confirmClear(BuildContext context, WidgetRef ref) async {
+  static Future<void> _allow(WidgetRef ref) async {
+    await ref.read(messagesBridgeProvider).openListenerSettings();
+    ref.invalidate(messageCaptureProvider);
+  }
+
+  Future<void> _confirmClear(BuildContext context) async {
     final bool go = await showConfirmSheet(
       context: context,
       title: context.s('Delete the archive'),
@@ -93,100 +189,276 @@ class MessagesPage extends ConsumerWidget {
       confirmLabel: context.s('Delete'),
       cancelLabel: context.s('Keep'),
     );
-
     if (!go) return;
+    Haptics.destroy();
     await ref.read(messagesBridgeProvider).clear();
     ref.invalidate(archivedMessagesProvider);
     ref.invalidate(messageCaptureProvider);
   }
 
-  /// The limits, in full, one tap away.
-  ///
-  /// Nothing here is shorter or gentler than the version that used to sit on the
-  /// page. A sheet is not a place to hide something; it is a place to put
-  /// something that is essential to understand and unhelpful to read first.
-  void _showLimits(BuildContext context) {
-    final GTokens t = context.g;
-    showModalBottomSheet<void>(
+  void _howItWorks(BuildContext context) {
+    presentSheet<void>(
       context: context,
-      backgroundColor: t.panel,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (BuildContext context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            GSpace.md,
-            GSpace.gutter,
-            GSpace.xl,
+      builder: (BuildContext sheet) {
+        final GDesignTheme g = GDesignTheme.of(sheet);
+        Widget para(String text, {bool strong = false}) => Padding(
+          padding: const EdgeInsets.only(bottom: GDesign.space12),
+          child: Text(
+            text,
+            style: strong ? g.headline() : g.body(color: g.muted),
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+        );
+        return ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(
+            GDesign.gutter,
+            GDesign.space8,
+            GDesign.gutter,
+            GDesign.space24,
+          ),
+          children: <Widget>[
+            Text(context.s('How this works'), style: g.title2()),
+            const SizedBox(height: GDesign.space12),
+            para(
+              context.s(
+                'Android hands every arriving message to this app as a '
+                'notification. G Recovery writes that text down. If the sender '
+                'deletes the message afterwards, your copy is still here.',
+              ),
+            ),
+            para(context.s('What it cannot do'), strong: true),
+            para(
+              context.s(
+                'Nothing from before you switch it on. No copy of those '
+                'messages exists anywhere for this app to find.',
+              ),
+            ),
+            para(
+              context.s(
+                'Text only. A photo arrives as the word Photo, so a view '
+                'once image cannot be kept this way.',
+              ),
+            ),
+            para(
+              context.s(
+                'Nothing from a muted chat, because a muted chat posts no '
+                'notification at all.',
+              ),
+            ),
+            para(context.s('Messaging apps only'), strong: true),
+            para(
+              context.s(
+                'WhatsApp, Telegram, Instagram, Messenger and Messages. Every '
+                'other notification, including bank alerts and sign in codes, '
+                'is discarded before it is written down.',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// One chat: every kept message from one conversation in one app.
+@immutable
+class Chat {
+  const Chat({
+    required this.title,
+    required this.app,
+    required this.package,
+    required this.conversation,
+    required this.messages,
+  });
+
+  /// Splits an archive (newest first) into chats, newest chat first.
+  static List<Chat> group(List<ArchivedMessage> messages) {
+    final Map<String, List<ArchivedMessage>> byChat =
+        <String, List<ArchivedMessage>>{};
+    for (final ArchivedMessage m in messages) {
+      final String title = m.conversation ?? m.sender ?? m.appLabel;
+      byChat
+          .putIfAbsent(
+            '${m.packageName}\u0000$title',
+            () => <ArchivedMessage>[],
+          )
+          .add(m);
+    }
+    final List<Chat> chats = <Chat>[
+      for (final List<ArchivedMessage> list in byChat.values)
+        Chat(
+          title:
+              list.first.conversation ??
+              list.first.sender ??
+              list.first.appLabel,
+          app: list.first.appLabel,
+          package: list.first.packageName,
+          conversation: list.first.conversation,
+          messages: List<ArchivedMessage>.unmodifiable(list),
+        ),
+    ];
+    chats.sort(
+      (Chat a, Chat b) =>
+          b.latest.postedAtMillis.compareTo(a.latest.postedAtMillis),
+    );
+    return chats;
+  }
+
+  final String title;
+  final String app;
+  final String package;
+
+  /// The title the notification carried, for asking the archive for more.
+  final String? conversation;
+
+  /// Newest first.
+  final List<ArchivedMessage> messages;
+
+  ArchivedMessage get latest => messages.first;
+
+  /// Messages the sender replaced after they arrived.
+  int get deleted => messages.where((ArchivedMessage m) => m.edited).length;
+}
+
+/// "Today 14:32" for today, the day otherwise.
+String messageTime(BuildContext context, int millis) {
+  final DateTime at = DateTime.fromMillisecondsSinceEpoch(millis);
+  final DateTime now = DateTime.now();
+  final bool today =
+      at.year == now.year && at.month == now.month && at.day == now.day;
+  return today
+      ? MaterialLocalizations.of(
+          context,
+        ).formatTimeOfDay(TimeOfDay.fromDateTime(at))
+      : GFormat.relativeDay(at, now);
+}
+
+/// How much is kept, and how much of it the senders took back.
+class _Summary extends StatelessWidget {
+  const _Summary({required this.messages, required this.chats});
+
+  final List<ArchivedMessage> messages;
+  final List<Chat> chats;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final int deleted = messages.where((ArchivedMessage m) => m.edited).length;
+    final String kept = context.s1('{} kept', GFormat.count(messages.length));
+    final String from = chats.length == 1
+        ? context.s('from 1 chat')
+        : context.s1('from {} chats', GFormat.count(chats.length));
+    final String line = deleted == 0
+        ? '$kept $from'
+        : '$kept $from. ${context.s1('{} deleted by sender', GFormat.count(deleted))}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space4,
+        GDesign.gutter,
+        GDesign.space12,
+      ),
+      child: Text(line, style: g.figures(g.footnote())),
+    );
+  }
+}
+
+/// A chat in the list: initial, name, the newest message and when.
+class _ChatRow extends StatelessWidget {
+  const _ChatRow({required this.chat, required this.last, required this.onTap});
+
+  final Chat chat;
+  final bool last;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final int deleted = chat.deleted;
+    final String initial = chat.title.trim().isEmpty
+        ? '?'
+        : chat.title.trim().characters.first.toUpperCase();
+
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.only(left: GDesign.gutter),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Center(
+              Padding(
+                padding: const EdgeInsets.only(top: GDesign.space12),
                 child: Container(
-                  width: 38,
-                  height: 4,
+                  width: 48,
+                  height: 48,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: t.line,
-                    borderRadius: GRadius.all(2),
+                    color: g.fill,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(initial, style: g.headline(color: g.muted)),
+                ),
+              ),
+              const SizedBox(width: GDesign.space12),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(
+                    0,
+                    GDesign.space12,
+                    GDesign.gutter,
+                    GDesign.space12,
+                  ),
+                  decoration: BoxDecoration(
+                    border: last
+                        ? null
+                        : Border(
+                            bottom: BorderSide(color: g.hairline, width: 0.5),
+                          ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Row(
+                        children: <Widget>[
+                          Expanded(
+                            child: Text(
+                              chat.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: g.headline(),
+                            ),
+                          ),
+                          const SizedBox(width: GDesign.space8),
+                          Text(
+                            messageTime(context, chat.latest.postedAtMillis),
+                            style: g.footnote(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        chat.latest.text,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: g.footnote(),
+                      ),
+                      const SizedBox(height: GDesign.space4),
+                      Text(
+                        deleted == 0
+                            ? chat.app
+                            : '${chat.app}, ${context.s1('{} deleted by sender', GFormat.count(deleted))}',
+                        style: g.footnote(
+                          color: deleted == 0 ? g.muted : g.text,
+                          weight: deleted == 0
+                              ? FontWeight.w400
+                              : FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ),
-              const SizedBox(height: GSpace.lg),
-              Text(
-                context.s('How this works'),
-                style: GType.title.copyWith(color: t.text),
-              ),
-              const SizedBox(height: GSpace.sm),
-              Text(
-                context.s(
-                  'Android hands every arriving message to this app as a '
-                  'notification. G Recovery writes that text down. If the sender '
-                  'deletes the message afterwards, your copy is still here.',
-                ),
-                style: GType.bodySmall.copyWith(color: t.muted),
-              ),
-              const SizedBox(height: GSpace.lg),
-              Text(
-                context.s('What it cannot do'),
-                style: GType.heading.copyWith(color: t.text),
-              ),
-              const SizedBox(height: GSpace.sm),
-              _Limit(
-                text: context.s(
-                  'Nothing from before you switch it on. No copy of those '
-                  'messages exists anywhere for this app to find.',
-                ),
-              ),
-              _Limit(
-                text: context.s(
-                  'Text only. A photo arrives as the word Photo, so a view '
-                  'once image cannot be kept this way.',
-                ),
-              ),
-              _Limit(
-                text: context.s(
-                  'Nothing from a muted chat, because a muted chat posts no '
-                  'notification at all.',
-                ),
-              ),
-              const SizedBox(height: GSpace.md),
-              Text(
-                context.s('Messaging apps only'),
-                style: GType.heading.copyWith(color: t.text),
-              ),
-              const SizedBox(height: GSpace.sm),
-              Text(
-                context.s(
-                  'WhatsApp, Telegram, Instagram, Messenger and Messages. Every '
-                  'other notification, including bank alerts and sign in codes, '
-                  'is discarded before it is written down.',
-                ),
-                style: GType.bodySmall.copyWith(color: t.muted),
               ),
             ],
           ),
@@ -196,7 +468,8 @@ class MessagesPage extends ConsumerWidget {
   }
 }
 
-/// Art, one sentence, one button.
+/// Before anything is kept: what this does, and the one action that starts
+/// it.
 class _Intro extends ConsumerWidget {
   const _Intro({required this.capture});
 
@@ -204,361 +477,47 @@ class _Intro extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final bool listener = capture?.listenerEnabled ?? false;
     final bool capturing = capture?.capturing ?? false;
     final bool running = listener && capturing;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space8,
+        GDesign.gutter,
+        0,
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const Spacer(),
-          EscapeArt(height: 230, shape: EscapeShape.messages),
-          const SizedBox(height: GSpace.lg),
           Text(
             running
-                ? 'Listening.\nNothing yet'
-                : 'Keep what was sent,\neven if it is taken back',
-            style: GType.display.copyWith(color: t.text),
+                ? context.s('Listening. Nothing yet.')
+                : context.s('Keep deleted messages'),
+            style: g.headline(),
           ),
-          const SizedBox(height: GSpace.md),
-          Text(
-            running
-                ? 'The next message to arrive will be kept here, even if it is '
-                      'deleted afterwards.'
-                : 'A deleted message is already on your phone, in the '
-                      'notification that announced it.',
-            style: GType.bodySmall.copyWith(color: t.muted),
-          ),
-          const Spacer(),
-
-          if (!listener)
-            GButton(
-              label: context.s('Allow notification access'),
-              onPressed: () async {
-                await ref.read(messagesBridgeProvider).openListenerSettings();
-                ref.invalidate(messageCaptureProvider);
-              },
-            )
-          else
-            GButton(
-              label: capturing
-                  ? 'Stop keeping messages'
-                  : 'Start keeping messages',
-              kind: capturing ? GButtonKind.danger : GButtonKind.primary,
-              onPressed: () async {
-                await ref
-                    .read(messagesBridgeProvider)
-                    .setCapturing(value: !capturing);
+          if (!running) ...<Widget>[
+            const SizedBox(height: GDesign.space16),
+            PrimaryButton(
+              label: listener
+                  ? context.s('Start keeping messages')
+                  : context.s('Allow notification access'),
+              onTap: () async {
+                if (listener) {
+                  await ref
+                      .read(messagesBridgeProvider)
+                      .setCapturing(value: true);
+                } else {
+                  await ref.read(messagesBridgeProvider).openListenerSettings();
+                }
                 ref.invalidate(messageCaptureProvider);
               },
             ),
-
-          const SizedBox(height: GSpace.lg),
-        ],
-      ),
-    );
-  }
-}
-
-class _Limit extends StatelessWidget {
-  const _Limit({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.sm + 1),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.only(top: 3),
-            child: Icon(Icons.remove_rounded, size: 15, color: t.warning),
-          ),
-          const SizedBox(width: GSpace.sm + 1),
-          Expanded(
-            child: Text(text, style: GType.bodySmall.copyWith(color: t.muted)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The archive, with a chart of when it filled up.
-class _Archive extends StatelessWidget {
-  const _Archive({required this.messages, required this.capture});
-
-  final List<ArchivedMessage> messages;
-  final MessageCapture? capture;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    // The same grouping the recovery grid uses, over a different item. Messages
-    // have no size, so every group total would read 0 B and the header takes
-    // the count alone.
-    final List<DateGroup<ArchivedMessage>> groups =
-        groupByDate<ArchivedMessage>(
-          messages,
-          dateOf: (ArchivedMessage m) => m.postedAtMillis,
-          sizeOf: (ArchivedMessage m) => 0,
-        );
-
-    final int deleted = messages.where((ArchivedMessage m) => m.edited).length;
-
-    return CustomScrollView(
-      slivers: <Widget>[
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              GSpace.gutter,
-              0,
-              GSpace.gutter,
-              GSpace.md,
-            ),
-            child: _Pulse(groups: groups, deleted: deleted),
-          ),
-        ),
-        for (final DateGroup<ArchivedMessage> group in groups) ...<Widget>[
-          SliverPersistentHeader(
-            pinned: true,
-            delegate: GGroupHeader(
-              label: group.label,
-              meta: GFormat.count(group.count),
-              tokens: t,
-              muted: !group.dated,
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (BuildContext context, int index) =>
-                    _Message(message: group.items[index]),
-                childCount: group.items.length,
-              ),
-            ),
-          ),
-          const SliverToBoxAdapter(child: SizedBox(height: GSpace.md)),
-        ],
-        if (capture?.since != null)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                GSpace.gutter,
-                GSpace.md,
-                GSpace.gutter,
-                GSpace.xl,
-              ),
-              child: Text(
-                // The honest edge of the archive, where the list stops. Without
-                // it, running out of scroll looks like data went missing.
-                context.s(
-                  'The archive starts here. Messages from before you switched '
-                  'this on were never captured.',
-                ),
-                textAlign: TextAlign.center,
-                style: GType.micro.copyWith(color: t.dim),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// How busy the archive has been, as bars behind two numbers.
-///
-/// Drawn from the groups that are already computed, so it costs one pass over a
-/// list the page had to build anyway. Oldest on the left, like every other
-/// timeline in this app.
-class _Pulse extends StatelessWidget {
-  const _Pulse({required this.groups, required this.deleted});
-
-  final List<DateGroup<ArchivedMessage>> groups;
-  final int deleted;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    final List<int> counts = <int>[
-      for (final DateGroup<ArchivedMessage> group in groups.reversed)
-        if (group.dated) group.count,
-    ];
-    final int peak = counts.isEmpty
-        ? 0
-        : counts.reduce((int a, int b) => a > b ? a : b);
-    final int total = counts.fold<int>(0, (int sum, int value) => sum + value);
-
-    return GCard(
-      padding: EdgeInsets.zero,
-      child: SizedBox(
-        height: 108,
-        child: Stack(
-          children: <Widget>[
-            if (peak > 0)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 62,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    for (final int value in counts)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                          child: FractionallySizedBox(
-                            alignment: Alignment.bottomCenter,
-                            heightFactor: value == 0 ? 0.04 : value / peak,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: t.chat.withValues(alpha: 0.45),
-                                borderRadius: const BorderRadius.vertical(
-                                  top: Radius.circular(2),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            Padding(
-              padding: const EdgeInsets.all(GSpace.md),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  _Stat(
-                    value: GFormat.count(total),
-                    label: 'kept',
-                    tone: t.text,
-                  ),
-                  // Only when there is one. "0 deleted by sender" is the number
-                  // nobody opened this page to read.
-                  if (deleted > 0)
-                    _Stat(
-                      value: GFormat.count(deleted),
-                      label: context.s('deleted by sender'),
-                      tone: t.warning,
-                    ),
-                ],
-              ),
-            ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat({required this.value, required this.label, required this.tone});
-
-  final String value;
-  final String label;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: GType.monoNumber.copyWith(color: tone, fontSize: 21),
-          ),
-          Text(label, style: GType.micro.copyWith(color: t.muted)),
         ],
       ),
     );
-  }
-}
-
-class _Message extends StatelessWidget {
-  const _Message({required this.message});
-
-  final ArchivedMessage message;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.sm),
-      child: GCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Container(
-                  width: 26,
-                  height: 26,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: t.chat.withValues(alpha: 0.2),
-                    borderRadius: GRadius.all(9),
-                  ),
-                  child: Icon(Icons.forum_outlined, size: 14, color: t.chat),
-                ),
-                const SizedBox(width: GSpace.sm + 1),
-                Expanded(
-                  child: Text(
-                    message.conversation ?? message.appLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GType.heading.copyWith(color: t.text),
-                  ),
-                ),
-                Text(
-                  _clock(message.postedAtMillis),
-                  style: GType.monoSmall.copyWith(color: t.dim, fontSize: 10.5),
-                ),
-              ],
-            ),
-            const SizedBox(height: GSpace.sm),
-            Text(message.text, style: GType.bodySmall.copyWith(color: t.muted)),
-            if (message.edited) ...<Widget>[
-              const SizedBox(height: GSpace.sm),
-              Row(
-                children: <Widget>[
-                  Icon(Icons.block_rounded, size: 14, color: t.warning),
-                  const SizedBox(width: GSpace.xs + 1),
-                  Text(
-                    // Only where the sending app said so itself. A notification
-                    // being dismissed is not evidence of anything and is never
-                    // labelled here.
-                    context.s('Deleted by sender'),
-                    style: GType.micro.copyWith(color: t.warning),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  static String _clock(int millis) {
-    final DateTime at = DateTime.fromMillisecondsSinceEpoch(millis);
-    final String hour = at.hour.toString().padLeft(2, '0');
-    final String minute = at.minute.toString().padLeft(2, '0');
-    return '$hour:$minute';
   }
 }

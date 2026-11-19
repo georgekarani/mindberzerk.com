@@ -8,13 +8,8 @@ class GPrefsKeys {
   static const String shellTab = 'shell_tab';
   static const String onboardingComplete = 'onboarding_complete';
 
-  /// Mirrors a purchase, and is never the record of one.
-  ///
-  /// A preference is editable by anyone with a rooted phone. That is fine for a
-  /// cache of something Play has already verified and is not fine as the only
-  /// evidence, which is why this key becomes a mirror the moment billing lands
-  /// rather than the source of truth it currently is.
-  static const String proUnlocked = 'pro_unlocked';
+  /// The Play build last offered in the update sheet, so it shows once.
+  static const String updateOffered = 'update_offered';
 
   /// The last comparison scan, in full.
   ///

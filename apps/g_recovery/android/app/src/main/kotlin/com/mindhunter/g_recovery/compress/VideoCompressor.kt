@@ -150,8 +150,13 @@ internal class VideoCompressor(
                     0
                 }
 
-                val verdict =
+                // A clip the encoder has already been run on and could not
+                // shrink is measured, not guessed, so it outranks the header.
+                val verdict = if (ledger.isNoGain(fileId)) {
+                    NO_GAIN
+                } else {
                     verdict(track.codec, duration, bitrate, width * height)
+                }
 
                 out += VideoCandidate(
                     fileId = fileId,
@@ -284,6 +289,8 @@ internal class VideoCompressor(
         val produced = if (bytes > 0) sample.length() else 0
         if (produced <= 0) {
             runCatching { sample.delete() }
+            // The encoder cannot handle this file, so it will never shrink.
+            ledger.markNoGain(listOf(fileId))
             return null
         }
 
@@ -293,6 +300,13 @@ internal class VideoCompressor(
         // direction for a number the user is deciding on.
         val scaled = produced.toDouble() * duration.toDouble() /
             SAMPLE_MILLIS.toDouble()
+
+        // The smaller preset is the most this app will try. If even that keeps
+        // the clip above the replace threshold, compress would skip it, so it
+        // stops being counted as something that can shrink.
+        if (preset == "smaller" && scaled >= size * REPLACE_RATIO) {
+            ledger.markNoGain(listOf(fileId))
+        }
 
         return VideoEstimate(
             fileId = fileId,
@@ -358,7 +372,10 @@ internal class VideoCompressor(
                 }
                 // Came back no smaller. A success for the user and a non event
                 // for the app: the recording is left exactly as it was.
-                result == 0L -> out += CompressOutcome(fileId, "skipped", 0)
+                result == 0L -> {
+                    ledger.markNoGain(listOf(fileId))
+                    out += CompressOutcome(fileId, "skipped", 0)
+                }
                 else -> out += CompressOutcome(fileId, "failed", 0)
             }
         }
@@ -406,7 +423,7 @@ internal class VideoCompressor(
 
             // A fifth, same floor as a photo. Twenty minutes of encoding to
             // save four percent is a trade nobody would take knowingly.
-            if (produced >= original * 0.8) return 0
+            if (produced >= original * REPLACE_RATIO) return 0
 
             // The check a photo does not need. An encoder that gave up partway
             // can leave a file of plausible size containing nothing playable.
@@ -815,5 +832,11 @@ internal class VideoCompressor(
          * that passes it is still measured for real before anything happens.
          */
         const val MIN_BITS_PER_MEGAPIXEL = 4_000_000L
+
+        /** Output must be under this share of the original to replace it. */
+        const val REPLACE_RATIO = 0.8
+
+        /** Shown for a clip whose real encode saved nothing. */
+        const val NO_GAIN = "No saving measured"
     }
 }

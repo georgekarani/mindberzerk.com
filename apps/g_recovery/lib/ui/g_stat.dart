@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:g_design/g_design.dart';
 
-import '../app/theme/tokens.dart';
-
-/// A single number with a label beneath it.
-///
-/// A null value renders nothing at all. The rule across this app: absent data
-/// is an absent row, never a placeholder like "--" or "0", because a fabricated
-/// zero in a recovery app reads as "nothing can be recovered".
+/// A figure over its label, as in a row of stats.
 class GStat extends StatelessWidget {
   const GStat({
     required this.label,
@@ -18,6 +13,8 @@ class GStat extends StatelessWidget {
   });
 
   final String label;
+
+  /// Nothing is drawn while this is null, so a missing reading leaves no gap.
   final String? value;
   final String? unit;
   final Color? tone;
@@ -25,38 +22,32 @@ class GStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     if (value == null) return const SizedBox.shrink();
-
+    final TextStyle figure = g.figures(g.headline(color: tone ?? g.text));
     return Column(
       crossAxisAlignment: align,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        RichText(
-          text: TextSpan(
+        Text.rich(
+          TextSpan(
             text: value,
-            style: GType.monoNumber.copyWith(
-              color: tone ?? t.text,
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-            ),
+            style: figure,
             children: <InlineSpan>[
               if (unit != null)
-                TextSpan(
-                  text: unit,
-                  style: GType.monoSmall.copyWith(color: t.dim),
-                ),
+                TextSpan(text: unit, style: g.figures(g.footnote())),
             ],
           ),
         ),
         const SizedBox(height: 2),
-        Text(label, style: GType.micro.copyWith(color: t.dim, fontSize: 10)),
+        Text(label, style: g.footnote()),
       ],
     );
   }
 }
 
-/// The uppercase section label used above every group of cards.
+/// A section heading above a card: sentence case, small and muted, inset to
+/// line up with the text inside the card below.
 class GOverline extends StatelessWidget {
   const GOverline(this.label, {super.key, this.trailing});
 
@@ -65,20 +56,30 @@ class GOverline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Row(
-      children: <Widget>[
-        Expanded(
-          child: Text(
-            label.toUpperCase(),
-            style: GType.overline.copyWith(color: t.dim),
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Padding(
+      padding: const EdgeInsetsDirectional.only(
+        start: GDesign.space16,
+        top: GDesign.space12,
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              _sentence(label),
+              style: g.footnote(weight: FontWeight.w600),
+            ),
           ),
-        ),
-        // Null-aware element. Equivalent to `if (trailing != null) trailing!`
-        // without the bang, so a later refactor cannot leave the bang behind
-        // after the null check is moved.
-        ?trailing,
-      ],
+          ?trailing,
+        ],
+      ),
     );
+  }
+
+  /// Headings were written in capitals for the old style; this lowers all
+  /// but the first letter of a heading that arrives entirely in capitals.
+  static String _sentence(String text) {
+    if (text.isEmpty || text != text.toUpperCase()) return text;
+    return text[0] + text.substring(1).toLowerCase();
   }
 }

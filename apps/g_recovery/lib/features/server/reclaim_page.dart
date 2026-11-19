@@ -1,42 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
+import '../../app/shell.dart';
 import '../../bridge/server_api.g.dart';
 import '../../bridge/server_bridge.dart';
 import '../../bridge/storage_api.g.dart';
+import '../../bridge/storage_bridge.dart';
 import '../../core/format.dart';
+import '../../core/i18n/g_strings.dart';
 import '../../core/messenger/g_message.dart';
 import '../../core/messenger/g_messenger.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_bar.dart';
-import '../../ui/g_button.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_enter.dart';
+import '../../ui/file_thumbnail.dart';
+import '../device/widgets/device_detail.dart';
 import '../storage/state/storage_providers.dart';
-import '../../core/i18n/g_strings.dart';
 
-/// FREEING SPACE THAT IS ALREADY SAFE.
+/// Files already on the home server that can leave the phone.
 ///
-/// The point of the whole backup feature, and the only screen in the app that
-/// deliberately removes originals.
-///
-/// ─── TWO INDEPENDENT SAFETY NETS ─────────────────────────────────────────────
-///
-/// First, nothing is removed until it has been hashed on both sides and the
-/// hashes matched. A file that fails, throws, or is missing on the server is
-/// left alone.
-///
-/// Second, what is removed goes to the system trash, not out. Thirty days of
-/// grace on top of the verification, because the cost of being wrong here is a
-/// photograph that exists in no other place.
-///
-/// ─── THE VERIFY IS NOT SKIPPABLE ─────────────────────────────────────────────
-///
-/// There is no "trust the list" path and there will not be. The listing compares
-/// sizes, which is cheap over a whole library and misses a corrupted file of the
-/// same length, and that is precisely the case where deleting the local copy
-/// loses something.
+/// Nothing is removed on trust: each picked file is hashed here and on the
+/// server first, and only matches go to the trash, where Android keeps them
+/// for 30 days.
 class ReclaimPage extends ConsumerStatefulWidget {
   const ReclaimPage({super.key});
 
@@ -51,197 +34,250 @@ class ReclaimPage extends ConsumerStatefulWidget {
 class _ReclaimPageState extends ConsumerState<ReclaimPage> {
   final Set<String> _picked = <String>{};
 
-  /// Null until a run starts, then 0 to 1.
-  double? _progress;
+  /// Files whose copies did not match on the last run; kept and shown.
+  final Set<String> _failed = <String>{};
+
+  /// What the run is doing, or null when idle.
   String? _stage;
 
-  /// Ids that failed verification, kept so the list can say which and why.
-  final Set<String> _failed = <String>{};
+  late final GShellNav _nav = ref.read(gShellNavHiddenProvider.notifier);
+
+  @override
+  void initState() {
+    super.initState();
+    _nav.hide();
+  }
+
+  @override
+  void dispose() {
+    _nav.show();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
+    final StorageBridge bridge = ref.watch(storageBridgeProvider);
+    final AsyncValue<List<ReclaimCandidate>> source = ref.watch(
+      reclaimableProvider,
+    );
     final List<ReclaimCandidate> all =
-        ref.watch(reclaimableProvider).value ?? const <ReclaimCandidate>[];
-
-    // Only what the server actually has. An unverified candidate is not offered
-    // at all rather than offered with a warning: a checkbox next to a file the
-    // app is unsure about is an invitation to lose it.
+        source.value ?? const <ReclaimCandidate>[];
     final List<ReclaimCandidate> ready = all
         .where((ReclaimCandidate c) => c.verified)
         .toList();
+    final int total = _sum(ready);
+    final int picked = _sum(
+      ready.where((ReclaimCandidate c) => _picked.contains(c.fileId)),
+    );
+    final bool busy = _stage != null;
+    final bool everything = _picked.length == ready.length;
+    final int? download = _remoteCost(total);
 
-    final int bytes = ready
-        .where((ReclaimCandidate c) => _picked.contains(c.fileId))
-        .fold<int>(0, (int sum, ReclaimCandidate c) => sum + c.sizeBytes);
-
-    final bool busy = _progress != null;
-
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-              child: GAppBar(
-                title: context.s('Reclaim space'),
-                subtitle: ready.isEmpty
-                    ? null
-                    : '${GFormat.count(ready.length)} files  ·  '
-                          '${GFormat.bytes(_total(ready))}',
-                leading: GIconButton(
-                  icon: Icons.arrow_back_rounded,
-                  onTap: () => Navigator.of(context).pop(),
+    return LargeTitlePage(
+      title: context.s('Free up space'),
+      backLabel: context.s('Home server'),
+      onBack: () => Navigator.of(context).maybePop(),
+      actions: <Widget>[
+        NavAction.icon(
+          icon: GIcons.info,
+          semanticLabel: context.s('How this is checked'),
+          onTap: () => showDeviceNote(
+            context,
+            context.s('How this is checked'),
+            <String>[
+              context.s(
+                'Each file is hashed on the phone and on the server. Only '
+                'files whose copies match are removed.',
+              ),
+              context.s(
+                'Removed files go to the trash, where Android keeps them for '
+                '30 days.',
+              ),
+              if (download != null)
+                context.s(
+                  'This server is outside your network, so checking reads '
+                  'each copy back. On mobile data that uses as much data as '
+                  'the space you free.',
                 ),
+            ],
+          ),
+        ),
+      ],
+      bottom: busy || ready.isEmpty
+          ? null
+          : ActionBar(
+              leading: BarIconButton(
+                icon: GIcons.checkCircle,
+                semanticLabel: everything
+                    ? context.s('Select none')
+                    : context.s('Select all'),
+                onTap: () => setState(() {
+                  if (everything) {
+                    _picked.clear();
+                  } else {
+                    _picked.addAll(ready.map((ReclaimCandidate c) => c.fileId));
+                  }
+                }),
+              ),
+              center: PrimaryButton(
+                label: _picked.isEmpty
+                    ? context.s('Tap files to pick')
+                    : context.s1('Check and free {}', GFormat.bytes(picked)),
+                onTap: _picked.isEmpty ? null : _run,
               ),
             ),
-
-            if (busy)
-              Expanded(
-                child: _Running(progress: _progress!, stage: _stage),
-              )
-            else if (ready.isEmpty)
-              Expanded(child: _Empty(hadCandidates: all.isNotEmpty))
-            else ...<Widget>[
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(
-                    GSpace.gutter,
-                    0,
-                    GSpace.gutter,
-                    GSpace.xl,
-                  ),
-                  itemCount: ready.length + 1,
-                  itemBuilder: (BuildContext context, int index) {
-                    if (index == 0) {
-                      return _Explainer(cost: _remoteCost(ready));
-                    }
-                    final ReclaimCandidate item = ready[index - 1];
-                    return GEnter(
-                      index: index - 1,
-                      child: _Row(
-                        item: item,
-                        selected: _picked.contains(item.fileId),
-                        failed: _failed.contains(item.fileId),
-                        onTap: () => setState(() {
-                          if (!_picked.remove(item.fileId)) {
-                            _picked.add(item.fileId);
-                          }
-                        }),
-                      ),
-                    );
-                  },
-                ),
+      bottomExtent: busy || ready.isEmpty ? 0 : ActionBar.extent(context),
+      slivers: <Widget>[
+        if (busy)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  const CircularProgressIndicator.adaptive(),
+                  const SizedBox(height: GDesign.space16),
+                  Text(_stage!, style: g.headline()),
+                ],
               ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  GSpace.gutter,
-                  0,
-                  GSpace.gutter,
-                  GSpace.lg,
-                ),
-                child: Row(
+            ),
+          )
+        else if (!source.hasValue)
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(child: CircularProgressIndicator.adaptive()),
+          )
+        else if (ready.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Reveal(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
-                    GButton(
-                      label: _picked.length == ready.length ? 'None' : 'All',
-                      kind: GButtonKind.ghost,
-                      expand: false,
-                      onPressed: () => setState(() {
-                        if (_picked.length == ready.length) {
-                          _picked.clear();
-                        } else {
-                          _picked
-                            ..clear()
-                            ..addAll(
-                              ready.map((ReclaimCandidate c) => c.fileId),
-                            );
-                        }
-                      }),
+                    Icon(GIcons.server, size: 48, color: g.faint),
+                    const SizedBox(height: GDesign.space12),
+                    Text(
+                      all.isEmpty
+                          ? context.s('Back up first')
+                          : context.s('Nothing matches the server'),
+                      style: g.headline(),
                     ),
-                    const SizedBox(width: GSpace.sm + 1),
-                    Expanded(
-                      child: GButton(
-                        label: _picked.isEmpty
-                            ? 'Choose files'
-                            : 'Check and free ${GFormat.bytes(bytes)}',
-                        icon: Icons.verified_outlined,
-                        onPressed: _picked.isEmpty ? null : _run,
-                      ),
+                    Text(
+                      context.s('Files the server holds will show here'),
+                      style: g.footnote(),
                     ),
                   ],
                 ),
               ),
-            ],
-          ],
-        ),
-      ),
+            ),
+          )
+        else ...<Widget>[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                GDesign.gutter,
+                GDesign.space8,
+                GDesign.gutter,
+                GDesign.space24,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  CountUpText(
+                    value: total,
+                    format: (num v) => context.s1(
+                      '{} safe to remove',
+                      GFormat.bytes(v.round()),
+                    ),
+                    style: g.figures(g.largeTitle()),
+                  ),
+                  Text(
+                    download == null
+                        ? context.s1(
+                            '{} files already on your server',
+                            GFormat.count(ready.length),
+                          )
+                        : context.s('Checking uses data off Wi-Fi'),
+                    style: g.footnote(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 2,
+                crossAxisSpacing: 2,
+              ),
+              itemCount: ready.length,
+              itemBuilder: (BuildContext context, int i) {
+                final ReclaimCandidate c = ready[i];
+                final bool failed = _failed.contains(c.fileId);
+                return PhotoGridTile(
+                  image: FileThumbnail(
+                    fileId: c.fileId,
+                    bridge: bridge,
+                    name: c.name,
+                  ),
+                  selected: _picked.contains(c.fileId),
+                  badge: PhotoChip(
+                    failed ? context.s('Kept') : GFormat.bytes(c.sizeBytes),
+                  ),
+                  onTap: failed
+                      ? null
+                      : () => setState(() {
+                          if (!_picked.remove(c.fileId)) _picked.add(c.fileId);
+                        }),
+                );
+              },
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: GDesign.space24)),
+        ],
+      ],
     );
   }
 
-  static int _total(List<ReclaimCandidate> items) =>
-      items.fold<int>(0, (int sum, ReclaimCandidate c) => sum + c.sizeBytes);
+  static int _sum(Iterable<ReclaimCandidate> items) =>
+      items.fold<int>(0, (int s, ReclaimCandidate c) => s + c.sizeBytes);
 
-  /// How much has to be downloaded to check this list, when that is not free.
-  ///
-  /// ─── THE CONTRACT DOES NOT BEND FOR A SLOW LINK ──────────────────────────
-  ///
-  /// Verifying means hashing both copies, which means reading the server's copy
-  /// back. Over SMB on a home network that costs nothing anyone notices. Over
-  /// https to a server across the internet it is a full download of every file
-  /// being reclaimed, which is the same volume as the space about to be freed.
-  ///
-  /// The answer is not to skip the check. It is to say so before the tap, so
-  /// nobody discovers it from their data bill.
-  int? _remoteCost(List<ReclaimCandidate> ready) {
+  /// Bytes a full check would download, or null when the server is on the
+  /// local network and checking is free.
+  int? _remoteCost(int bytes) {
     final ServerConfig? config = ref.watch(serverConfigProvider).value;
-    if (config == null) return null;
-    if (!_isRemote(config)) return null;
-    return _total(ready);
+    if (config == null || !_isRemote(config)) return null;
+    return bytes;
   }
 
-  /// Whether the server is somewhere this phone has to leave the house to
-  /// reach.
-  ///
-  /// A guess, and deliberately a conservative one: anything that does not look
-  /// like a private address is treated as remote, so the warning appears for a
-  /// LAN server with an odd host name rather than being missed for a real
-  /// remote one. Being wrong here costs a sentence nobody needed, and being
-  /// wrong the other way costs somebody's data allowance.
+  /// WebDAV to a public host. SMB and private address ranges are local.
   static bool _isRemote(ServerConfig config) {
     if (config.protocol != 'webdav') return false;
-
     final String host = config.host.toLowerCase();
     if (host == 'localhost' || host.endsWith('.local')) return false;
-    // A bare name with no dots is resolved on the local network by definition.
     if (!host.contains('.')) return false;
-    if (host.startsWith('192.168.') || host.startsWith('10.')) return false;
-    if (host.startsWith('169.254.')) return false;
-
-    // 172.16.0.0 to 172.31.255.255, which is the one private range that cannot
-    // be matched on a prefix string.
+    if (host.startsWith('192.168.') ||
+        host.startsWith('10.') ||
+        host.startsWith('169.254.')) {
+      return false;
+    }
     final List<String> parts = host.split('.');
     if (parts.length == 4 && parts[0] == '172') {
       final int? second = int.tryParse(parts[1]);
       if (second != null && second >= 16 && second <= 31) return false;
     }
-
     return true;
   }
 
-  /// Verify, then trash what passed.
-  ///
-  /// The two steps are visible as two stages, because the first one takes the
-  /// time and a person watching a bar move deserves to know which half they are
-  /// in.
   Future<void> _run() async {
     setState(() {
-      _progress = 0;
-      _stage = 'Checking each file is really on the server';
+      _stage = context.s('Checking the server copies');
       _failed.clear();
     });
-
     final List<String> chosen = _picked.toList();
     final List<String> verified = await ref
         .read(serverBridgeProvider)
@@ -249,28 +285,23 @@ class _ReclaimPageState extends ConsumerState<ReclaimPage> {
     if (!mounted) return;
 
     final Set<String> ok = verified.toSet();
-    final List<String> failed = chosen
-        .where((String id) => !ok.contains(id))
-        .toList();
-
+    final List<String> failed = <String>[
+      for (final String id in chosen)
+        if (!ok.contains(id)) id,
+    ];
     if (verified.isEmpty) {
       setState(() {
-        _progress = null;
         _stage = null;
         _failed.addAll(failed);
       });
       GMessenger.show(
         context,
-        GMessage('Nothing matched. Files left where they are.'),
+        GMessage(context.s('Nothing matched. All kept.')),
       );
       return;
     }
 
-    setState(() {
-      _progress = 0.6;
-      _stage = 'Moving ${GFormat.count(verified.length)} to the trash';
-    });
-
+    setState(() => _stage = context.s('Moving to the trash'));
     final List<StorageOutcome> outcomes = await ref
         .read(storageBridgeProvider)
         .remove(verified, permanent: false);
@@ -281,287 +312,27 @@ class _ReclaimPageState extends ConsumerState<ReclaimPage> {
           (StorageOutcome o) => o.status == 'trashed' || o.status == 'deleted',
         )
         .length;
-
     setState(() {
-      _progress = null;
       _stage = null;
       _picked.removeAll(verified);
       _failed.addAll(failed);
     });
-
-    ref.invalidate(reclaimableProvider);
-    ref.invalidate(storageOverviewProvider);
-
+    ref
+      ..invalidate(reclaimableProvider)
+      ..invalidate(storageOverviewProvider);
+    Haptics.confirm();
     GMessenger.show(
       context,
       failed.isEmpty
-          ? GMessage.success('$removed moved to trash')
+          ? GMessage.success(
+              context.s1('{} moved to the trash', GFormat.count(removed)),
+            )
           : GMessage(
-              '$removed freed. ${failed.length} did not match and were kept.',
-            ),
-    );
-  }
-}
-
-class _Explainer extends StatelessWidget {
-  const _Explainer({this.cost});
-
-  /// Bytes that will be downloaded to run the check, when that is not free.
-  /// Null on a home network, where it is.
-  final int? cost;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final int? cost = this.cost;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.md),
-      child: Column(
-        children: <Widget>[
-          GCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                _Step(
-                  icon: Icons.verified_outlined,
-                  tone: t.success,
-                  text: context.s(
-                    'Each file is hashed here and on the server before '
-                    'anything is touched.',
-                  ),
-                ),
-                const SizedBox(height: GSpace.sm),
-                _Step(
-                  icon: Icons.restore_from_trash_outlined,
-                  tone: t.docs,
-                  text: context.s(
-                    'What matches goes to the trash, where Android keeps '
-                    'it for thirty days.',
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (cost != null && cost > 0) ...<Widget>[
-            const SizedBox(height: GSpace.sm + 1),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: t.warning.withValues(alpha: 0.10),
-                border: Border.all(color: t.warning.withValues(alpha: 0.32)),
-                borderRadius: GRadius.all(GRadius.card),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(GSpace.md),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Icon(Icons.data_usage_rounded, size: 18, color: t.warning),
-                    const SizedBox(width: GSpace.md - 2),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            'Checking everything here downloads '
-                            '${GFormat.bytes(cost)}',
-                            style: GType.heading.copyWith(color: t.warning),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            context.s(
-                              'This server is not on your network, so the only '
-                              'way to be sure a copy is intact is to read it '
-                              'back. On Wi-Fi that costs nothing. On mobile '
-                              'data it costs the same as the space you are '
-                              'freeing. Choosing fewer files costs less.',
-                            ),
-                            style: GType.bodySmall.copyWith(color: t.muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              context.s1(
+                '{} freed. Some did not match and were kept.',
+                GFormat.count(removed),
               ),
             ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _Step extends StatelessWidget {
-  const _Step({required this.icon, required this.tone, required this.text});
-
-  final IconData icon;
-  final Color tone;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Icon(icon, size: 17, color: tone),
-        const SizedBox(width: GSpace.md - 2),
-        Expanded(
-          child: Text(text, style: GType.micro.copyWith(color: t.muted)),
-        ),
-      ],
-    );
-  }
-}
-
-class _Running extends StatelessWidget {
-  const _Running({required this.progress, required this.stage});
-
-  final double progress;
-  final String? stage;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Text(
-            stage ?? 'Working',
-            textAlign: TextAlign.center,
-            style: GType.title.copyWith(color: t.text),
-          ),
-          const SizedBox(height: GSpace.lg),
-          // Indeterminate, deliberately. Native returns one answer at the end
-          // rather than per file progress, and a bar that crawls to 60% and
-          // waits is a lie about how far along it is.
-          GBar(fraction: null, colour: t.accent),
-          const SizedBox(height: GSpace.md),
-          Text(
-            context.s('Reading both copies takes a moment on a large file.'),
-            textAlign: TextAlign.center,
-            style: GType.micro.copyWith(color: t.dim),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Empty extends StatelessWidget {
-  const _Empty({required this.hadCandidates});
-
-  final bool hadCandidates;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: GSpace.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.cloud_done_outlined, size: 40, color: t.dim),
-            const SizedBox(height: GSpace.lg),
-            Text(
-              hadCandidates ? 'Nothing verified' : 'Nothing to reclaim yet',
-              textAlign: TextAlign.center,
-              style: GType.title.copyWith(color: t.text),
-            ),
-            const SizedBox(height: GSpace.sm),
-            Text(
-              hadCandidates
-                  // The distinction matters: one is "back up first", the other
-                  // is "your server may have lost something".
-                  ? 'Files were uploaded but the server no longer has them at '
-                        'the same size. Back up again before freeing space.'
-                  : 'Back up to your server first. Anything it holds can then '
-                        'be removed from the phone.',
-              textAlign: TextAlign.center,
-              style: GType.bodySmall.copyWith(color: t.muted),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row({
-    required this.item,
-    required this.selected,
-    required this.failed,
-    required this.onTap,
-  });
-
-  final ReclaimCandidate item;
-  final bool selected;
-  final bool failed;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.sm),
-      child: GCard(
-        onTap: failed ? null : onTap,
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 22,
-              height: 22,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: selected ? t.accent : Colors.transparent,
-                border: Border.all(
-                  color: selected ? t.accent : t.line,
-                  width: 1.5,
-                ),
-                borderRadius: GRadius.all(7),
-              ),
-              child: selected
-                  ? Icon(Icons.check_rounded, size: 14, color: t.onAccent)
-                  : null,
-            ),
-            const SizedBox(width: GSpace.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    item.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GType.bodySmall.copyWith(
-                      color: failed ? t.muted : t.text,
-                    ),
-                  ),
-                  if (failed)
-                    Text(
-                      context.s('Did not match, kept'),
-                      style: GType.micro.copyWith(color: t.warning),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: GSpace.sm),
-            Text(
-              GFormat.bytes(item.sizeBytes),
-              style: GType.monoSmall.copyWith(color: t.dim),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

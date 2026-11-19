@@ -30,10 +30,12 @@ class ContentStore {
 
   static const String trashMap = 'trashmap';
   static const String learn = 'learn-en';
+  static const String benchLadder = 'bench-ladder';
 
   static const Map<String, String> _bundledAssets = <String, String>{
     trashMap: 'assets/packs/trashmap-bundled.json',
     learn: 'assets/content/learn-en.json',
+    benchLadder: 'assets/content/bench-ladder.json',
   };
 
   Future<String?> read(String id) async {

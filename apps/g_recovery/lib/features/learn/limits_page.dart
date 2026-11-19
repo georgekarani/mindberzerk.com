@@ -1,26 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:g_design/g_design.dart';
 
 import '../../app/theme/tokens.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_enter.dart';
-import '../../ui/g_sheet.dart';
 import '../../core/i18n/g_strings.dart';
 
-/// WHY SOME FILES CANNOT BE RECOVERED.
-///
-/// The page carrying the argument the whole product rests on. Every competitor
-/// in this category implies a deep scan that finds anything; this is the screen
-/// that says out loud why that is not true, and it has to be good enough that a
-/// person believes the app rather than feeling fobbed off.
-///
-/// Structured as three tiers rather than as prose, because the honest answer is
-/// not "no" but "it depends where it went", and a paragraph cannot show that
-/// shape. The technical detail sits behind the info icon: someone who wants to
-/// know about TRIM can find it, and someone who wanted a straight answer already
-/// got one.
+/// What can come back, and what cannot, told as three outcomes after an
+/// illustration of files coming apart.
 class LimitsPage extends StatelessWidget {
   const LimitsPage({super.key});
 
@@ -30,266 +17,208 @@ class LimitsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl,
+    final GDesignTheme g = GDesignTheme.of(context);
+    return LargeTitlePage(
+      title: context.s('What can come back'),
+      backLabel: context.s('More'),
+      onBack: () => Navigator.of(context).pop(),
+      grouped: true,
+      slivers: <Widget>[
+        const SliverToBoxAdapter(child: DustArt(height: 170)),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(
+              GDesign.gutter,
+              GDesign.space16,
+              GDesign.gutter,
+              GDesign.space24,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(context.s('Deleting is not one thing'), style: g.title2()),
+              ],
+            ),
           ),
-          children: <Widget>[
-            GAppBar(
-              title: context.s('What can come back'),
-              leading: GIconButton(
-                icon: Icons.arrow_back_rounded,
-                onTap: () => Navigator.of(context).pop(),
+        ),
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+          sliver: SliverList.list(
+            children: <Widget>[
+              Reveal(
+                index: 0,
+                child: _Tier(
+                  level: 3,
+                  verdict: context.s('Comes back whole'),
+                  title: context.s('It went to a trash folder'),
+                  body: context.s('Kept for 30 days, restored exactly.'),
+                ),
               ),
-              actions: <Widget>[
-                GIconButton(
-                  icon: Icons.info_outline_rounded,
-                  onTap: () => _showDetail(context),
+              const SizedBox(height: GDesign.space12),
+              Reveal(
+                index: 1,
+                child: _Tier(
+                  level: 1,
+                  verdict: context.s('Comes back smaller'),
+                  title: context.s('Only the preview survived'),
+                  body: context.s('A small copy outlived the original.'),
+                ),
+              ),
+              const SizedBox(height: GDesign.space12),
+              Reveal(
+                index: 2,
+                child: _Tier(
+                  level: 0,
+                  verdict: context.s('Does not come back'),
+                  title: context.s('It was erased outside a bin'),
+                  body: context.s('The phone wiped it within seconds.'),
+                ),
+              ),
+            ],
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(
+              top: GDesign.space24,
+              bottom: GDesign.space32,
+            ),
+            child: GroupedSection(
+              children: <Widget>[
+                ListRow(
+                  icon: GIcons.shield,
+                  title: context.s('Why no app can do more'),
+                  onTap: () => _explain(context),
                 ),
               ],
             ),
-
-            const SizedBox(height: GSpace.sm),
-            const DustArt(height: 190),
-            const SizedBox(height: GSpace.lg),
-
-            Text(
-              context.s('Deleting is not\none thing'),
-              style: GType.display.copyWith(color: t.text),
-            ),
-            const SizedBox(height: GSpace.md),
-            Text(
-              context.s(
-                'What happens to a file depends entirely on how it left. Some are '
-                'waiting to be picked up. Some left a shadow. Some are simply not '
-                'there any more, and no app can change that.',
-              ),
-              style: GType.bodySmall.copyWith(color: t.muted),
-            ),
-
-            const SizedBox(height: GSpace.lg),
-
-            GEnter(
-              index: 0,
-              child: _Tier(
-                tone: t.success,
-                icon: Icons.check_circle_outline_rounded,
-                verdict: 'Comes back whole',
-                title: context.s('It went to a trash folder'),
-                body:
-                    'Android keeps deleted photos and videos for thirty days, '
-                    'and many apps keep their own bin as well. The original file '
-                    'is still on the phone with a flag on it. Restoring puts it '
-                    'back exactly as it was.',
-              ),
-            ),
-            const SizedBox(height: GSpace.sm + 1),
-
-            GEnter(
-              index: 1,
-              child: _Tier(
-                tone: t.warning,
-                icon: Icons.filter_drama_outlined,
-                verdict: 'Comes back smaller',
-                title: context.s('Only the preview survived'),
-                body:
-                    'To show you a gallery quickly, Android saves a small copy '
-                    'of every picture. That copy often outlives the original. It '
-                    'is real and it is yours, but it is a few hundred pixels '
-                    'wide and enlarging it will not bring back the detail.',
-              ),
-            ),
-            const SizedBox(height: GSpace.sm + 1),
-
-            GEnter(
-              index: 2,
-              child: _Tier(
-                tone: t.danger,
-                icon: Icons.remove_circle_outline_rounded,
-                verdict: 'Does not come back',
-                title: context.s('It was erased outside a bin'),
-                body:
-                    'A file removed by a cleaner app, a file manager, or the '
-                    'app that owned it does not go anywhere. The space is handed '
-                    'straight back to the phone, which wipes it almost '
-                    'immediately. There is nothing left to read.',
-              ),
-            ),
-
-            const SizedBox(height: GSpace.lg),
-
-            GEnter(
-              index: 3,
-              child: GCard(
-                onTap: () => _showDetail(context),
-                child: Row(
-                  children: <Widget>[
-                    Icon(Icons.shield_outlined, size: 20, color: t.accentText),
-                    const SizedBox(width: GSpace.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            context.s('Why no app can do more'),
-                            style: GType.heading.copyWith(color: t.text),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            context.s('The technical reason, if you want it.'),
-                            style: GType.micro.copyWith(color: t.muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.chevron_right_rounded, size: 20, color: t.dim),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: GSpace.md),
-            Text(
-              // The commercial point, stated once and without naming anyone.
-              context.s(
-                'Any app promising to recover anything from an ordinary phone is '
-                'looking in exactly the same places this one does.',
-              ),
-              textAlign: TextAlign.center,
-              style: GType.micro.copyWith(color: t.dim),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showDetail(BuildContext context) {
-    final GTokens t = context.g;
-    showGSheet(
-      context: context,
-      title: context.s('Why no app can do more'),
-      children: <Widget>[
-        Text(
-          context.s(
-            'Recovery tools on a computer work by reading the disk directly, past '
-            'the filing system, and reassembling whatever is still lying there. '
-            'Three things stop that working on a phone.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        const GSheetHeading('The storage erases itself'),
-        GSheetPoint(
-          icon: Icons.bolt_outlined,
-          text: context.s(
-            'Phone storage is flash, which cannot overwrite in place. When '
-            'a file is deleted the phone immediately tells the chip that '
-            'those blocks are free, and the chip clears them in the '
-            'background, usually within seconds. On a spinning hard disk the '
-            'data sat there until something else needed the room. Here it '
-            'does not.',
-          ),
-        ),
-        const GSheetHeading('No app may read the disk'),
-        GSheetPoint(
-          icon: Icons.lock_outline_rounded,
-          text: context.s(
-            'Reading raw storage needs root. Android gives an app a view of '
-            'files, never of the disk underneath them, so the scan that '
-            'desktop tools perform cannot even be attempted.',
-          ),
-        ),
-        const GSheetHeading('It is all encrypted anyway'),
-        GSheetPoint(
-          icon: Icons.enhanced_encryption_outlined,
-          text: context.s(
-            'Every modern Android phone encrypts each file with its own '
-            'key, and that key is destroyed with the file. Even reaching the '
-            'raw blocks would return noise.',
-          ),
-        ),
-        const GSheetHeading('So what is left'),
-        GSheetPoint(
-          icon: Icons.check_rounded,
-          tone: null,
-          text: context.s(
-            'Everything that has not actually been deleted yet: the system '
-            'trash, the bins individual apps keep, media sitting in a folder '
-            'after the app forgot about it, and the thumbnail cache. That is '
-            'what this app looks through, and it says which of them each find '
-            'came from.',
           ),
         ),
       ],
     );
   }
+
+  void _explain(BuildContext context) {
+    presentSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) {
+        final GDesignTheme g = GDesignTheme.of(sheet);
+        Widget point(String heading, String body) => Padding(
+          padding: const EdgeInsets.only(bottom: GDesign.space16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Text(heading, style: g.headline()),
+              const SizedBox(height: GDesign.space4),
+              Text(body, style: g.body(color: g.muted)),
+            ],
+          ),
+        );
+        return ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(
+            GDesign.gutter,
+            GDesign.space8,
+            GDesign.gutter,
+            GDesign.space24,
+          ),
+          children: <Widget>[
+            Text(context.s('Why no app can do more'), style: g.title2()),
+            const SizedBox(height: GDesign.space16),
+            point(
+              context.s('The storage erases itself'),
+              context.s(
+                'Phone storage is flash. When a file is deleted the phone '
+                'tells the chip those blocks are free, and the chip clears '
+                'them within seconds.',
+              ),
+            ),
+            point(
+              context.s('No app may read the disk'),
+              context.s(
+                'Android gives an app a view of files, never of the disk '
+                'underneath, so the scan desktop tools perform cannot be tried.',
+              ),
+            ),
+            point(
+              context.s('It is all encrypted anyway'),
+              context.s(
+                'Each file is encrypted with its own key, destroyed with the '
+                'file. Even the raw blocks would read as noise.',
+              ),
+            ),
+            point(
+              context.s('So what is left'),
+              context.s(
+                'Everything not yet truly deleted: the system trash, the bins '
+                'apps keep, media an app forgot, and the preview cache. That '
+                'is where this app looks.',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }
 
-/// One tier of the answer.
+/// One outcome: how much comes back as a three-step meter, the verdict, a
+/// title and the reason.
 class _Tier extends StatelessWidget {
   const _Tier({
-    required this.tone,
-    required this.icon,
+    required this.level,
     required this.verdict,
     required this.title,
     required this.body,
   });
 
-  final Color tone;
-  final IconData icon;
+  /// Filled steps out of three: 3 whole, 1 smaller, 0 nothing.
+  final int level;
   final String verdict;
   final String title;
   final String body;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final bool dark = t.brightness == Brightness.dark;
-    final BorderRadius radius = GRadius.all(GRadius.card);
-
+    final GDesignTheme g = GDesignTheme.of(context);
     return DecoratedBox(
       decoration: BoxDecoration(
-        // Tinted by verdict, so the three are separable before a word is read.
-        // This is the one screen where colour carrying a judgement is correct:
-        // the judgement IS the content.
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: <Color>[
-            tone.withValues(alpha: dark ? 0.17 : 0.1),
-            tone.withValues(alpha: dark ? 0.06 : 0.035),
-          ],
-        ),
-        border: Border.all(color: tone.withValues(alpha: dark ? 0.36 : 0.26)),
-        borderRadius: radius,
+        color: g.card,
+        borderRadius: BorderRadius.circular(GDesign.cardRadius),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(GSpace.lg - 2),
+        padding: const EdgeInsets.all(GDesign.space16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Row(
               children: <Widget>[
-                Icon(icon, size: 19, color: tone),
-                const SizedBox(width: GSpace.sm + 1),
+                for (int i = 0; i < 3; i++)
+                  Container(
+                    width: 18,
+                    height: 6,
+                    margin: const EdgeInsetsDirectional.only(end: 3),
+                    decoration: BoxDecoration(
+                      color: i < level
+                          ? g.accent
+                          : (g.isDark ? g.hairline : g.fill),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                const SizedBox(width: GDesign.space8),
                 Text(
-                  verdict.toUpperCase(),
-                  style: GType.overline.copyWith(color: tone),
+                  verdict,
+                  style: g.footnote(
+                    color: level > 0 ? g.accentText : g.muted,
+                    weight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: GSpace.md),
-            Text(title, style: GType.title.copyWith(color: t.text)),
-            const SizedBox(height: GSpace.sm),
-            Text(body, style: GType.bodySmall.copyWith(color: t.muted)),
+            const SizedBox(height: GDesign.space12),
+            Text(title, style: g.headline()),
+            const SizedBox(height: GDesign.space4),
+            Text(body, style: g.body(color: g.muted)),
           ],
         ),
       ),

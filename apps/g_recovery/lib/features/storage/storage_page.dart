@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:g_recovery/app/shell.dart';
-import 'package:g_recovery/ui/g_stat.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/category_colors.dart';
-import '../../app/theme/tokens.dart';
 import '../../bridge/apps_api.g.dart';
 import '../../bridge/apps_bridge.dart';
 import '../../bridge/compare_api.g.dart';
@@ -16,12 +13,10 @@ import '../../bridge/recovery_api.g.dart';
 import '../../bridge/server_api.g.dart';
 import '../../bridge/server_bridge.dart';
 import '../../bridge/storage_api.g.dart';
+import '../../bridge/storage_bridge.dart';
 import '../../core/format.dart';
-import '../../ui/art/escape_art.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_empty_state.dart';
-import '../../ui/g_sheet.dart';
+import '../../core/i18n/g_strings.dart';
+import '../../ui/file_thumbnail.dart';
 import '../apps/apps_page.dart';
 import '../recovery/state/recovery_providers.dart';
 import '../server/server_page.dart';
@@ -34,619 +29,443 @@ import 'state/storage_breakdown.dart';
 import 'state/storage_files.dart';
 import 'state/storage_providers.dart';
 import 'storage_files_page.dart';
-import 'where_it_lives/folder_entry.dart';
-import 'where_it_lives/where_it_lives_section.dart';
-import 'widgets/g_bar_chart.dart';
-import 'widgets/reclaim_grid.dart';
-import 'widgets/storage_ledger.dart';
-import '../../core/i18n/g_strings.dart';
+import 'widgets/shrink_art.dart';
 
+/// Clean up: what can go, led by the user's own photos.
+///
+/// The tab exists to answer "my phone is full, what can I get rid of?". The
+/// largest measured saving leads as a photo card with one action; the other
+/// ways to free space follow as picture cards; what is using space sits
+/// last, as plain rows, for anyone who wants the breakdown.
+///
+/// Every saving shown is measured from the files themselves. Nothing here
+/// deletes for good: files go to the system trash and can come back from
+/// Recovery for 30 days.
 class StoragePage extends ConsumerWidget {
   const StoragePage({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
     final StorageOverview? overview = ref.watch(storageOverviewProvider).value;
-    final StorageBreakdown? breakdown = ref.watch(storageBreakdownProvider);
-    final DateTime? fills = ref.watch(fillForecastProvider);
     final RecoveryAccess? access = ref.watch(recoveryAccessProvider).value;
-    final ServerConfig? server = ref.watch(serverConfigProvider).value;
-
     final bool blind = access != null && !access.allFilesAccess;
+    final List<_Win> wins = _wins(context, ref);
 
-    return GPageBody(
-      children: <Widget>[
-        GAppBar(
-          title: context.s('Storage'),
-          actions: <Widget>[
-            GIconButton(
-              icon: Icons.refresh_rounded,
-              onTap: () => ref.invalidate(storageOverviewProvider),
-            ),
-          ],
+    return LargeTitlePage(
+      title: context.s('Clean up'),
+      actions: <Widget>[
+        NavAction.icon(
+          icon: GIcons.info,
+          semanticLabel: context.s('How storage is counted'),
+          onTap: () => _explainGap(context),
         ),
-
-        // ─── THE NUMBER, AND THE BAR ────────────────────────────────────────
-        //
-        // The filter chips used to sit here. Filters belong on a list someone
-        // is reading, not on a summary: they pushed the answer below the fold
-        // and duplicated the sort control every detail page now has.
-        if (overview != null) _Headline(overview: overview),
-
-        if (overview == null)
-          GCard(
-            child: Text(
-              context.s('Reading storage'),
-              style: GType.bodySmall.copyWith(color: t.muted),
+      ],
+      onRefresh: () async {
+        ref.invalidate(storageOverviewProvider);
+        ref.invalidate(storageFilesProvider);
+        await ref.read(storageOverviewProvider.future);
+      },
+      slivers: <Widget>[
+        if (overview != null)
+          SliverToBoxAdapter(child: _Space(overview: overview)),
+        if (blind)
+          const SliverToBoxAdapter(child: _Blind())
+        else if (overview != null) ...<Widget>[
+          const SliverToBoxAdapter(child: _ScanStatus()),
+          if (wins.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Reveal(child: _Lead(win: wins.first)),
             ),
-          )
-        else if (blind)
-          // The tab cannot work at all without the grant, so it says that once
-          // and stops rather than drawing six sections of almost nothing.
-          Padding(
-            padding: const EdgeInsets.only(top: GSpace.lg),
-            child: GEmptyState(
-              shape: EscapeShape.photos,
-              title: context.s('Only what this app made is visible'),
-              body:
-                  'File access is off, so everything else on the phone is '
-                  'there and cannot be examined.',
-              actionLabel: context.s('Turn on file access'),
-              onAction: () async {
-                await ref.read(recoveryBridgeProvider).requestAllFilesAccess();
-                ref.invalidate(recoveryAccessProvider);
-              },
-            ),
-          )
-        else ...<Widget>[
-          // ─── WHERE IT WENT ────────────────────────────────────────────────
-          if (breakdown != null) ...<Widget>[
-            const SizedBox(height: GSpace.md - 1),
-            GOverline('Where it went'),
-            const SizedBox(height: GSpace.sm + 1),
-            GCard(
-              child: StorageLedger(
-                breakdown: breakdown,
-                onOpen: (StorageBucket bucket) => Navigator.of(context).push(
-                  StorageFilesPage.route(
-                    StorageScope(title: bucket.label, kind: bucket.id),
-                  ),
+          if (wins.length > 1)
+            SliverToBoxAdapter(child: _MoreWays(wins: wins.sublist(1))),
+          SliverToBoxAdapter(child: _Using(overview: overview)),
+        ],
+      ],
+    );
+  }
+
+  /// Every way to free space this phone has right now, largest first. A
+  /// way with nothing in it is left out rather than shown as zero.
+  static List<_Win> _wins(BuildContext context, WidgetRef ref) {
+    final StorageBridge bridge = ref.watch(storageBridgeProvider);
+    final AsyncValue<ScanRecord?> scan = ref.watch(compareProvider);
+    final List<CompareGroup> similar = ref.watch(similarGroupsProvider);
+    final List<CompareGroup> exact = ref.watch(exactGroupsProvider);
+    final List<BlurredImage> blurred = ref.watch(blurredProvider);
+    final StorageQueryResult? large = ref
+        .watch(storageFilesProvider(kLargeFilesScope))
+        .value;
+    final StorageQueryResult? stale = ref
+        .watch(storageFilesProvider(kStaleScope))
+        .value;
+    final CompressSummary? compress = ref.watch(compressSummaryProvider).value;
+
+    ImageProvider thumb(String id, {String kind = 'image'}) =>
+        FileThumbnail(fileId: id, bridge: bridge, kind: kind, maxPixels: 480);
+    int wasted(List<CompareGroup> g) =>
+        g.fold<int>(0, (int s, CompareGroup x) => s + x.wastedBytes);
+    List<ImageProvider> fromGroups(List<CompareGroup> g) => <ImageProvider>[
+      for (final CompareGroup x in g.take(4)) thumb(x.keepFileId),
+    ];
+
+    final List<_Win> wins = <_Win>[
+      if (similar.isNotEmpty)
+        _Win(
+          title: context.s('Similar photos'),
+          chip: similar.length == 1
+              ? context.s('1 set of near-identical shots')
+              : context.s1(
+                  '{} sets of near-identical shots',
+                  GFormat.count(similar.length),
                 ),
+          detail: context.s1(
+            'Keep the best of each and free {}',
+            GFormat.bytes(wasted(similar)),
+          ),
+          action: context.s('Review similar photos'),
+          brief: context.s1('Frees {}', GFormat.bytes(wasted(similar))),
+          bytes: wasted(similar),
+          photos: fromGroups(similar),
+          open: (BuildContext c) =>
+              Navigator.of(c).push(CompareReviewPage.route('similar')),
+        ),
+      if (exact.isNotEmpty)
+        _Win(
+          title: context.s('Exact copies'),
+          chip: exact.length == 1
+              ? context.s('1 set of copies')
+              : context.s1('{} sets of copies', GFormat.count(exact.length)),
+          detail: context.s1(
+            'Identical files, free {}',
+            GFormat.bytes(wasted(exact)),
+          ),
+          action: context.s('Review copies'),
+          brief: context.s1('Frees {}', GFormat.bytes(wasted(exact))),
+          bytes: wasted(exact),
+          photos: fromGroups(exact),
+          open: (BuildContext c) =>
+              Navigator.of(c).push(CompareReviewPage.route('exact')),
+        ),
+      if (blurred.isNotEmpty)
+        _Win(
+          title: context.s('Blurred'),
+          chip: context.s1('{} blurry photos', GFormat.count(blurred.length)),
+          detail: context.s1(
+            '{} photos worth a second look',
+            GFormat.count(blurred.length),
+          ),
+          action: context.s('Review blurred photos'),
+          brief: context.s1('{} photos', GFormat.count(blurred.length)),
+          bytes: blurred.fold<int>(
+            0,
+            (int s, BlurredImage b) => s + b.sizeBytes,
+          ),
+          photos: <ImageProvider>[
+            for (final BlurredImage b in blurred.take(4)) thumb(b.fileId),
+          ],
+          open: (BuildContext c) =>
+              Navigator.of(c).push(BlurReviewPage.route()),
+        ),
+      if (large != null && large.files.isNotEmpty)
+        _Win(
+          title: context.s('Biggest files'),
+          chip: context.s('The ten biggest'),
+          detail: context.s1(
+            '{} in your ten biggest files',
+            GFormat.bytes(
+              large.files
+                  .take(10)
+                  .fold<int>(0, (int s, StorageFile f) => s + f.sizeBytes),
+            ),
+          ),
+          action: context.s('See biggest files'),
+          brief: context.s1(
+            '{} in ten files',
+            GFormat.bytes(
+              large.files
+                  .take(10)
+                  .fold<int>(0, (int s, StorageFile f) => s + f.sizeBytes),
+            ),
+          ),
+          bytes: large.files
+              .take(10)
+              .fold<int>(0, (int s, StorageFile f) => s + f.sizeBytes),
+          photos: <ImageProvider>[
+            for (final StorageFile f in large.files.where(_visual).take(4))
+              thumb(f.fileId, kind: f.kind),
+          ],
+          open: (BuildContext c) => Navigator.of(c).push(
+            StorageFilesPage.route(
+              kLargeFilesScope,
+              backLabel: c.s('Clean up'),
+            ),
+          ),
+        ),
+      if (stale != null && stale.matchBytes >= _worthShowing)
+        _Win(
+          title: context.s('Untouched'),
+          chip: context.s('Two years or older'),
+          detail: context.s1(
+            '{} not opened in two years',
+            GFormat.bytes(stale.matchBytes),
+          ),
+          action: context.s('See untouched files'),
+          brief: GFormat.bytes(stale.matchBytes),
+          bytes: stale.matchBytes,
+          photos: <ImageProvider>[
+            for (final StorageFile f in stale.files.where(_visual).take(4))
+              thumb(f.fileId, kind: f.kind),
+          ],
+          open: (BuildContext c) => Navigator.of(c).push(
+            StorageFilesPage.route(kStaleScope, backLabel: c.s('Clean up')),
+          ),
+        ),
+      if (compress != null && _held(compress) > 0)
+        _Win(
+          title: context.s('Make smaller'),
+          chip: context.s('Same picture, smaller file'),
+          detail: context.s1(
+            '{} in photos and screenshots',
+            GFormat.bytes(_held(compress)),
+          ),
+          action: context.s('Make files smaller'),
+          brief: context.s1('{} to shrink', GFormat.bytes(_held(compress))),
+          bytes: _held(compress),
+          photos: const <ImageProvider>[],
+          art: (bool compact) => ShrinkArt(compact: compact),
+          open: (BuildContext c) => Navigator.of(
+            c,
+          ).push(CompressPage.route(backLabel: c.s('Clean up'))),
+        ),
+    ]..sort((_Win a, _Win b) => b.bytes.compareTo(a.bytes));
+
+    // Before the photo scan has run, the scan itself is the next step.
+    if (scan.value == null && !scan.isLoading) {
+      wins.add(
+        _Win(
+          title: context.s('Similar and duplicate photos'),
+          chip: context.s('Not checked yet'),
+          detail: context.s('Copies and blur'),
+          action: context.s('Check my photos'),
+          brief: context.s('Not checked yet'),
+          bytes: -1,
+          photos: const <ImageProvider>[],
+          icon: GIcons.scan,
+          open: (BuildContext c) => _startScan(ref),
+        ),
+      );
+    }
+    return wins;
+  }
+
+  static const int _worthShowing = 10 * 1024 * 1024;
+
+  static bool _visual(StorageFile f) => f.kind == 'image' || f.kind == 'video';
+
+  static int _held(CompressSummary c) =>
+      c.screenshotBytes + c.photoBytes + (c.videoBytes ?? 0);
+
+  void _explainGap(BuildContext context) {
+    presentSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) {
+        final GDesignTheme g = GDesignTheme.of(sheet);
+        Widget line(String text) => Padding(
+          padding: const EdgeInsets.only(bottom: GDesign.space8),
+          child: Text(text, style: g.body(color: g.muted)),
+        );
+        return ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(
+            GDesign.gutter,
+            GDesign.space8,
+            GDesign.gutter,
+            GDesign.space24,
+          ),
+          children: <Widget>[
+            Text(context.s('How storage is counted'), style: g.title2()),
+            const SizedBox(height: GDesign.space12),
+            line(
+              context.s(
+                'Every saving here is measured from the files themselves. '
+                'Nothing is deleted for good: files go to the system trash and '
+                'can come back from Recovery for 30 days.',
+              ),
+            ),
+            line(
+              context.s(
+                'Apps and the system are one figure, because no app, '
+                'including this one, can list what is inside them.',
               ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
 
-          if (fills != null) ...<Widget>[
-            const SizedBox(height: GSpace.md - 1),
-            _Forecast(at: fills),
-          ],
+void _startScan(WidgetRef ref) => ref
+    .read(compareProvider.notifier)
+    .run(
+      fingerprint: storageFingerprint(ref.read(storageOverviewProvider).value),
+    );
 
-          // ─── WORTH A LOOK ─────────────────────────────────────────────────
-          const SizedBox(height: GSpace.lg),
-          GOverline('Worth a look'),
-          const SizedBox(height: GSpace.sm + 1),
-          ReclaimGrid(
-            actions: ref.watch(reclaimActionsProvider),
-            onOpen: (ReclaimAction action) =>
-                _openReclaim(context, ref, action),
+/// One way to free space, as the cards show it.
+@immutable
+class _Win {
+  const _Win({
+    required this.title,
+    required this.chip,
+    required this.detail,
+    required this.action,
+    required this.bytes,
+    required this.photos,
+    required this.brief,
+    required this.open,
+    this.icon,
+    this.art,
+  });
+
+  final String title;
+
+  /// One short figure for the small cards, such as "Frees 53.6 MB".
+  final String brief;
+
+  /// Over the lead photo.
+  final String chip;
+  final String detail;
+
+  /// The lead card's button.
+  final String action;
+
+  /// Measured saving, for ordering. Negative for a step with no figure yet.
+  final int bytes;
+
+  /// Up to four of the user's own files, for the collage.
+  final List<ImageProvider> photos;
+
+  /// Shown instead of photos when the way has none to show.
+  final IconData? icon;
+
+  /// A live picture drawn instead of the collage, given whether the card is
+  /// the small one.
+  final Widget Function(bool compact)? art;
+  final void Function(BuildContext context) open;
+}
+
+// ── Free space ───────────────────────────────────────────────────────────
+
+/// "117 GB free", the total, and one slim bar.
+class _Space extends StatelessWidget {
+  const _Space({required this.overview});
+
+  final StorageOverview overview;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final int total = overview.volume.totalBytes;
+    final double used = total <= 0 ? 0 : overview.volume.usedBytes / total;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space8,
+        GDesign.gutter,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: <Widget>[
+              Expanded(
+                child: CountUpText(
+                  value: overview.volume.freeBytes,
+                  format: (num v) =>
+                      context.s1('{} free', GFormat.bytes(v.round())),
+                  style: g.figures(g.headline()),
+                ),
+              ),
+              Text(
+                context.s1('of {}', GFormat.bytes(total)),
+                style: g.figures(g.footnote()),
+              ),
+            ],
           ),
-          const SizedBox(height: GSpace.sm + 1),
-          const _ScanLine(),
-
-          // ─── MAKE THINGS SMALLER ──────────────────────────────────────────
-          //
-          // Directly under Worth a look, and that is a change from where this
-          // sat. It used to be below By year, six sections down, which put the
-          // only other way of getting space back nowhere near the first one.
-          //
-          // Not above Where it went, which was the earlier proposal: the
-          // breakdown is genuinely the second thing a person wants after the
-          // headline, and an action ahead of the explanation reads as a pitch.
-          const SizedBox(height: GSpace.lg),
-          GOverline('Make things smaller'),
-          const SizedBox(height: GSpace.sm + 1),
-          const _CompressLine(),
-
-          // ─── WHERE IT LIVES ───────────────────────────────────────────────
-          const SizedBox(height: GSpace.lg),
-          _FoldersCard(overview: overview),
-
-          // ─── BY YEAR ──────────────────────────────────────────────────────
-          if (overview.ages.isNotEmpty) ...<Widget>[
-            const SizedBox(height: GSpace.md - 1),
-            GOverline('By year'),
-            const SizedBox(height: GSpace.sm + 1),
-            GCard(
-              child: GBarChart(
-                data: <GBarDatum>[
-                  // Oldest first, so it reads left to right like every other
-                  // timeline in this app.
-                  for (final AgeBucket bucket
-                      in List<AgeBucket>.of(overview.ages)..sort(
-                        (AgeBucket a, AgeBucket b) => a.year.compareTo(b.year),
-                      ))
-                    GBarDatum(
-                      label: "'${bucket.year % 100}",
-                      value: bucket.totalBytes.toDouble(),
-                      colour: t.accent,
-                    ),
+          const SizedBox(height: GDesign.space8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              height: 6,
+              child: Stack(
+                fit: StackFit.expand,
+                children: <Widget>[
+                  ColoredBox(color: g.isDark ? g.hairline : g.fill),
+                  FractionallySizedBox(
+                    alignment: AlignmentDirectional.centerStart,
+                    widthFactor: used.clamp(0.0, 1.0),
+                    child: ColoredBox(color: g.text.withValues(alpha: 0.85)),
+                  ),
                 ],
               ),
             ),
-          ],
-
-          // ─── VOLUMES ──────────────────────────────────────────────────────
-          const _Volumes(),
-
-          // ─── APPS ─────────────────────────────────────────────────────────
-          //
-          // The largest number on this screen finally broken down. It sits
-          // under the gap it explains rather than at the top, because a person
-          // opens Storage about their own files first.
-          const SizedBox(height: GSpace.lg),
-          GOverline('Apps'),
-          const SizedBox(height: GSpace.sm + 1),
-          const _AppsLine(),
-
-          // ─── ELSEWHERE ────────────────────────────────────────────────────
-          //
-          // The machine you back up to is part of "where your storage is", and
-          // it was reachable only from More.
-          if (server != null) ...<Widget>[
-            const SizedBox(height: GSpace.lg),
-            GOverline('Elsewhere'),
-            const SizedBox(height: GSpace.sm + 1),
-            _Line(
-              hue: t.chat,
-              icon: Icons.dns_outlined,
-              title: server.label,
-              detail: 'Files copied to a machine you own',
-              onTap: () => Navigator.of(context).push(ServerPage.route()),
-            ),
-          ],
-
-          // ─── BROWSE ───────────────────────────────────────────────────────
-          const SizedBox(height: GSpace.lg),
-          GOverline('Browse'),
-          const SizedBox(height: GSpace.sm + 1),
-          _Line(
-            hue: t.photo,
-            icon: Icons.folder_open_rounded,
-            title: context.s('All folders'),
-            detail: 'Every folder on this phone, explained',
-            onTap: () => Navigator.of(context).push(BrowsePage.route()),
-          ),
-
-          const SizedBox(height: GSpace.lg),
-          GestureDetector(
-            onTap: () => _explainGap(context),
-            behavior: HitTestBehavior.opaque,
-            child: Text(
-              // One line and a tap, rather than the paragraph that was here.
-              context.s('Why apps and system cannot be broken down'),
-              textAlign: TextAlign.center,
-              style: GType.micro.copyWith(color: t.accentText),
-            ),
           ),
         ],
-      ],
-    );
-  }
-
-  void _openReclaim(BuildContext context, WidgetRef ref, ReclaimAction action) {
-    // The three comparison cards share one scan. Tapping any of them before it
-    // has run starts it, rather than each launching its own walk over the same
-    // photos.
-    const Set<String> compared = <String>{'duplicates', 'similar', 'blurred'};
-
-    if (compared.contains(action.id)) {
-      // HAS A RESULT, not "found something". This used to read action.ready,
-      // which is exact.isNotEmpty, so a scan that ran correctly and honestly
-      // found no duplicates left the card saying "None" and tapping it started
-      // the entire decode again. The page below handles the empty case; it does
-      // not need a second scan to know it is empty.
-      if (ref.read(compareProvider).value == null) {
-        ref
-            .read(compareProvider.notifier)
-            .run(
-              fingerprint: storageFingerprint(
-                ref.read(storageOverviewProvider).value,
-              ),
-            );
-        return;
-      }
-      Navigator.of(context).push(
-        action.id == 'blurred'
-            ? BlurReviewPage.route()
-            : CompareReviewPage.route(
-                action.id == 'duplicates' ? 'exact' : 'similar',
-              ),
-      );
-      return;
-    }
-    if (action.id == 'large') {
-      Navigator.of(context).push(StorageFilesPage.route(kLargeFilesScope));
-      return;
-    }
-    Navigator.of(context).push(StorageFilesPage.route(kStaleScope));
-  }
-
-  void _explainGap(BuildContext context) {
-    final GTokens t = context.g;
-    showGSheet(
-      context: context,
-      title: context.s('Apps and system'),
-      children: <Widget>[
-        Text(
-          context.s(
-            'These figures come from the Android media index, which covers your '
-            'own files and nothing else.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
-        ),
-        const GSheetHeading('What is in the gap'),
-        GSheetPoint(text: context.s('The operating system itself.')),
-        GSheetPoint(
-          text: context.s('Every app, and the private data each one keeps.'),
-        ),
-        GSheetPoint(
-          text: context.s(
-            'None of it can be listed by any app, including this one, so it '
-            'is shown as a single figure rather than guessed at.',
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-/// One number, one bar.
-///
-/// Replaces the volume card. The bar carries the same colours as the ledger
-/// below it, so the two read as one statement rather than two.
-class _Headline extends StatelessWidget {
-  const _Headline({required this.overview});
-
-  final StorageOverview overview;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final int total = overview.volume.totalBytes;
-    final int free = overview.volume.freeBytes;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: <Widget>[
-            Text(
-              GFormat.bytes(overview.volume.usedBytes),
-              style: GType.display.copyWith(color: t.text, fontSize: 34),
-            ),
-            const SizedBox(width: GSpace.sm),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 5),
-              child: Text(
-                'of ${GFormat.bytes(total)}',
-                style: GType.monoSmall.copyWith(color: t.muted),
-              ),
-            ),
-            const Spacer(),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 5),
-              child: Text(
-                '${GFormat.bytes(free)} free',
-                style: GType.monoSmall.copyWith(color: t.success),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: GSpace.md - 2),
-        ClipRRect(
-          borderRadius: GRadius.all(6),
-          child: SizedBox(
-            height: 10,
-            child: Row(
-              children: <Widget>[
-                for (final KindUsage kind in overview.kinds)
-                  if (kind.totalBytes > 0)
-                    Expanded(
-                      flex: (kind.totalBytes ~/ 1048576).clamp(1, 1 << 30),
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 2),
-                        child: ColoredBox(color: categoryTint(t, kind.kind)),
-                      ),
-                    ),
-                // The unaccounted gap, in dim. It is most of the bar on a real
-                // phone and it is not a category, so it takes the one colour
-                // that means nothing.
-                Expanded(
-                  // indexedBytes, not accountedBytes. The schema calls it
-                  // what it is: the total MediaStore actually indexed.
-                  flex:
-                      ((overview.volume.usedBytes - overview.indexedBytes) ~/
-                              1048576)
-                          .clamp(1, 1 << 30),
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 2),
-                    child: ColoredBox(color: t.dim),
-                  ),
-                ),
-                Expanded(
-                  flex: (free ~/ 1048576).clamp(1, 1 << 30),
-                  child: ColoredBox(color: t.panelAlt),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// A single tappable line, for the sections that are one row.
-/// THE COMPRESS ENTRY, IN THE TWO STATES IT HAS.
-///
-/// ─── IT NEVER SCANS TO FILL ITSELF IN ────────────────────────────────────────
-///
-/// Same rule as the attention strip on Home. Measuring a saving means actually
-/// re-encoding, which is minutes of work and hundreds of megabytes of decoding,
-/// and a storage tab that started doing that because someone opened it would be
-/// unforgivable.
-///
-/// ─── BUT IT IS NOT EMPTY BEFORE THE SCAN EITHER ──────────────────────────────
-///
-/// Counting the screenshots and adding up their bytes is one MediaStore query.
-/// So the row can say "1,204 screenshots, 8.7 GB" the moment the tab opens,
-/// which is a true statement about the phone rather than an invitation with no
-/// content. What it will not say is how much of that comes back, because
-/// nothing has measured that yet.
-class _CompressLine extends ConsumerWidget {
-  const _CompressLine();
+/// The photo scan while it runs: progress and Stop.
+class _ScanStatus extends ConsumerWidget {
+  const _ScanStatus();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final CompressSummary? summary = ref.watch(compressSummaryProvider).value;
-
-    final int shots = summary?.screenshotCount ?? 0;
-    final int photos = summary?.photoCount ?? 0;
-    final int bytes =
-        (summary?.screenshotBytes ?? 0) + (summary?.photoBytes ?? 0);
-
-    // Nothing over the floor at all. Absent rather than a row reading zero,
-    // which is the same rule the attention strip follows.
-    if (summary != null && shots == 0 && photos == 0) {
-      return const SizedBox.shrink();
-    }
-
-    return _Line(
-      hue: t.photo,
-      icon: Icons.compress_rounded,
-      title: context.s('Make files smaller'),
-      detail: summary == null
-          ? 'Same picture, smaller file'
-          : '${_parts(shots, photos)} taking ${GFormat.bytes(bytes)}',
-      onTap: () => Navigator.of(context).push(CompressPage.route()),
-    );
-  }
-
-  /// Only the categories that exist, named in plain words.
-  ///
-  /// A phone with no screenshots should not read "0 screenshots and 3,880
-  /// photos". An absent count is an absent phrase, which is the same treatment
-  /// nullable stats get everywhere else in this app.
-  static String _parts(int shots, int photos) {
-    final List<String> parts = <String>[
-      if (shots > 0) '${GFormat.count(shots)} screenshots',
-      if (photos > 0) '${GFormat.count(photos)} photos',
-    ];
-    return parts.join(' and ');
-  }
-}
-
-/// THE ONE PLACE A SCAN IS STARTED, AND THE ONE PLACE ITS AGE IS SHOWN.
-///
-/// ─── WHY THE TIMESTAMP IS HERE AND NOT ON THE CARDS ──────────────────────────
-///
-/// There is one scan. Printing "checked 2 days ago" on three cards would say the
-/// same thing three times in the smallest type on the screen, and there is no
-/// room for it: the detail line is already two lines of real content.
-///
-/// So the mosaic shows findings and this row shows their age. A remembered
-/// figure is a measurement, not a prediction, and stays honest as long as its
-/// date is visible somewhere the eye reaches. Directly beneath is that place.
-///
-/// ─── IT REPLACED A SENTENCE THAT NEVER CHANGED ───────────────────────────────
-///
-/// What was here read "One scan answers duplicates, similar photos and blurred.
-/// It reads every photo once." True, and it said the same thing during a scan,
-/// after a scan, and after a scan had failed. The same square of screen now
-/// carries live progress, the age of the answer, and whether it still holds.
-class _ScanLine extends ConsumerWidget {
-  const _ScanLine();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final AsyncValue<ScanRecord?> scan = ref.watch(compareProvider);
-    final ScanRecord? record = scan.value;
-
-    void start() => ref
-        .read(compareProvider.notifier)
-        .run(
-          fingerprint: storageFingerprint(
-            ref.read(storageOverviewProvider).value,
-          ),
-        );
-
-    if (scan.isLoading) {
-      // Real counts rather than the word "Scanning". The relay already pushes
-      // these about four times a second and nothing on this screen was showing
-      // them, so a scan of four thousand photos looked identical at the first
-      // second and the fourth minute.
-      final CompareProgress? progress = ref
-          .watch(compareProgressProvider)
-          .value;
-      return _Line(
-        hue: t.accent,
-        icon: Icons.hourglass_bottom_rounded,
-        title: context.s('Reading your photos'),
-        detail: progress == null || progress.total <= 0
-            ? 'Starting. Tap to stop.'
-            : '${GFormat.count(progress.scanned)} of '
-                  '${GFormat.count(progress.total)}. Tap to stop.',
-        onTap: () => ref.read(compareProvider.notifier).cancel(),
-      );
-    }
-
-    if (scan.hasError) {
-      return _Line(
-        hue: t.warning,
-        icon: Icons.error_outline_rounded,
-        title: context.s('The scan could not run'),
-        detail: 'Tap to try again',
-        onTap: start,
-      );
-    }
-
-    if (record == null) {
-      return _Line(
-        hue: t.accent,
-        icon: Icons.search_rounded,
-        title: context.s('Check for duplicates and blur'),
-        detail: 'One scan answers all three. It reads every photo once.',
-        onTap: start,
-      );
-    }
-
-    final bool stale = ref.watch(scanIsStaleProvider);
-    final String when = _ago(record.at);
-
-    return _Line(
-      hue: stale ? t.warning : t.success,
-      icon: stale ? Icons.update_rounded : Icons.task_alt_rounded,
-      title: stale ? 'Your files have changed since' : 'Checked $when',
-      // The cancelled case is named rather than hidden. What a stopped scan
-      // found is real; what is not true is that it covered the library, and a
-      // partial answer presented as a complete one is the kind of thing that
-      // makes someone stop believing the rest of the screen.
-      detail: <String>[
-        if (stale) 'Checked $when',
-        if (record.cancelled)
-          'Stopped early, so not every photo was read'
-        else
-          '${GFormat.count(record.scanned)} files read',
-        'Tap to check again',
-      ].join('. '),
-      onTap: start,
-    );
-  }
-
-  /// Coarse on purpose.
-  ///
-  /// Nobody needs to know a scan ran 47 minutes ago. What they need is whether
-  /// it was today, and the moment it stops being today the only useful question
-  /// is whether the phone has changed, which the row above answers properly.
-  static String _ago(DateTime at) {
-    final Duration since = DateTime.now().difference(at);
-    if (since.inMinutes < 2) return 'just now';
-    if (since.inHours < 1) return '${since.inMinutes} minutes ago';
-    if (since.inHours < 24) return '${since.inHours} hours ago';
-    if (since.inDays == 1) return 'yesterday';
-    if (since.inDays < 30) return '${since.inDays} days ago';
-    return 'over a month ago';
-  }
-}
-
-class _Line extends StatelessWidget {
-  const _Line({
-    required this.hue,
-    required this.icon,
-    required this.title,
-    required this.detail,
-    required this.onTap,
-  });
-
-  final Color hue;
-  final IconData icon;
-  final String title;
-  final String detail;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return GCard(
-      onTap: onTap,
+    final GDesignTheme g = GDesignTheme.of(context);
+    if (!ref.watch(compareProvider).isLoading) return const SizedBox.shrink();
+    final CompareProgress? p = ref.watch(compareProgressProvider).value;
+    final bool sized = p != null && p.total > 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space24,
+        GDesign.gutter,
+        0,
+      ),
       child: Row(
         children: <Widget>[
-          Container(
-            width: 32,
-            height: 32,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: hue.withValues(alpha: 0.18),
-              borderRadius: GRadius.all(11),
-            ),
-            child: Icon(icon, size: 17, color: hue),
-          ),
-          const SizedBox(width: GSpace.md),
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Text(title, style: GType.body.copyWith(color: t.text)),
-                Text(detail, style: GType.micro.copyWith(color: t.muted)),
+                Text(context.s('Reading your photos'), style: g.headline()),
+                const SizedBox(height: GDesign.space8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: sized ? (p.scanned / p.total).clamp(0.0, 1.0) : null,
+                    minHeight: 4,
+                    color: g.accent,
+                    backgroundColor: g.fill,
+                  ),
+                ),
+                const SizedBox(height: GDesign.space4),
+                Text(
+                  sized
+                      ? '${GFormat.count(p.scanned)} / ${GFormat.count(p.total)}'
+                      : context.s('Starting'),
+                  style: g.figures(g.footnote()),
+                ),
               ],
             ),
           ),
-          Icon(Icons.chevron_right_rounded, size: 19, color: t.dim),
-        ],
-      ),
-    );
-  }
-}
-
-/// When the disk runs out, if nothing changes.
-///
-/// The one number on this screen the OS cannot show, because it needs a history
-/// and Settings keeps none. Four samples over four days before it says anything,
-/// and it refuses to project past two years, since "full in 2031" reads as a
-/// joke rather than a warning.
-class _Forecast extends StatelessWidget {
-  const _Forecast({required this.at});
-
-  final DateTime at;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final int days = at.difference(DateTime.now()).inDays;
-    final bool soon = days <= 30;
-
-    return GCard(
-      child: Row(
-        children: <Widget>[
-          Icon(
-            Icons.schedule_rounded,
-            size: 19,
-            color: soon ? t.warning : t.accentText,
-          ),
-          const SizedBox(width: GSpace.md),
-          Expanded(
-            child: Text(
-              days <= 0
-                  ? 'At this rate, storage is about to run out.'
-                  : 'At this rate, storage fills in about '
-                        '${GFormat.count(days)} days.',
-              style: GType.bodySmall.copyWith(color: t.text),
-            ),
+          NavAction.text(
+            label: context.s('Stop'),
+            onTap: () => ref.read(compareProvider.notifier).cancel(),
           ),
         ],
       ),
@@ -654,205 +473,313 @@ class _Forecast extends StatelessWidget {
   }
 }
 
-class _FoldersCard extends ConsumerWidget {
-  const _FoldersCard({required this.overview});
+// ── Lead and more ways ───────────────────────────────────────────────────
 
-  final StorageOverview overview;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (overview.folders.isEmpty) return const SizedBox.shrink();
-    return GCard(
-      child: WhereItLivesSection(
-        folders: overview.folders,
-        overline: GOverline('Where it lives'),
-        // A page, not the shared filter. Setting the tab's own filter from
-        // here changed the screen underneath the user and left it changed
-        // when they came back.
-        //
-        // The title is the resolved name now, so the detail page opens with
-        // "WhatsApp" in its header rather than a path that truncates.
-        onOpen: (FolderEntry folder) => Navigator.of(context).push(
-          StorageFilesPage.route(
-            StorageScope(title: folder.name, folderPrefix: folder.path),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Apps, as one line that knows whether it can answer.
-///
-/// Three states, and the middle one matters: usage access is off by default and
-/// is granted on a settings screen, so the row says what it needs rather than
-/// showing a zero.
-class _AppsLine extends ConsumerWidget {
-  const _AppsLine();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final AppsState? state = ref.watch(appsStateProvider).value;
-
-    if (state == null) {
-      return _Line(
-        hue: t.dim,
-        icon: Icons.apps_rounded,
-        title: context.s('Apps'),
-        detail: 'Reading',
-        onTap: () {},
-      );
-    }
-
-    if (!state.usageAccess) {
-      return _Line(
-        hue: t.audio,
-        icon: Icons.apps_rounded,
-        title: context.s('Apps and their caches'),
-        detail: 'Needs usage access to read sizes',
-        onTap: () => Navigator.of(context).push(AppsPage.route()),
-      );
-    }
-
-    return _Line(
-      hue: t.audio,
-      icon: Icons.apps_rounded,
-      title: '${GFormat.count(state.count)} apps',
-      detail:
-          '${GFormat.bytes(state.totalBytes)} in total, '
-          '${GFormat.bytes(state.cacheBytes)} of it cache',
-      onTap: () => Navigator.of(context).push(AppsPage.route()),
-    );
-  }
-}
-
-/// Cards, drives and internal storage.
-///
-/// ─── HIDDEN ON A PHONE WITH ONE VOLUME ───────────────────────────────────────
-///
-/// Which is most phones. A section headed VOLUMES containing a single row that
-/// repeats the number already at the top of the screen is noise, so it appears
-/// only when there is genuinely more than one place for files to be.
-class _Volumes extends ConsumerWidget {
-  const _Volumes();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final List<VolumeEntry> volumes =
-        ref.watch(volumesProvider).value ?? const <VolumeEntry>[];
-
-    if (volumes.length < 2) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: <Widget>[
-        const SizedBox(height: GSpace.lg),
-        GOverline('Volumes'),
-        const SizedBox(height: GSpace.sm + 1),
-        GCard(
-          padding: const EdgeInsets.symmetric(horizontal: GSpace.md),
-          child: Column(
-            children: <Widget>[
-              for (int i = 0; i < volumes.length; i++)
-                _VolumeRow(
-                  volume: volumes[i],
-                  last: i == volumes.length - 1,
-                  onTap: volumes[i].path == null
-                      ? null
-                      : () => Navigator.of(context).push(
-                          BrowsePage.route(
-                            path: volumes[i].path,
-                            title: volumes[i].label,
-                          ),
-                        ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _VolumeRow extends StatelessWidget {
-  const _VolumeRow({
-    required this.volume,
-    required this.last,
-    required this.onTap,
+/// Up to four photos as one rounded block: one fills it, two split it,
+/// three or four make a grid.
+class _Collage extends StatelessWidget {
+  const _Collage({
+    required this.photos,
+    required this.radius,
+    this.icon,
+    this.art,
   });
 
-  final VolumeEntry volume;
-  final bool last;
-  final VoidCallback? onTap;
+  final List<ImageProvider> photos;
+  final double radius;
+  final IconData? icon;
+  final Widget? art;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final int used = volume.totalBytes - volume.freeBytes;
-    final double share = volume.totalBytes <= 0 ? 0 : used / volume.totalBytes;
+    final GDesignTheme g = GDesignTheme.of(context);
+    final Widget body;
+    if (art != null) {
+      body = art!;
+    } else if (photos.isEmpty) {
+      body = ColoredBox(
+        color: g.isDark ? g.card : g.fill,
+        child: Center(
+          child: Icon(icon ?? GIcons.photos, size: 40, color: g.muted),
+        ),
+      );
+    } else if (photos.length == 1) {
+      body = SizedPhoto(image: photos.first);
+    } else if (photos.length == 2) {
+      body = Row(
+        children: <Widget>[
+          Expanded(child: SizedPhoto(image: photos[0])),
+          const SizedBox(width: 2),
+          Expanded(child: SizedPhoto(image: photos[1])),
+        ],
+      );
+    } else {
+      body = GridView.count(
+        crossAxisCount: 2,
+        mainAxisSpacing: 2,
+        crossAxisSpacing: 2,
+        physics: const NeverScrollableScrollPhysics(),
+        padding: EdgeInsets.zero,
+        childAspectRatio: 1.33,
+        children: <Widget>[
+          for (final ImageProvider p in photos.take(4)) SizedPhoto(image: p),
+        ],
+      );
+    }
+    return ClipRRect(borderRadius: BorderRadius.circular(radius), child: body);
+  }
+}
 
-    return Container(
-      decoration: BoxDecoration(
-        border: last ? null : Border(bottom: BorderSide(color: t.line)),
+/// The biggest saving: a collage of the user's own photos, what it is, what
+/// it frees, and the screen's one primary action.
+class _Lead extends StatelessWidget {
+  const _Lead({required this.win});
+
+  final _Win win;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space24,
+        GDesign.gutter,
+        0,
       ),
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: GSpace.md - 2),
-            child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Pressable(
+            onTap: () => win.open(context),
+            scale: 0.98,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                Container(
-                  width: 32,
-                  height: 32,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: (volume.removable ? t.docs : t.chat).withValues(
-                      alpha: 0.18,
-                    ),
-                    borderRadius: GRadius.all(11),
-                  ),
-                  child: Icon(
-                    volume.removable
-                        ? Icons.sd_card_outlined
-                        : Icons.smartphone_rounded,
-                    size: 17,
-                    color: volume.removable ? t.docs : t.chat,
-                  ),
-                ),
-                const SizedBox(width: GSpace.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                AspectRatio(
+                  aspectRatio: 4 / 3,
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: <Widget>[
-                      Text(
-                        volume.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GType.body.copyWith(color: t.text),
+                      _Collage(
+                        photos: win.photos,
+                        radius: GDesign.cardRadius,
+                        icon: win.icon,
+                        art: win.art?.call(false),
                       ),
-                      Text(
-                        '${(share * 100).round()}% used',
-                        style: GType.micro.copyWith(color: t.muted),
+                      PositionedDirectional(
+                        start: GDesign.space12,
+                        top: GDesign.space12,
+                        child: PhotoChip(win.chip),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(width: GSpace.sm),
-                Text(
-                  '${GFormat.bytes(volume.freeBytes)} free',
-                  style: GType.monoSmall.copyWith(color: t.success),
-                ),
-                if (onTap != null) ...<Widget>[
-                  const SizedBox(width: GSpace.xs),
-                  Icon(Icons.chevron_right_rounded, size: 18, color: t.dim),
-                ],
+                const SizedBox(height: GDesign.space12),
+                Text(win.title, style: g.headline()),
+                const SizedBox(height: 2),
+                Text(win.detail, style: g.figures(g.footnote())),
               ],
             ),
           ),
+          const SizedBox(height: GDesign.space16),
+          PrimaryButton(label: win.action, onTap: () => win.open(context)),
+        ],
+      ),
+    );
+  }
+}
+
+/// The other ways, as a sideways row of picture cards.
+class _MoreWays extends StatelessWidget {
+  const _MoreWays({required this.wins});
+
+  final List<_Win> wins;
+
+  static const double _side = 150;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        SectionHeader(context.s('More ways to free space')),
+        SizedBox(
+          height: _side + GDesign.space8 + 40,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+            itemCount: wins.length,
+            separatorBuilder: (_, _) => const SizedBox(width: GDesign.space12),
+            itemBuilder: (BuildContext context, int i) {
+              final _Win w = wins[i];
+              return Reveal(
+                index: i + 1,
+                child: Pressable(
+                  onTap: () => w.open(context),
+                  child: SizedBox(
+                    width: _side,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        SizedBox.square(
+                          dimension: _side,
+                          child: _Collage(
+                            photos: w.photos,
+                            radius: GDesign.tileRadius,
+                            icon: w.icon,
+                            art: w.art?.call(true),
+                          ),
+                        ),
+                        const SizedBox(height: GDesign.space8),
+                        Text(
+                          w.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: g.footnote(
+                            color: g.text,
+                            weight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          w.brief,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: g.figures(g.footnote()),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
         ),
+      ],
+    );
+  }
+}
+
+// ── What is using space ──────────────────────────────────────────────────
+
+/// The breakdown, last and plain: each kind, apps and system, folders.
+class _Using extends ConsumerWidget {
+  const _Using({required this.overview});
+
+  final StorageOverview overview;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final StorageBreakdown? breakdown = ref.watch(storageBreakdownProvider);
+    final AppsState? apps = ref.watch(appsStateProvider).value;
+    final ServerConfig? server = ref.watch(serverConfigProvider).value;
+    final List<StorageBucket> buckets = <StorageBucket>[
+      ...?breakdown?.buckets.where((StorageBucket b) => b.bytes > 0),
+    ]..sort((StorageBucket a, StorageBucket b) => b.bytes.compareTo(a.bytes));
+    final int gap = breakdown?.unaccountedBytes ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: GDesign.space32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          GroupedSection(
+            header: context.s('What is using space'),
+            children: <Widget>[
+              for (final StorageBucket b in buckets)
+                ListRow(
+                  icon: _kindIcon(b.id),
+                  title: b.label,
+                  detail: GFormat.bytes(b.bytes),
+                  onTap: b.drillable
+                      ? () => Navigator.of(context).push(
+                          StorageFilesPage.route(
+                            StorageScope(title: b.label, kind: b.id),
+                            backLabel: context.s('Clean up'),
+                          ),
+                        )
+                      : null,
+                ),
+              ListRow(
+                icon: GIcons.grid,
+                title: context.s('Apps and system'),
+                detail: GFormat.bytes(gap),
+                subtitle: apps != null && apps.usageAccess
+                    ? context.s1(
+                        '{} of it is app cache',
+                        GFormat.bytes(apps.cacheBytes),
+                      )
+                    : null,
+                onTap: () => Navigator.of(context).push(AppsPage.route()),
+              ),
+              ListRow(
+                icon: GIcons.folderOpen,
+                title: context.s('All folders'),
+                onTap: () => Navigator.of(
+                  context,
+                ).push(BrowsePage.route(backLabel: context.s('Clean up'))),
+              ),
+              if (server != null)
+                ListRow(
+                  icon: GIcons.server,
+                  title: server.label,
+                  subtitle: context.s('Files copied to a machine you own'),
+                  onTap: () => Navigator.of(context).push(ServerPage.route()),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  static IconData _kindIcon(String id) => switch (id) {
+    'image' || 'images' => GIcons.photos,
+    'video' || 'videos' => GIcons.video,
+    'audio' => GIcons.audio,
+    'document' || 'documents' => GIcons.docs,
+    _ => GIcons.folder,
+  };
+}
+
+/// File access is off: the totals are real, nothing under them is visible.
+class _Blind extends ConsumerWidget {
+  const _Blind();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space24,
+        GDesign.gutter,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(
+            context.s('Only what this app made is visible'),
+            style: g.headline(),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            context.s('Turn on file access to see the rest.'),
+            style: g.footnote(),
+          ),
+          const SizedBox(height: GDesign.space16),
+          PrimaryButton(
+            label: context.s('Turn on file access'),
+            icon: GIcons.folderOpen,
+            onTap: () async {
+              await ref.read(recoveryBridgeProvider).requestAllFilesAccess();
+              ref.invalidate(recoveryAccessProvider);
+            },
+          ),
+        ],
       ),
     );
   }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:g_design/g_design.dart';
-import 'package:g_recovery/features/home/home_page.dart';
+import 'package:g_recovery/features/home/dashboard_page.dart';
 
 import '../bridge/apps_bridge.dart';
 import '../core/i18n/g_strings.dart';
@@ -10,11 +10,13 @@ import '../core/messenger/g_messenger.dart';
 import '../core/prefs/prefs_keys.dart';
 import '../core/prefs/prefs_store.dart';
 import '../core/update/app_update.dart';
+import '../core/update/update_sheet.dart';
 import '../features/device/device_page.dart';
 import '../features/messages/state/messages_providers.dart';
 import '../features/more/more_page.dart';
 import '../features/recovery/state/recovery_providers.dart';
 import '../features/storage/storage_page.dart';
+import '../ui/media/mini_player.dart';
 import 'theme/tokens.dart';
 
 /// Selected tab. A notifier rather than local state so a deep link, a
@@ -41,6 +43,28 @@ final NotifierProvider<GShellTab, int> gShellTabProvider =
 
 /// Tab indices by name. Home reaches Device through one of these rather than a
 /// literal, so reordering the bar is a single edit.
+/// Hides the floating tab bar while a screen shows chrome of its own at the
+/// bottom: a grid's selection toolbar, or the photo viewer.
+///
+/// A count, not a flag, so two screens that both ask (a viewer opened from a
+/// selecting grid) cannot show the bar again early. Changes are posted after
+/// the frame because screens ask from initState and dispose, where providers
+/// may not be modified.
+class GShellNav extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void hide() => _post(() => state = state + 1);
+
+  void show() => _post(() => state = state > 0 ? state - 1 : 0);
+
+  void _post(VoidCallback change) =>
+      WidgetsBinding.instance.addPostFrameCallback((_) => change());
+}
+
+final NotifierProvider<GShellNav, int> gShellNavHiddenProvider =
+    NotifierProvider<GShellNav, int>(GShellNav.new);
+
 class GTabs {
   const GTabs._();
 
@@ -68,19 +92,10 @@ const int gNavCount = 4;
 /// they are written, and FloatingNav renders whatever it is handed without
 /// knowing that translation exists at all.
 List<FloatingNavItem> gNavItems(BuildContext context) => <FloatingNavItem>[
-  FloatingNavItem(
-    label: context.s('Home'),
-    icon: Icons.auto_awesome_mosaic_outlined,
-  ),
-  FloatingNavItem(
-    label: context.s('Storage'),
-    icon: Icons.donut_small_outlined,
-  ),
-  FloatingNavItem(
-    label: context.s('Device'),
-    icon: Icons.monitor_heart_outlined,
-  ),
-  FloatingNavItem(label: context.s('More'), icon: Icons.more_horiz_rounded),
+  FloatingNavItem(label: context.s('Home'), icon: GIcons.home),
+  FloatingNavItem(label: context.s('Clean up'), icon: GIcons.sparkles),
+  FloatingNavItem(label: context.s('Device'), icon: GIcons.device),
+  FloatingNavItem(label: context.s('More'), icon: GIcons.more),
 ];
 
 /// The shell, with one navigator per tab.
@@ -113,13 +128,23 @@ class GShell extends ConsumerStatefulWidget {
 class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
   /// One key per tab, created once and never rebuilt. A key that changed
   /// identity would tear down the stack it is meant to preserve.
+  /// One per tab navigator. Nested navigators get no HeroController of their
+  /// own, and without one the photo zoom from grid to viewer never flies.
+  late final List<HeroController> _heroes = <HeroController>[
+    for (int i = 0; i < gNavCount; i++)
+      HeroController(
+        createRectTween: (Rect? begin, Rect? end) =>
+            MaterialRectArcTween(begin: begin, end: end),
+      ),
+  ];
+
   late final List<GlobalKey<NavigatorState>> _keys =
       <GlobalKey<NavigatorState>>[
         for (int i = 0; i < gNavCount; i++) GlobalKey<NavigatorState>(),
       ];
 
   static const List<Widget> _roots = <Widget>[
-    HomePage(),
+    HomeDashboard(),
     StoragePage(),
     DevicePage(),
     MorePage(),
@@ -155,10 +180,8 @@ class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Asks Play whether there is a newer build, once, and does nothing with
-    // the answer except hold it. Nothing downloads and nothing appears over
-    // the screen: the result surfaces as a row on More that the user reaches
-    // when they choose to.
+    // Asks Play whether there is a newer build. A new one is offered once
+    // in a sheet (see build); nothing downloads until the user taps Update.
     //
     // The post frame callback is not optional. Reading a provider during
     // initState writes to the container while the first frame is still being
@@ -172,6 +195,9 @@ class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    for (final HeroController hero in _heroes) {
+      hero.dispose();
+    }
     super.dispose();
   }
 
@@ -229,11 +255,19 @@ class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // A newer version on Play is offered once, the moment Play says so.
+    ref.listen<GUpdateState>(gUpdateProvider, (
+      GUpdateState? _,
+      GUpdateState next,
+    ) {
+      if (next.stage == GUpdateStage.available) offerUpdateOnce(context, ref);
+    });
     final int index = ref.watch(gShellTabProvider);
     final GTokens t = context.g;
     final List<FloatingNavItem> items = gNavItems(context);
     // The nav steps aside while the keyboard is up, so a form keeps the room.
     final bool typing = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final bool navHidden = ref.watch(gShellNavHiddenProvider) > 0;
     assert(items.length == gNavCount, 'gNavCount is out of step with the bar');
 
     _visited.add(index);
@@ -267,41 +301,55 @@ class _GShellState extends ConsumerState<GShell> with WidgetsBindingObserver {
           // Children appear on first visit rather than at launch. An unvisited
           // tab is an empty box, which costs nothing and occupies the slot so
           // the indices still line up with the bar.
-          body: IndexedStack(
+          body: FadeThroughStack(
             index: index,
             children: <Widget>[
               for (int i = 0; i < _roots.length; i++)
                 if (!_visited.contains(i))
                   const SizedBox.shrink()
                 else
-                  Navigator(
-                    key: _keys[i],
-                    onGenerateRoute: (RouteSettings settings) =>
-                        MaterialPageRoute<void>(
-                          settings: settings,
-                          builder: (BuildContext context) => _roots[i],
-                        ),
+                  // The scope, not the observers list: the root navigator
+                  // hides MaterialApp's HeroController from everything below
+                  // it, so each tab hands its navigator its own.
+                  HeroControllerScope(
+                    controller: _heroes[i],
+                    child: Navigator(
+                      key: _keys[i],
+                      onGenerateRoute: (RouteSettings settings) =>
+                          MaterialPageRoute<void>(
+                            settings: settings,
+                            builder: (BuildContext context) => _roots[i],
+                          ),
+                    ),
                   ),
             ],
           ),
-          bottomNavigationBar: typing
+          bottomNavigationBar: typing || navHidden
               ? null
-              : FloatingNav(
-                  items: items,
-                  index: index,
-                  // Tapping the tab you are already on pops that tab back to
-                  // its root, which is what every app with this shape does and
-                  // what a person reaches for when they are lost inside a
-                  // stack.
-                  onSelected: (int next) {
-                    if (next == index) {
-                      _keys[index].currentState?.popUntil(
-                        (Route<dynamic> route) => route.isFirst,
-                      );
-                      return;
-                    }
-                    ref.read(gShellTabProvider.notifier).select(next);
-                  },
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    // Audio still playing from a closed screen rides here.
+                    const MiniPlayer(),
+                    const SizedBox(height: GDesign.space8),
+                    FloatingNav(
+                      items: items,
+                      index: index,
+                      // Tapping the tab you are already on pops that tab back to
+                      // its root, which is what every app with this shape does and
+                      // what a person reaches for when they are lost inside a
+                      // stack.
+                      onSelected: (int next) {
+                        if (next == index) {
+                          _keys[index].currentState?.popUntil(
+                            (Route<dynamic> route) => route.isFirst,
+                          );
+                          return;
+                        }
+                        ref.read(gShellTabProvider.notifier).select(next);
+                      },
+                    ),
+                  ],
                 ),
         ),
       ),

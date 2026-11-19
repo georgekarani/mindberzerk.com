@@ -46,10 +46,13 @@ class GThemeState {
   /// screen, which is the only acceptable outcome for a silent migration.
   factory GThemeState.fromJson(Map<String, Object?> json) {
     if (json.isEmpty) return fallback;
+    // Only the mode survives. One accent and one typeface are now part of
+    // the design language, so earlier picks fall back to them; the next write
+    // stores the fallbacks.
     return GThemeState(
       mode: _modeFromId(json['mode'] as String?),
-      accent: GAccent.fromId(json['accent'] as String?),
-      typeface: GTypeface.fromId(json['typeface'] as String?),
+      accent: GAccent.fallback,
+      typeface: GTypeface.fallback,
     );
   }
 

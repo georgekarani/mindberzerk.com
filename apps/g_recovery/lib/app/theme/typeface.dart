@@ -21,7 +21,7 @@ enum GTypeface {
   /// Downloads nothing and always renders. This is the default and it stays
   /// the default: an app whose first launch is often on a metered connection
   /// should not spend it on a font before the user has asked for one.
-  system(id: 'system', label: 'System', sansFamily: null, monoFamily: null),
+  system(id: 'system', label: 'Inter', sansFamily: null, monoFamily: null),
 
   inter(
     id: 'inter',

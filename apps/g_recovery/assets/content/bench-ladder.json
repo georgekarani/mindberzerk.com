@@ -1,0 +1,189 @@
+{
+  "id": "bench-ladder",
+  "version": 1,
+  "generatedAt": "2026-11-20T00:00:00Z",
+  "reference": {
+    "name": "Galaxy S22+",
+    "chip": "Snapdragon 8 Gen 1",
+    "lenses": 3,
+    "gbSingle": 913,
+    "gbMulti": 2951,
+    "wildLifeExtreme": 2416
+  },
+  "tiers": {
+    "s": 2300,
+    "a": 1500,
+    "b": 950,
+    "c": 600
+  },
+  "phones": [
+    {
+      "name": "vivo iQOO 15",
+      "chip": "Snapdragon 8 Elite Gen 5",
+      "lenses": 3,
+      "gbSingle": 2487,
+      "gbMulti": 8846,
+      "wildLifeExtreme": 6752
+    },
+    {
+      "name": "Honor Magic8 Pro",
+      "chip": "Snapdragon 8 Elite Gen 5",
+      "lenses": 3,
+      "gbSingle": 2036,
+      "gbMulti": 7746,
+      "wildLifeExtreme": 7466
+    },
+    {
+      "name": "Galaxy S25 Ultra",
+      "chip": "Snapdragon 8 Elite",
+      "lenses": 4,
+      "gbSingle": 2474,
+      "gbMulti": 8890,
+      "wildLifeExtreme": 5827
+    },
+    {
+      "name": "vivo X300 Pro",
+      "chip": "Dimensity 9500",
+      "lenses": 3,
+      "gbSingle": 2121,
+      "gbMulti": 7912,
+      "wildLifeExtreme": 6708
+    },
+    {
+      "name": "Galaxy Z Fold7",
+      "chip": "Snapdragon 8 Elite",
+      "lenses": 3,
+      "gbSingle": 2408,
+      "gbMulti": 8455,
+      "wildLifeExtreme": 4885
+    },
+    {
+      "name": "OnePlus 15",
+      "chip": "Snapdragon 8 Elite Gen 5",
+      "lenses": 3,
+      "gbSingle": 1849,
+      "gbMulti": 7800,
+      "wildLifeExtreme": 6374
+    },
+    {
+      "name": "Xiaomi 15",
+      "chip": "Snapdragon 8 Elite",
+      "lenses": 3,
+      "gbSingle": 1823,
+      "gbMulti": 7589,
+      "wildLifeExtreme": 5782
+    },
+    {
+      "name": "OnePlus 13",
+      "chip": "Snapdragon 8 Elite",
+      "lenses": 3,
+      "gbSingle": 1259,
+      "gbMulti": 5904,
+      "wildLifeExtreme": 6241
+    },
+    {
+      "name": "Galaxy S24 Ultra",
+      "chip": "Snapdragon 8 Gen 3",
+      "lenses": 4,
+      "gbSingle": 1789,
+      "gbMulti": 6188,
+      "wildLifeExtreme": 4531
+    },
+    {
+      "name": "Pixel 10",
+      "chip": "Tensor G5",
+      "lenses": 3,
+      "gbSingle": 1900,
+      "gbMulti": 5383,
+      "wildLifeExtreme": 3118
+    },
+    {
+      "name": "Poco F7",
+      "chip": "Snapdragon 8s Gen 4",
+      "lenses": 2,
+      "gbSingle": 1237,
+      "gbMulti": 4721,
+      "wildLifeExtreme": 4204
+    },
+    {
+      "name": "Galaxy S23",
+      "chip": "Snapdragon 8 Gen 2",
+      "lenses": 3,
+      "gbSingle": 1568,
+      "gbMulti": 4572,
+      "wildLifeExtreme": 3566
+    },
+    {
+      "name": "Nothing Phone (2)",
+      "chip": "Snapdragon 8+ Gen 1",
+      "lenses": 2,
+      "gbSingle": 1400,
+      "gbMulti": 4137,
+      "wildLifeExtreme": 2649
+    },
+    {
+      "name": "Pixel 9",
+      "chip": "Tensor G4",
+      "lenses": 2,
+      "gbSingle": 1390,
+      "gbMulti": 3794,
+      "wildLifeExtreme": 2598
+    },
+    {
+      "name": "Pixel 9a",
+      "chip": "Tensor G4",
+      "lenses": 2,
+      "gbSingle": 1385,
+      "gbMulti": 3719,
+      "wildLifeExtreme": 2625
+    },
+    {
+      "name": "Pixel 8",
+      "chip": "Tensor G3",
+      "lenses": 2,
+      "gbSingle": 1311,
+      "gbMulti": 3488,
+      "wildLifeExtreme": 2417
+    },
+    {
+      "name": "Galaxy A56",
+      "chip": "Exynos 1580",
+      "lenses": 3,
+      "gbSingle": 1158,
+      "gbMulti": 3695,
+      "wildLifeExtreme": 1322
+    },
+    {
+      "name": "Galaxy A55",
+      "chip": "Exynos 1480",
+      "lenses": 3,
+      "gbSingle": 949,
+      "gbMulti": 3239,
+      "wildLifeExtreme": 982
+    },
+    {
+      "name": "Galaxy A36",
+      "chip": "Snapdragon 6 Gen 3",
+      "lenses": 3,
+      "gbSingle": 849,
+      "gbMulti": 2809,
+      "wildLifeExtreme": 904
+    },
+    {
+      "name": "Galaxy A15",
+      "chip": "Helio G99",
+      "lenses": 3,
+      "gbSingle": 634,
+      "gbMulti": 1891,
+      "wildLifeExtreme": 337
+    },
+    {
+      "name": "Redmi Note 13",
+      "chip": "Dimensity 6080",
+      "lenses": 3,
+      "gbSingle": 598,
+      "gbMulti": 1803,
+      "wildLifeExtreme": 369
+    }
+  ]
+}

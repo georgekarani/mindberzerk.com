@@ -170,9 +170,7 @@ class ServerConfig {
 
   bool whileCharging;
 
-  /// Unattended nightly runs. The Pro half of this feature, because it sells
-  /// labour rather than capability: connecting, copying and reclaiming all work
-  /// free, by hand.
+  /// Unattended nightly runs. Free, like every backup app that offers it.
   bool scheduled;
 
   /// HTTPS rather than plain HTTP. WebDAV only.

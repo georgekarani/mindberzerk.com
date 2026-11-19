@@ -1,7 +1,7 @@
 name: g_recovery
 description: "Recover deleted files, audit your storage, and back up to your own server."
 publish_to: 'none'
-version: 2.0.0+14
+version: 3.0.0+18
 
 environment:
   sdk: ^3.12.1
@@ -47,7 +47,6 @@ dependencies:
   lottie: ^3.5.1
 
   video_player: ^2.13.0
-  in_app_purchase: ^3.3.0
   google_fonts: ^8.2.1
   in_app_update: ^5.0.0
   package_info_plus: ^10.2.1
@@ -88,6 +87,9 @@ flutter_launcher_icons:
 
 flutter:
   uses-material-design: true
+  shaders:
+    # Graphics test scene for the benchmark.
+    - shaders/bench.frag
   assets:
     - assets/packs/
     - assets/content/

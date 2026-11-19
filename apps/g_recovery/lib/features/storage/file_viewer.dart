@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:pdfx/pdfx.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../app/theme/tokens.dart';
 import '../../bridge/storage_api.g.dart';
@@ -12,6 +11,8 @@ import '../../core/format.dart';
 import '../../core/messenger/g_message.dart';
 import '../../core/messenger/g_messenger.dart';
 import '../../ui/g_button.dart';
+import '../../ui/media/media_stage.dart';
+import '../../ui/media/playable_media.dart';
 import 'state/storage_files.dart';
 import 'state/storage_providers.dart';
 import '../../core/i18n/g_strings.dart';
@@ -162,7 +163,9 @@ class _Frame extends ConsumerWidget {
     final String name = file.name.toLowerCase();
 
     if (file.kind == 'image') return _Image(file: file);
-    if (file.kind == 'video') return _Video(file: file);
+    if (PlayableMedia.canPlay(file.kind, file.mimeType)) {
+      return _Video(file: file);
+    }
 
     // The mime type is authoritative where MediaStore recorded one. Extensions
     // are a fallback, because a file dropped in by a file manager frequently
@@ -214,117 +217,18 @@ class _Image extends ConsumerWidget {
   }
 }
 
-/// Video, played from a content URI.
-///
-/// contentUri is the only VideoPlayerController constructor that works here.
-/// The file path behind a MediaStore row is unreadable under scoped storage
-/// even when the row itself reads perfectly, and Dart cannot resolve the id on
-/// its own.
-class _Video extends ConsumerStatefulWidget {
+/// Video and audio, played in place with the shared player.
+class _Video extends ConsumerWidget {
   const _Video({required this.file});
 
   final StorageFile file;
 
   @override
-  ConsumerState<_Video> createState() => _VideoState();
-}
-
-class _VideoState extends ConsumerState<_Video> {
-  VideoPlayerController? _controller;
-  bool _failed = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final String? uri = await ref
-        .read(storageBridgeProvider)
-        .contentUri(widget.file.fileId);
-    if (!mounted) return;
-    if (uri == null) {
-      setState(() => _failed = true);
-      return;
-    }
-
-    final VideoPlayerController controller = VideoPlayerController.contentUri(
-      Uri.parse(uri),
-    );
-    try {
-      await controller.initialize();
-    } catch (_) {
-      // A codec this phone cannot decode, which is a real and common outcome.
-      // Saying so beats a black rectangle that never starts.
-      await controller.dispose();
-      if (mounted) setState(() => _failed = true);
-      return;
-    }
-    if (!mounted) {
-      await controller.dispose();
-      return;
-    }
-    setState(() => _controller = controller);
-    await controller.setLooping(true);
-    await controller.play();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    if (_failed) return _HandOff(file: widget.file);
-
-    final VideoPlayerController? controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      return _Waiting(t: t);
-    }
-
-    return GestureDetector(
-      onTap: () => setState(() {
-        controller.value.isPlaying ? controller.pause() : controller.play();
-      }),
-      child: Stack(
-        alignment: Alignment.center,
-        children: <Widget>[
-          Center(
-            child: AspectRatio(
-              aspectRatio: controller.value.aspectRatio,
-              child: VideoPlayer(controller),
-            ),
-          ),
-          if (!controller.value.isPlaying)
-            DecoratedBox(
-              decoration: BoxDecoration(color: t.scrim, shape: BoxShape.circle),
-              child: Padding(
-                padding: const EdgeInsets.all(GSpace.md),
-                child: Icon(Icons.play_arrow_rounded, size: 34, color: t.text),
-              ),
-            ),
-          Positioned(
-            left: GSpace.gutter,
-            right: GSpace.gutter,
-            bottom: GSpace.xl,
-            child: VideoProgressIndicator(
-              controller,
-              allowScrubbing: true,
-              colors: VideoProgressColors(
-                playedColor: t.accent,
-                bufferedColor: t.panelAlt,
-                backgroundColor: t.panel,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context, WidgetRef ref) => MediaStage(
+    media: PlayableMedia.storageFile(file, ref.watch(storageBridgeProvider)),
+    fallback: _HandOff(file: file),
+    bottomInset: 48,
+  );
 }
 
 /// Text and CSV, rendered from bytes.
@@ -523,10 +427,7 @@ class _HandOff extends ConsumerWidget {
             Text(
               // Says why rather than only that. A person who knows this app
               // cannot draw a Word document stops expecting it to.
-              context.s(
-                'This app can show photos, video, text and PDF. Anything else '
-                'opens in an app built for it.',
-              ),
+              context.s('Opens in another app'),
               textAlign: TextAlign.center,
               style: GType.bodySmall.copyWith(color: t.muted),
             ),

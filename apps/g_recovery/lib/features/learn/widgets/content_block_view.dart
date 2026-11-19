@@ -1,15 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
-import '../../../ui/g_card.dart';
 import '../state/learn_model.dart';
 
-/// Renders one block. An unrecognised type renders NOTHING.
-///
-/// Silently skipping beats showing raw JSON: published content is written by a
-/// panel that can be ahead of the installed app, and a phone on an older build
-/// meeting a block type it does not know should show a slightly shorter chapter
-/// rather than a debug string.
+/// One block of a guide chapter: heading, paragraph, folder path, bullet
+/// list, or a note or warning. Reading type, generous line height.
 class ContentBlockView extends StatelessWidget {
   const ContentBlockView({required this.block, super.key});
 
@@ -17,84 +12,92 @@ class ContentBlockView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
+    final TextStyle reading = g.body().copyWith(height: 1.55);
 
     switch (block.type) {
       case 'h':
         return Padding(
-          padding: const EdgeInsets.only(top: GSpace.lg, bottom: GSpace.sm),
-          child: Text(
-            block.text ?? '',
-            style: GType.heading.copyWith(color: t.text, fontSize: 16),
+          padding: const EdgeInsets.only(
+            top: GDesign.space24,
+            bottom: GDesign.space8,
           ),
+          child: Text(block.text ?? '', style: g.headline()),
         );
 
       case 'p':
         return Padding(
-          padding: const EdgeInsets.only(bottom: GSpace.md),
-          child: Text(
-            block.text ?? '',
-            style: GType.body.copyWith(color: t.muted, height: 1.65),
-          ),
+          padding: const EdgeInsets.only(bottom: GDesign.space16),
+          child: Text(block.text ?? '', style: reading),
         );
 
       case 'path':
         return Padding(
-          padding: const EdgeInsets.only(bottom: GSpace.sm + 2),
-          child: GCard(
-            padding: const EdgeInsets.all(GSpace.md + 1),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  block.name ?? '',
-                  style: GType.monoNumber.copyWith(color: t.accentText),
-                ),
-                const SizedBox(height: GSpace.sm - 2),
-                Text(
-                  block.text ?? '',
-                  style: GType.bodySmall.copyWith(color: t.muted, height: 1.6),
-                ),
-              ],
+          padding: const EdgeInsets.only(bottom: GDesign.space12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: g.fill,
+              borderRadius: BorderRadius.circular(GDesign.tileRadius),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(GDesign.space16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Icon(GIcons.folder, size: 18, color: g.accentText),
+                      const SizedBox(width: GDesign.space8),
+                      Expanded(
+                        child: Text(
+                          block.name ?? '',
+                          style: g.figures(
+                            g.body(
+                              color: g.accentText,
+                              weight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if ((block.text ?? '').isNotEmpty) ...<Widget>[
+                    const SizedBox(height: GDesign.space4),
+                    Text(block.text!, style: g.footnote()),
+                  ],
+                ],
+              ),
             ),
           ),
         );
 
       case 'list':
         return Padding(
-          padding: const EdgeInsets.only(bottom: GSpace.md),
+          padding: const EdgeInsets.only(bottom: GDesign.space16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               for (final String item in block.items)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: GSpace.sm),
+                  padding: const EdgeInsets.only(bottom: GDesign.space8),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Padding(
                         padding: const EdgeInsets.only(
-                          top: 7,
-                          right: GSpace.md,
+                          top: 9,
+                          right: GDesign.space12,
                         ),
                         child: Container(
-                          width: 5,
-                          height: 5,
+                          width: 6,
+                          height: 6,
                           decoration: BoxDecoration(
-                            color: t.accent,
+                            color: g.accent,
                             shape: BoxShape.circle,
                           ),
                         ),
                       ),
-                      Expanded(
-                        child: Text(
-                          item,
-                          style: GType.body.copyWith(
-                            color: t.muted,
-                            height: 1.55,
-                          ),
-                        ),
-                      ),
+                      Expanded(child: Text(item, style: reading)),
                     ],
                   ),
                 ),
@@ -105,30 +108,27 @@ class ContentBlockView extends StatelessWidget {
       case 'note':
       case 'warn':
         final bool warn = block.type == 'warn';
-        final Color tone = warn ? t.warning : t.video;
         return Padding(
-          padding: const EdgeInsets.only(bottom: GSpace.md),
-          child: GCard(
-            tint: tone,
-            borderColour: tone.withValues(alpha: 0.3),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Icon(
-                  warn
-                      ? Icons.warning_amber_rounded
-                      : Icons.lightbulb_outline_rounded,
-                  size: 18,
-                  color: tone,
-                ),
-                const SizedBox(width: GSpace.md),
-                Expanded(
-                  child: Text(
-                    block.text ?? '',
-                    style: GType.bodySmall.copyWith(color: t.text, height: 1.6),
+          padding: const EdgeInsets.only(bottom: GDesign.space16),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: (warn ? g.danger : g.accent).withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(GDesign.tileRadius),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(GDesign.space16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Icon(
+                    warn ? GIcons.info : GIcons.sparkles,
+                    size: 20,
+                    color: warn ? g.danger : g.accentText,
                   ),
-                ),
-              ],
+                  const SizedBox(width: GDesign.space12),
+                  Expanded(child: Text(block.text ?? '', style: reading)),
+                ],
+              ),
             ),
           ),
         );

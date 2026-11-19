@@ -1,22 +1,20 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
 import '../../../bridge/hardware_api.g.dart';
 import '../../../bridge/hardware_bridge.dart';
-import '../../../ui/g_card.dart';
-import '../../../ui/g_detail_page.dart';
-import '../../../ui/g_stat.dart';
 import '../../../core/i18n/g_strings.dart';
+import '../widgets/device_detail.dart';
+import '../widgets/device_visuals.dart';
+import '../widgets/live_visuals.dart';
 
-/// THE SCREEN.
-///
-/// No chart. Nothing on this page is a series or a distribution, and a graph
-/// over a spec list is decoration that makes the page slower to read.
+/// The screen drawn to its true shape, a scan line sweeping at a speed set
+/// by the refresh rate, then what it can do.
 class DisplayPage extends ConsumerWidget {
   const DisplayPage({required this.hue, super.key});
 
+  /// Kept so existing call sites compile; the page uses the one accent.
   final Color hue;
 
   static Route<void> route({required Color hue}) => MaterialPageRoute<void>(
@@ -25,151 +23,104 @@ class DisplayPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
     final DisplayInfo? d = ref.watch(displayProvider).value;
     final FeatureFlags? f = ref.watch(featuresProvider).value;
 
-    return GDetailPage(
-      hue: hue,
-      icon: Icons.smartphone_rounded,
+    return DeviceDetail(
       title: context.s('Display'),
-      subtitle: d == null
-          ? null
-          : '${d.widthPx} x ${d.heightPx}  ·  ${d.refreshHz.round()} Hz',
-      children: <Widget>[
-        if (d != null) ...<Widget>[
-          const GOverline('Screen'),
-          const SizedBox(height: GSpace.sm + 1),
-          GSpecCard(
-            rows: <(String, String?)>[
-              ('Resolution', '${d.widthPx} x ${d.heightPx}'),
-              ('Aspect ratio', _aspect(d.widthPx, d.heightPx)),
-              ('Density', '${d.densityDpi} dpi'),
-              ('Refresh rate', '${d.refreshHz.round()} Hz'),
-              ('Also supports', _otherRates(d)),
-            ],
-          ),
-
-          if (d.maxLuminance != null) ...<Widget>[
-            const SizedBox(height: GSpace.lg),
-            const GOverline('Brightness'),
-            const SizedBox(height: GSpace.sm + 1),
-            GSpecCard(
-              rows: <(String, String?)>[
-                ('Maximum', '${d.maxLuminance!.round()} cd/m2'),
-                (
-                  'Typical',
-                  d.averageLuminance == null
-                      ? null
-                      : '${d.averageLuminance!.round()} cd/m2',
+      hero: d == null
+          ? DeviceLoading(label: context.s('Reading the screen'))
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                ScreenScale(
+                  widthPx: d.widthPx,
+                  heightPx: d.heightPx,
+                  refreshHz: d.refreshHz,
                 ),
-                (
-                  'Minimum',
-                  d.minLuminance == null
-                      ? null
-                      : '${d.minLuminance!.toStringAsFixed(4)} cd/m2',
+                const SizedBox(height: GDesign.space16),
+                HeroFigures(
+                  figures: <(String?, String)>[
+                    ('${d.widthPx}×${d.heightPx}', context.s('Pixels')),
+                    (_aspect(d.widthPx, d.heightPx), context.s('Shape')),
+                    (
+                      d.maxLuminance == null
+                          ? null
+                          : '${d.maxLuminance!.round()} nits',
+                      context.s('Brightest'),
+                    ),
+                  ],
                 ),
               ],
             ),
-          ],
-
-          const SizedBox(height: GSpace.lg),
-          const GOverline('Supported'),
-          const SizedBox(height: GSpace.sm + 1),
-          GFlagCard(
+      sections: <Widget>[
+        if (d != null)
+          FactSection(
+            header: context.s('Screen'),
+            rows: <(String, String?)>[
+              (context.s('Refresh rate'), '${d.refreshHz.round()} Hz'),
+              (context.s('Also runs at'), _otherRates(d)),
+              (context.s('Density'), '${d.densityDpi} dpi'),
+              (
+                context.s('Typical brightness'),
+                d.averageLuminance == null
+                    ? null
+                    : '${d.averageLuminance!.round()} nits',
+              ),
+            ],
+          ),
+        if (d != null)
+          FlagSection(
+            header: context.s('Colour'),
             flags: <(String, bool)>[
               ('HDR', d.hdr),
-              ('Wide colour', d.wideColour),
+              (context.s('Wide colour'), d.wideColour),
+              for (final String type in d.hdrTypes) (type, true),
             ],
           ),
-
-          if (d.hdrTypes.isNotEmpty) ...<Widget>[
-            const SizedBox(height: GSpace.sm + 1),
-            Wrap(
-              spacing: GSpace.sm,
-              runSpacing: GSpace.sm,
-              children: <Widget>[
-                for (final String type in d.hdrTypes)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: GSpace.md - 2,
-                      vertical: GSpace.xs + 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: t.docs.withValues(alpha: 0.16),
-                      borderRadius: GRadius.all(GRadius.chip),
-                    ),
-                    child: Text(
-                      type,
-                      style: GType.micro.copyWith(color: t.docs),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-        ],
-
-        if (f != null) ...<Widget>[
-          const SizedBox(height: GSpace.lg),
-          const GOverline('This phone has'),
-          const SizedBox(height: GSpace.sm + 1),
-          GFlagCard(
+        if (f != null)
+          FlagSection(
+            header: context.s('This phone has'),
             flags: <(String, bool)>[
-              ('Fingerprint reader', f.fingerprint),
+              (context.s('Fingerprint reader'), f.fingerprint),
               ('NFC', f.nfc),
               ('GPS', f.gps),
-              ('Ultra wideband', f.uwb),
-              ('USB host', f.usbHost),
+              (context.s('Ultra wideband'), f.uwb),
+              (context.s('USB host'), f.usbHost),
               ('Bluetooth LE', f.bluetoothLe),
             ],
           ),
-        ],
       ],
     );
   }
 
-  /// Every mode except the one already on the row above it.
   static String? _otherRates(DisplayInfo d) {
-    if (d.supportedHz.length < 2) return null;
     final List<String> others = <String>[
       for (final double hz in d.supportedHz)
         if (hz.round() != d.refreshHz.round()) '${hz.round()}',
     ];
-    if (others.isEmpty) return null;
-    return '${others.join(', ')} Hz';
+    return others.isEmpty ? null : '${others.join(', ')} Hz';
   }
 
-  /// Reduced by the greatest common divisor, so a 2340 by 1080 panel reads
-  /// 19.5:9 rather than 65:30.
+  /// "20:9" style. Tall panels are expressed against 9, as phones are sold.
   static String _aspect(int w, int h) {
-    int a = w;
-    int b = h;
-    while (b != 0) {
-      final int temp = b;
-      b = a % b;
-      a = temp;
-    }
-    if (a == 0) return '';
-    final double x = w / a;
-    final double y = h / a;
-    if (y > 20) {
-      return '${(w / h * 9).toStringAsFixed(1)}:9';
-    }
-    return '${x.round()}:${y.round()}';
+    final int long = w > h ? w : h;
+    final int short = w > h ? h : w;
+    if (short == 0) return '';
+    final double ratio = long / short * 9;
+    final String head = (ratio - ratio.round()).abs() < 0.05
+        ? '${ratio.round()}'
+        : ratio.toStringAsFixed(1);
+    return '$head:9';
   }
 }
 
-/// THE CAMERAS.
-///
-/// ─── A SCATTER, AND IT EARNS ITS PLACE ───────────────────────────────────────
-///
-/// Focal length against aperture, one dot per lens, sized by megapixels. Six
-/// cameras as six rows of numbers tells a person nothing; the same six as dots
-/// shows immediately which is the wide, which is the telephoto, and which is a
-/// 2 MP depth sensor padding the spec sheet.
+/// The camera bump drawn with one ring per lens, sized by megapixels, then
+/// each lens's numbers.
 class CamerasPage extends ConsumerWidget {
   const CamerasPage({required this.hue, super.key});
 
+  /// Kept so existing call sites compile; the page uses the one accent.
   final Color hue;
 
   static Route<void> route({required Color hue}) => MaterialPageRoute<void>(
@@ -178,155 +129,60 @@ class CamerasPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final List<CameraInfo> cameras =
-        ref.watch(camerasProvider).value ?? const <CameraInfo>[];
+    final AsyncValue<List<CameraInfo>> source = ref.watch(camerasProvider);
+    final List<CameraInfo> cameras = source.value ?? const <CameraInfo>[];
+    final List<CameraInfo> backs =
+        cameras.where((CameraInfo c) => c.facing == 'back').toList()..sort(
+          (CameraInfo a, CameraInfo b) => (a.focalLengthsMm.firstOrNull ?? 0)
+              .compareTo(b.focalLengthsMm.firstOrNull ?? 0),
+        );
+    final CameraInfo? front = cameras
+        .where((CameraInfo c) => c.facing == 'front')
+        .firstOrNull;
 
-    return GDetailPage(
-      hue: hue,
-      icon: Icons.photo_camera_rounded,
+    ModuleLens lens(CameraInfo c) =>
+        ModuleLens(label: _lensName(c, cameras), megapixels: c.megapixels);
+
+    return DeviceDetail(
       title: context.s('Cameras'),
-      subtitle: cameras.isEmpty ? null : '${cameras.length} found',
-      children: <Widget>[
-        if (cameras.length > 1) ...<Widget>[
-          GCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  context.s('Focal length against aperture'),
-                  style: GType.micro.copyWith(color: t.muted),
-                ),
-                const SizedBox(height: GSpace.md),
-                SizedBox(
-                  height: 168,
-                  child: ScatterChart(
-                    _scatter(cameras, t),
-                    duration: const Duration(milliseconds: 420),
-                    curve: Curves.easeOutCubic,
-                  ),
-                ),
-                const SizedBox(height: GSpace.sm),
-                Row(
-                  children: <Widget>[
-                    Text('wider', style: GType.micro.copyWith(color: t.dim)),
-                    const Spacer(),
-                    Text(
-                      context.s('longer lens'),
-                      style: GType.micro.copyWith(color: t.dim),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: GSpace.sm),
-                GStackKeys(
-                  entries: <(String, Color)>[
-                    ('Back', t.accent),
-                    ('Front', t.photo),
-                    ('size is megapixels', t.dim),
-                  ],
-                ),
-              ],
+      hero: !source.hasValue
+          ? DeviceLoading(label: context.s('Reading the cameras'))
+          : CameraModule(
+              lenses: <ModuleLens>[for (final CameraInfo c in backs) lens(c)],
+              front: front == null ? null : lens(front),
             ),
-          ),
-          const SizedBox(height: GSpace.lg),
-        ],
-
-        for (final CameraInfo camera in cameras) ...<Widget>[
-          GOverline(
-            '${_lensName(camera, cameras)}  ·  '
-            '${camera.megapixels.toStringAsFixed(1)} MP',
-          ),
-          const SizedBox(height: GSpace.sm + 1),
-          GSpecCard(
+      sections: <Widget>[
+        for (final CameraInfo c in <CameraInfo>[...backs, ?front])
+          FactSection(
+            header: _lensName(c, cameras),
             rows: <(String, String?)>[
-              ('Resolution', '${camera.widthPx} x ${camera.heightPx}'),
+              (context.s('Photo size'), '${c.widthPx} x ${c.heightPx}'),
               (
-                'Focal length',
-                camera.focalLengthsMm.isEmpty
+                context.s('Lens'),
+                c.focalLengthsMm.isEmpty
                     ? null
-                    : camera.focalLengthsMm
-                          .map((double f) => '${f.toStringAsFixed(1)} mm')
-                          .join(', '),
+                    : '${c.focalLengthsMm.first.toStringAsFixed(1)} mm',
               ),
               (
-                'Aperture',
-                camera.apertures.isEmpty
+                context.s('Aperture'),
+                c.apertures.isEmpty
                     ? null
-                    : camera.apertures
-                          .map((double a) => 'f/${a.toStringAsFixed(1)}')
-                          .join(', '),
+                    : 'f/${c.apertures.first.toStringAsFixed(1)}',
               ),
               (
-                'ISO range',
-                camera.isoMin == null || camera.isoMax == null
+                'ISO',
+                c.isoMin == null || c.isoMax == null
                     ? null
-                    : '${camera.isoMin} to ${camera.isoMax}',
+                    : '${c.isoMin} to ${c.isoMax}',
               ),
-              ('RAW', camera.supportsRaw ? 'Supported' : 'No'),
-              ('Flash', camera.hasFlash ? 'Yes' : 'No'),
+              ('RAW', c.supportsRaw ? context.s('Yes') : null),
+              (context.s('Flash'), c.hasFlash ? context.s('Yes') : null),
             ],
           ),
-          const SizedBox(height: GSpace.md - 1),
-        ],
       ],
     );
   }
 
-  ScatterChartData _scatter(List<CameraInfo> cameras, GTokens t) {
-    final List<ScatterSpot> spots = <ScatterSpot>[];
-    double maxFocal = 1;
-    double maxAperture = 1;
-
-    for (final CameraInfo c in cameras) {
-      if (c.focalLengthsMm.isEmpty || c.apertures.isEmpty) continue;
-      final double focal = c.focalLengthsMm.first;
-      final double aperture = c.apertures.first;
-      if (focal > maxFocal) maxFocal = focal;
-      if (aperture > maxAperture) maxAperture = aperture;
-
-      spots.add(
-        ScatterSpot(
-          focal,
-          aperture,
-          dotPainter: FlDotCirclePainter(
-            // Radius from megapixels, so the sensor doing the real work is the
-            // biggest dot and a 2 MP depth sensor is visibly a speck.
-            radius: (4 + c.megapixels * 0.55).clamp(4, 16).toDouble(),
-            color: (c.facing == 'front' ? t.photo : t.accent).withValues(
-              alpha: 0.75,
-            ),
-            strokeWidth: 0,
-          ),
-        ),
-      );
-    }
-
-    return ScatterChartData(
-      minX: 0,
-      maxX: maxFocal * 1.25,
-      minY: 0,
-      maxY: maxAperture * 1.35,
-      scatterSpots: spots,
-      gridData: const FlGridData(show: false),
-      borderData: FlBorderData(show: false),
-      titlesData: const FlTitlesData(show: false),
-      // Not const. ScatterTouchData has no const constructor, unlike the grid
-      // and titles types beside it.
-      scatterTouchData: ScatterTouchData(enabled: false),
-    );
-  }
-
-  /// Wide, ultra wide or telephoto, worked out from focal length.
-  ///
-  /// ─── RELATIVE TO THE OTHER LENSES, NOT TO ABSOLUTE NUMBERS ───────────────
-  ///
-  /// A 2.2mm lens is ultra wide on one phone and the only camera on another.
-  /// The shortest back lens is the ultra wide only when there is something
-  /// longer to compare it against, so the naming is done within the set rather
-  /// than against fixed thresholds that would mislabel half of all phones.
-  ///
-  /// Falls back to Front or Back where there is nothing to compare, which is
-  /// honest rather than guessing at a name.
   static String _lensName(CameraInfo camera, List<CameraInfo> all) {
     if (camera.facing != 'back') return _facing(camera.facing);
     if (camera.focalLengthsMm.isEmpty) return 'Back';

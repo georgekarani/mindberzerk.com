@@ -28,7 +28,7 @@ class CompressBridge {
 
   Future<List<CompressCandidate>> candidates({
     String kind = 'all',
-    int minBytes = 1024 * 1024,
+    int minBytes = kCompressFloorBytes,
     int limit = 300,
   }) async =>
       await _guard(() => _api.candidates(kind, minBytes, limit)) ??

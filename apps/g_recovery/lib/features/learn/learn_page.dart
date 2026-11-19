@@ -1,155 +1,121 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
-import '../../ui/g_app_bar.dart';
+import '../../core/i18n/g_strings.dart';
 import '../../ui/g_card.dart';
 import 'chapter_page.dart';
 import 'state/learn_model.dart';
 import 'state/learn_providers.dart';
-import '../../core/i18n/g_strings.dart';
 
-/// The chapter list.
-///
-/// Not a side feature. This is what makes a "gone" verdict believable: a user
-/// told their photo cannot be recovered has no reason to accept that from an
-/// app unless the app can explain why, in terms they can check.
+/// The guide: seven short chapters, each a numbered row with its icon and
+/// reading time.
 class LearnPage extends ConsumerWidget {
-  const LearnPage({super.key});
+  const LearnPage({super.key, this.backLabel});
 
-  static Route<void> route() => MaterialPageRoute<void>(
-    builder: (BuildContext context) => const LearnPage(),
+  final String? backLabel;
+
+  static Route<void> route({String? backLabel}) => MaterialPageRoute<void>(
+    builder: (BuildContext context) => LearnPage(backLabel: backLabel),
   );
+
+  /// One glyph per chapter, shared with the chapter page's hero.
+  static IconData iconFor(String id) => switch (id) {
+    LearnIds.whereFilesLive => GIcons.device,
+    LearnIds.standardFolders => GIcons.folder,
+    LearnIds.androidData => GIcons.lock,
+    LearnIds.theTrash => GIcons.trash,
+    LearnIds.thumbnails => GIcons.images,
+    LearnIds.scopedStorage => GIcons.shield,
+    LearnIds.factoryReset => GIcons.refresh,
+    _ => GIcons.docs,
+  };
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final LearnBook? book = ref.watch(learnBookProvider).value;
+    final int minutes =
+        book?.chapters.fold<int>(0, (int m, LearnChapter c) => m + c.minutes) ??
+        0;
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl,
-          ),
-          children: <Widget>[
-            GAppBar(
-              title: context.s('How Android storage works'),
-              leading: GIconButton(
-                icon: Icons.arrow_back_rounded,
-                onTap: () => Navigator.of(context).pop(),
-              ),
-            ),
-            Text(
-              context.s(
-                'Seven short chapters on where your files live, what deleting '
-                'actually does, and why some things can be brought back and '
-                'others cannot.',
-              ),
-              style: GType.bodySmall.copyWith(color: t.muted, height: 1.6),
-            ),
-            const SizedBox(height: GSpace.lg),
-            if (book == null)
-              Text(
-                context.s('Loading'),
-                style: GType.bodySmall.copyWith(color: t.dim),
-              )
-            else
-              for (int i = 0; i < book.chapters.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: GSpace.sm + 2),
-                  child: _ChapterCard(chapter: book.chapters[i]),
+    return GGroundScope(
+      grouped: true,
+      child: LargeTitlePage(
+        title: context.s('How storage works'),
+        grouped: true,
+        backLabel: backLabel ?? context.s('Browse'),
+        onBack: () => Navigator.of(context).maybePop(),
+        slivers: <Widget>[
+          if (book == null)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(child: CircularProgressIndicator.adaptive()),
+            )
+          else ...<Widget>[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  GDesign.gutter,
+                  0,
+                  GDesign.gutter,
+                  GDesign.space24,
                 ),
+                child: Text(
+                  context.s1(
+                    '${book.chapters.length} chapters, {} minutes',
+                    minutes,
+                  ),
+                  style: g.figures(g.footnote()),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: GroupedSection(
+                children: <Widget>[
+                  for (int i = 0; i < book.chapters.length; i++)
+                    ListRow(
+                      leading: _Number(n: i + 1),
+                      title: book.chapters[i].title,
+                      // Under the title, so long titles keep the full width.
+                      subtitle: context.s1('{} min', book.chapters[i].minutes),
+                      onTap: () => Navigator.of(
+                        context,
+                      ).push(ChapterPage.route(book.chapters[i].id)),
+                    ),
+                ],
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: GDesign.space48)),
           ],
-        ),
+        ],
       ),
     );
   }
 }
 
-class _ChapterCard extends StatelessWidget {
-  const _ChapterCard({required this.chapter});
+/// The chapter number in an accent ring.
+class _Number extends StatelessWidget {
+  const _Number({required this.n});
 
-  final LearnChapter chapter;
-
-  /// One glyph per chapter, keyed on the id rather than the position, so
-  /// reordering the book cannot silently give a chapter the wrong picture.
-  static IconData _icon(String id) => switch (id) {
-    LearnIds.whereFilesLive => Icons.smartphone_rounded,
-    LearnIds.standardFolders => Icons.folder_rounded,
-    LearnIds.androidData => Icons.lock_outline_rounded,
-    LearnIds.theTrash => Icons.delete_outline_rounded,
-    LearnIds.thumbnails => Icons.photo_size_select_small_rounded,
-    LearnIds.scopedStorage => Icons.shield_outlined,
-    LearnIds.factoryReset => Icons.restart_alt_rounded,
-    _ => Icons.menu_book_outlined,
-  };
-
-  static Color _hue(GTokens t, String id) => switch (id) {
-    LearnIds.whereFilesLive => t.chat,
-    LearnIds.standardFolders => t.photo,
-    LearnIds.androidData => t.apps,
-    LearnIds.theTrash => t.danger,
-    LearnIds.thumbnails => t.video,
-    LearnIds.scopedStorage => t.docs,
-    LearnIds.factoryReset => t.audio,
-    _ => t.muted,
-  };
+  final int n;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return GCard(
-      onTap: () => Navigator.of(context).push(ChapterPage.route(chapter.id)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          // A GLYPH, not a number.
-          //
-          // "01" told a reader the order, which the list already showed. A bin,
-          // a folder or a padlock tells them what the chapter is about before
-          // they read the title, which is the only thing a chapter list is for.
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: _hue(t, chapter.id).withValues(alpha: 0.16),
-              borderRadius: GRadius.all(13),
-            ),
-            child: Icon(
-              _icon(chapter.id),
-              size: 19,
-              color: _hue(t, chapter.id),
-            ),
-          ),
-          const SizedBox(width: GSpace.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  chapter.title,
-                  style: GType.heading.copyWith(color: t.text),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  chapter.summary,
-                  style: GType.bodySmall.copyWith(color: t.muted, height: 1.5),
-                ),
-                const SizedBox(height: GSpace.sm),
-                Text(
-                  '${chapter.minutes} min read',
-                  style: GType.micro.copyWith(color: t.dim),
-                ),
-              ],
-            ),
-          ),
-        ],
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Container(
+      width: 22,
+      height: 22,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: g.accentText, width: 1.5),
+      ),
+      child: Text(
+        '$n',
+        style: g.figures(
+          g.caption(color: g.accentText, weight: FontWeight.w600),
+        ),
       ),
     );
   }

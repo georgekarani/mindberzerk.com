@@ -1,273 +1,384 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
 import '../../bridge/apps_api.g.dart';
 import '../../bridge/apps_bridge.dart';
 import '../../core/format.dart';
-import '../../ui/g_app_bar.dart';
-import '../../ui/g_button.dart';
-import '../../ui/g_card.dart';
-import '../../ui/g_detail_page.dart';
-import '../../ui/g_enter.dart';
-import '../../ui/g_sheet.dart';
 import '../../core/i18n/g_strings.dart';
+import '../../ui/g_card.dart';
+import '../device/widgets/device_detail.dart';
 
-/// WHAT EACH APP IS TAKING.
+/// What apps take up: the total split into the apps themselves, their data,
+/// and cache that rebuilds itself, then every app largest first.
 ///
-/// ─── IT DOES NOT CLEAR ANYTHING, AND SAYS SO ─────────────────────────────────
-///
-/// No app on Play can clear another app's cache; the API has been system only
-/// since Android 6. Anything advertising it is driving the screen through an
-/// accessibility service or inventing a number.
-///
-/// So this screen shows the real figure and opens the one place the button
-/// works. That is less satisfying than a Clean All button and it is the only
-/// version that is true.
+/// Android has not let one app clear another's cache since 2015, so a row
+/// opens that app's own storage screen, where Clear cache is one tap.
 class AppsPage extends ConsumerWidget {
-  const AppsPage({super.key});
+  const AppsPage({super.key, this.backLabel});
 
-  static Route<void> route() => MaterialPageRoute<void>(
-    builder: (BuildContext context) => const AppsPage(),
+  final String? backLabel;
+
+  static Route<void> route({String? backLabel}) => MaterialPageRoute<void>(
+    builder: (BuildContext context) => AppsPage(backLabel: backLabel),
   );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final AppsState? state = ref.watch(appsStateProvider).value;
     final AppSort sort = ref.watch(appSortProvider);
     final List<AppEntry> apps = ref.watch(sortedAppsProvider);
+    final bool blocked = state != null && !state.usageAccess;
 
-    return GDetailSliverPage(
-      hue: t.apps,
-      icon: Icons.apps_rounded,
-      title: context.s('Apps'),
-      subtitle: state == null || !state.usageAccess
-          ? null
-          : '${GFormat.count(state.count)} apps  ·  '
-                '${GFormat.bytes(state.totalBytes)}',
-      trailing: GIconButton(
-        icon: Icons.info_outline_rounded,
-        onTap: () => _explain(context),
-      ),
-      slivers: <Widget>[
-        if (state != null && !state.usageAccess)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: _NeedsAccess(
-              // Nothing is invalidated here.
-              //
-              // ─── THE ANSWER DOES NOT EXIST YET ─────────────────────────────
-              //
-              // requestUsageAccess only fires the intent; it returns the moment
-              // the settings screen is asked for, while the user is still
-              // standing in front of it. A refresh at this point reads the
-              // grant as absent, which it is, and stores that. Nothing later
-              // disagreed with it, so the screen stayed on this panel after the
-              // user had already flipped the switch.
-              //
-              // The shell re-reads on resume, which is the only moment the
-              // answer can have changed.
-              onGrant: () => ref.read(appsBridgeProvider).requestUsageAccess(),
-            ),
-          )
-        else if (apps.isEmpty)
-          const SliverFillRemaining(hasScrollBody: false, child: _Reading())
-        else ...<Widget>[
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              GSpace.gutter,
-              0,
-              GSpace.gutter,
-              GSpace.md,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: _Fact(
-                      value: GFormat.bytes(state!.cacheBytes),
-                      label: context.s('cache, rebuildable'),
-                      tone: t.audio,
-                    ),
-                  ),
-                  Expanded(
-                    child: _Fact(
-                      value: GFormat.bytes(state.totalBytes - state.cacheBytes),
-                      label: context.s('apps and their data'),
-                      tone: t.text,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(
-              GSpace.gutter,
-              0,
-              GSpace.gutter,
-              GSpace.md - 2,
-            ),
-            sliver: SliverToBoxAdapter(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: _SortPill(current: sort),
-              ),
-            ),
-          ),
-
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((
-                BuildContext context,
-                int index,
-              ) {
-                return GEnter(
-                  index: index,
-                  child: _Row(
-                    entry: apps[index],
-                    onTap: () async {
-                      await ref
-                          .read(appsBridgeProvider)
-                          .openAppSettings(apps[index].packageName);
-                      // Same reasoning as the grant above: the user has not
-                      // cleared anything yet. Native drops its cache when the
-                      // settings screen opens, and the shell re-reads when they
-                      // come back.
-                    },
-                  ),
-                );
-              }, childCount: apps.length),
-            ),
+    return GGroundScope(
+      grouped: true,
+      child: LargeTitlePage(
+        title: context.s('Apps'),
+        grouped: true,
+        backLabel: backLabel ?? context.s('Clean up'),
+        onBack: () => Navigator.of(context).maybePop(),
+        actions: <Widget>[
+          NavAction.icon(
+            icon: GIcons.info,
+            semanticLabel: context.s('Clearing app caches'),
+            onTap: () => _explain(context),
           ),
         ],
-      ],
+        slivers: <Widget>[
+          if (blocked)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _NeedsAccess(
+                onGrant: () =>
+                    ref.read(appsBridgeProvider).requestUsageAccess(),
+              ),
+            )
+          else if (apps.isEmpty || state == null)
+            const SliverFillRemaining(hasScrollBody: false, child: _Reading())
+          else ...<Widget>[
+            SliverToBoxAdapter(
+              child: Reveal(child: _Split(state: state)),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  GDesign.gutter,
+                  GDesign.space24,
+                  GDesign.gutter,
+                  GDesign.space12,
+                ),
+                child: Segmented<AppSort>(
+                  semanticLabel: context.s('Sort'),
+                  segments: <(AppSort, String)>[
+                    (AppSort.total, context.s('Size')),
+                    (AppSort.cache, context.s('Cache')),
+                    (AppSort.data, context.s('Data')),
+                    (AppSort.unused, context.s('Unused')),
+                  ],
+                  value: sort,
+                  onChanged: ref.read(appSortProvider.notifier).select,
+                ),
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+              sliver: SliverList.builder(
+                itemCount: apps.length,
+                itemBuilder: (BuildContext context, int i) => Reveal(
+                  index: i,
+                  rise: 8,
+                  child: _AppRow(
+                    entry: apps[i],
+                    sort: sort,
+                    first: i == 0,
+                    last: i == apps.length - 1,
+                    onTap: () => ref
+                        .read(appsBridgeProvider)
+                        .openAppSettings(apps[i].packageName),
+                  ),
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  GDesign.gutter + GDesign.space16,
+                  GDesign.space8,
+                  GDesign.gutter,
+                  GDesign.space48,
+                ),
+                child: Text(
+                  context.s('Tap an app to clear its cache'),
+                  style: g.footnote(),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  void _explain(BuildContext context) {
-    final GTokens t = context.g;
-    showGSheet(
-      context: context,
-      title: context.s('Clearing app caches'),
-      children: <Widget>[
-        Text(
-          context.s(
-            'Android has not let one app clear another app\u0027s cache since '
-            '2015. Anything claiming to do it is either driving your screen '
-            'through an accessibility service, or reporting a number it made up.',
-          ),
-          style: GType.bodySmall.copyWith(color: t.muted),
+  void _explain(BuildContext context) =>
+      showDeviceNote(context, context.s('Clearing app caches'), <String>[
+        context.s(
+          'Android has not let one app clear another app\'s cache since '
+          '2015. Apps that claim to are driving your screen or making the '
+          'number up.',
         ),
-        const GSheetHeading('What this screen does'),
-        GSheetPoint(
-          icon: Icons.open_in_new_rounded,
-          tone: t.docs,
-          text: context.s(
-            'Shows the real size and opens that app\u0027s own storage '
-            'screen, where Clear cache is one tap and actually works.',
-          ),
+        context.s(
+          'Tap an app to open its own storage screen. Clear cache there is '
+          'safe: the app rebuilds it. Clear data signs you out and deletes '
+          'what the app kept.',
         ),
-        const GSheetHeading('Cache and data are different'),
-        GSheetPoint(
-          icon: Icons.refresh_rounded,
-          tone: t.docs,
-          text: context.s(
-            'Cache is rebuildable. Clearing it costs nothing but a slower '
-            'next launch.',
+      ]);
+}
+
+/// The total, then one bar split into apps, data and cache.
+class _Split extends StatelessWidget {
+  const _Split({required this.state});
+
+  final AppsState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final int cache = state.cacheBytes;
+    final int rest = state.totalBytes - cache;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        GDesign.gutter,
+        GDesign.space8,
+        GDesign.gutter,
+        0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          CountUpText(
+            value: state.totalBytes,
+            format: (num v) => GFormat.bytes(v.round()),
+            style: g.figures(g.largeTitle()),
           ),
-        ),
-        GSheetPoint(
-          text: context.s(
-            'Data is the app\u0027s actual content: your accounts, '
-            'messages and downloads. Clearing it signs you out and deletes '
-            'what was there.',
+          Text(
+            context.s1('in {} apps', GFormat.count(state.count)),
+            style: g.footnote(),
           ),
-        ),
-      ],
+          const SizedBox(height: GDesign.space16),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: SizedBox(
+              height: 10,
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: GDesign.motion(context, GDesign.slow),
+                curve: GDesign.enter,
+                builder: (BuildContext context, double v, Widget? _) => Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    Expanded(
+                      flex: (rest * 1000 ~/ (state.totalBytes + 1)).clamp(
+                        1,
+                        1000,
+                      ),
+                      child: ColoredBox(color: g.text.withValues(alpha: 0.5)),
+                    ),
+                    Expanded(
+                      flex: (cache * 1000 * v ~/ (state.totalBytes + 1)).clamp(
+                        1,
+                        1000,
+                      ),
+                      child: ColoredBox(color: g.accent),
+                    ),
+                    Expanded(
+                      flex: (cache * 1000 * (1 - v) ~/ (state.totalBytes + 1))
+                          .clamp(1, 1000),
+                      child: const SizedBox(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: GDesign.space12),
+          HeroFigures(
+            figures: <(String?, String)>[
+              (GFormat.bytes(rest), context.s('Apps and data')),
+              (GFormat.bytes(cache), context.s('Cache, rebuilds')),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
 
-/// The wait, counted.
-///
-/// ─── WHY THERE IS A NUMBER HERE AT ALL ───────────────────────────────────────
-///
-/// StorageStatsManager answers one package per call, so a phone with three
-/// hundred apps is three hundred round trips and several seconds of nothing.
-/// A spinner would cover that honestly enough, and would also be the one screen
-/// in this app that asks someone to wait without saying for what.
-///
-/// The two numbers are counted by the loop itself and read mid run, so the bar
-/// measures work rather than time. Before the package list exists there is no
-/// total, and the line says so by not appearing: an unknown denominator is left
-/// blank rather than filled with a guess.
+/// One app: a letter tile, its name, the figure the sort is about, and when
+/// it was last used.
+class _AppRow extends StatelessWidget {
+  const _AppRow({
+    required this.entry,
+    required this.sort,
+    required this.first,
+    required this.last,
+    required this.onTap,
+  });
+
+  final AppEntry entry;
+  final AppSort sort;
+  final bool first;
+  final bool last;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final int total = entry.appBytes + entry.dataBytes + entry.cacheBytes;
+    const Radius r = Radius.circular(GDesign.cardRadius);
+    final String figure = switch (sort) {
+      AppSort.cache => GFormat.bytes(entry.cacheBytes),
+      AppSort.data => GFormat.bytes(entry.dataBytes),
+      _ => GFormat.bytes(total),
+    };
+
+    return Material(
+      color: g.card,
+      borderRadius: BorderRadius.vertical(
+        top: first ? r : Radius.zero,
+        bottom: last ? r : Radius.zero,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsetsDirectional.only(start: GDesign.space12),
+          child: Row(
+            children: <Widget>[
+              _Monogram(label: entry.label),
+              const SizedBox(width: GDesign.space12),
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: last
+                        ? null
+                        : Border(
+                            bottom: BorderSide(color: g.hairline, width: 0.5),
+                          ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsetsDirectional.fromSTEB(
+                      0,
+                      GDesign.space12,
+                      GDesign.space16,
+                      GDesign.space12,
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Text(
+                                entry.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: g.body(),
+                              ),
+                              Text(
+                                _used(context, entry.lastUsedMillis),
+                                style: g.footnote(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: GDesign.space8),
+                        Text(figure, style: g.figures(g.body(color: g.muted))),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _used(BuildContext context, int? millis) {
+    if (millis == null) return context.s('Never opened');
+    final int days = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(millis))
+        .inDays;
+    if (days <= 0) return context.s('Used today');
+    if (days == 1) return context.s('Used yesterday');
+    if (days < 30) return context.s1('Used {} days ago', days);
+    if (days < 365) {
+      return context.s1('Used {} months ago', (days / 30).round());
+    }
+    return context.s('Unused for over a year');
+  }
+}
+
+/// The app's first letter on a rounded tile, standing in for its icon.
+class _Monogram extends StatelessWidget {
+  const _Monogram({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    final String letter = label.isEmpty ? '?' : label.characters.first;
+    return Container(
+      width: 36,
+      height: 36,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: g.fill,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(letter.toUpperCase(), style: g.headline(color: g.muted)),
+    );
+  }
+}
+
+/// Reading sizes: a count and a bar that fills as apps are measured.
 class _Reading extends ConsumerWidget {
   const _Reading();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final AppsProgress? progress = ref.watch(appsProgressProvider).value;
-
-    final int total = progress?.total ?? 0;
-    final int done = progress?.done ?? 0;
-    final double fraction = total <= 0
-        ? 0
-        : (done / total).clamp(0.0, 1.0).toDouble();
-
+    final GDesignTheme g = GDesignTheme.of(context);
+    final AppsProgress? p = ref.watch(appsProgressProvider).value;
+    final int total = p?.total ?? 0;
+    final int done = p?.done ?? 0;
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: GSpace.xl),
+        padding: const EdgeInsets.symmetric(horizontal: GDesign.space48),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            Text(
-              context.s('Reading app sizes'),
-              textAlign: TextAlign.center,
-              style: GType.monoSmall.copyWith(color: t.dim),
+            Text(context.s('Measuring apps'), style: g.headline()),
+            const SizedBox(height: GDesign.space12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: LinearProgressIndicator(
+                value: total <= 0 ? null : (done / total).clamp(0.0, 1.0),
+                minHeight: 6,
+                backgroundColor: g.fill,
+                color: g.accent,
+              ),
             ),
             if (total > 0) ...<Widget>[
-              const SizedBox(height: GSpace.md),
-              // The denominator is the package count, not a percentage. A
-              // person who sees 300 understands why this takes a moment, and a
-              // person who sees 40 understands why it did not.
+              const SizedBox(height: GDesign.space8),
               Text(
-                '${GFormat.count(done)} / ${GFormat.count(total)}',
-                style: GType.monoNumber.copyWith(color: t.text, fontSize: 15),
-              ),
-              const SizedBox(height: GSpace.md),
-              SizedBox(
-                width: 160,
-                child: ClipRRect(
-                  borderRadius: GRadius.all(4),
-                  child: SizedBox(
-                    height: 4,
-                    child: Stack(
-                      children: <Widget>[
-                        Positioned.fill(child: ColoredBox(color: t.panelAlt)),
-                        // Animated so the bar slides between polls rather than
-                        // stepping four times a second, which reads as a stall
-                        // between each step.
-                        Positioned.fill(
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: AnimatedFractionallySizedBox(
-                              duration: const Duration(milliseconds: 260),
-                              curve: Curves.easeOut,
-                              widthFactor: fraction,
-                              heightFactor: 1,
-                              child: ColoredBox(color: t.accent),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                context.s1(
+                  '{} of ${GFormat.count(total)}',
+                  GFormat.count(done),
                 ),
+                style: g.figures(g.footnote()),
               ),
             ],
           ],
@@ -277,6 +388,7 @@ class _Reading extends ConsumerWidget {
   }
 }
 
+/// Usage access is off: one line and one button.
 class _NeedsAccess extends StatelessWidget {
   const _NeedsAccess({required this.onGrant});
 
@@ -284,247 +396,32 @@ class _NeedsAccess extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
+    final GDesignTheme g = GDesignTheme.of(context);
     return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: GSpace.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.query_stats_rounded, size: 42, color: t.dim),
-            const SizedBox(height: GSpace.lg),
-            Text(
-              context.s('Android keeps app sizes behind a switch'),
-              textAlign: TextAlign.center,
-              style: GType.title.copyWith(color: t.text),
-            ),
-            const SizedBox(height: GSpace.sm),
-            Text(
-              // Names what is really being granted. "Usage access" sounds like
-              // browsing history, and a person who thinks that is what they are
-              // handing over should be told otherwise.
-              context.s(
-                'Usage access lets this app read how much space each app takes. '
-                'It reads sizes, not what you do in them.',
-              ),
-              textAlign: TextAlign.center,
-              style: GType.bodySmall.copyWith(color: t.muted),
-            ),
-            const SizedBox(height: GSpace.lg),
-            GButton(
-              label: context.s('Open the setting'),
-              icon: Icons.open_in_new_rounded,
-              expand: false,
-              onPressed: onGrant,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SortPill extends ConsumerWidget {
-  const _SortPill({required this.current});
-
-  final AppSort current;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-
-    return Material(
-      color: t.panelAlt,
-      borderRadius: GRadius.all(GRadius.chip),
-      child: InkWell(
-        borderRadius: GRadius.all(GRadius.chip),
-        onTap: () => showGSheet(
-          context: context,
-          title: context.s('Sort'),
-          children: <Widget>[
-            for (final AppSort mode in AppSort.values)
-              Material(
-                type: MaterialType.transparency,
-                child: InkWell(
-                  borderRadius: GRadius.all(GRadius.tile),
-                  onTap: () {
-                    ref.read(appSortProvider.notifier).select(mode);
-                    Navigator.of(context).pop();
-                  },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: GSpace.md - 2,
-                      horizontal: GSpace.sm,
-                    ),
-                    child: Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            mode.label,
-                            style: GType.body.copyWith(
-                              color: mode == current ? t.text : t.muted,
-                            ),
-                          ),
-                        ),
-                        if (mode == current)
-                          Icon(Icons.check_rounded, size: 18, color: t.accent),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: GSpace.md - 2,
-            vertical: GSpace.sm,
-          ),
-          child: Row(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: GDesign.space32),
+        child: Reveal(
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(Icons.swap_vert_rounded, size: 16, color: t.dim),
-              const SizedBox(width: GSpace.xs + 1),
-              Text(current.label, style: GType.micro.copyWith(color: t.text)),
+              Icon(GIcons.grid, size: 48, color: g.faint),
+              const SizedBox(height: GDesign.space16),
+              Text(
+                context.s('App sizes need usage access'),
+                textAlign: TextAlign.center,
+                style: g.headline(),
+              ),
+              Text(
+                context.s('It reads sizes, not what you do in them'),
+                textAlign: TextAlign.center,
+                style: g.footnote(),
+              ),
+              const SizedBox(height: GDesign.space24),
+              PrimaryButton(label: context.s('Allow'), onTap: onGrant),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row({required this.entry, required this.onTap});
-
-  final AppEntry entry;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final int total = entry.appBytes + entry.dataBytes + entry.cacheBytes;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.sm),
-      child: GCard(
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    entry.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GType.body.copyWith(
-                      color: t.text,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: GSpace.sm),
-                Text(
-                  GFormat.bytes(total),
-                  style: GType.monoNumber.copyWith(color: t.text, fontSize: 14),
-                ),
-              ],
-            ),
-
-            const SizedBox(height: GSpace.sm),
-            // The split, as a bar. Three numbers in a row is a table; a bar
-            // shows at a glance whether an app is big because of its content or
-            // because of a cache that can be thrown away.
-            ClipRRect(
-              borderRadius: GRadius.all(4),
-              child: SizedBox(
-                height: 6,
-                child: Row(
-                  children: <Widget>[
-                    if (entry.appBytes > 0)
-                      Expanded(
-                        flex: entry.appBytes,
-                        child: ColoredBox(color: t.dim),
-                      ),
-                    if (entry.dataBytes > 0)
-                      Expanded(
-                        flex: entry.dataBytes,
-                        child: ColoredBox(color: t.photo),
-                      ),
-                    if (entry.cacheBytes > 0)
-                      Expanded(
-                        flex: entry.cacheBytes,
-                        child: ColoredBox(color: t.audio),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: GSpace.sm),
-            Text(
-              _line(entry),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GType.micro.copyWith(color: t.muted),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Only the parts that are worth reading. An app with no cache does not need
-  /// to be told it has no cache.
-  static String _line(AppEntry entry) {
-    final List<String> parts = <String>[
-      'app ${GFormat.bytes(entry.appBytes)}',
-      if (entry.dataBytes > 0) 'data ${GFormat.bytes(entry.dataBytes)}',
-      if (entry.cacheBytes > 0) 'cache ${GFormat.bytes(entry.cacheBytes)}',
-      if (entry.lastUsedMillis == null)
-        'never opened'
-      else
-        _ago(entry.lastUsedMillis!),
-    ];
-    return parts.join('  ·  ');
-  }
-
-  static String _ago(int millis) {
-    final int days = DateTime.now()
-        .difference(DateTime.fromMillisecondsSinceEpoch(millis))
-        .inDays;
-    if (days <= 0) return 'used today';
-    if (days == 1) return 'used yesterday';
-    if (days < 30) return 'used $days days ago';
-    if (days < 365) return 'used ${(days / 30).round()} months ago';
-    return 'unused for over a year';
-  }
-}
-
-class _Fact extends StatelessWidget {
-  const _Fact({required this.value, required this.label, required this.tone});
-
-  final String value;
-  final String label;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: GType.monoNumber.copyWith(color: tone, fontSize: 19),
-        ),
-        Text(label, style: GType.micro.copyWith(color: t.muted)),
-      ],
     );
   }
 }

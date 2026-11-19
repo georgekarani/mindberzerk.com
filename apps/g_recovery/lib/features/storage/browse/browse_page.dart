@@ -1,26 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/category_colors.dart';
-import '../../../app/theme/tokens.dart';
 import '../../../bridge/storage_api.g.dart';
 import '../../../core/format.dart';
-import '../../../ui/g_app_bar.dart';
-import '../../../ui/g_card.dart';
-import '../../../ui/g_enter.dart';
+import '../../../core/i18n/g_strings.dart';
 import '../../learn/chapter_page.dart';
 import '../../learn/learn_page.dart';
 import '../state/storage_providers.dart';
 import 'folder_notes.dart';
-import '../../../core/i18n/g_strings.dart';
 
-/// One level of the real filesystem.
+/// One directory's entries, read fresh each time it is opened.
 final browseProvider = FutureProvider.family<List<DirEntry>, String?>(
   (Ref ref, String? path) =>
       ref.watch(storageBridgeProvider).listDirectory(path),
 );
 
-/// Whether dot folders are shown. Off by default, on when the user asks.
+/// Whether names starting with a dot are shown, shared by every level.
 class HiddenController extends Notifier<bool> {
   @override
   bool build() => false;
@@ -31,344 +27,334 @@ class HiddenController extends Notifier<bool> {
 final NotifierProvider<HiddenController, bool> showHiddenProvider =
     NotifierProvider<HiddenController, bool>(HiddenController.new);
 
-/// BROWSING THE PHONE, AND LEARNING IT.
-///
-/// This replaces nothing and completes something. Learn already had chapters on
-/// scoped storage, the trash and Android/data, and no route into them from a
-/// moment when a person is actually curious. Standing in a folder is that
-/// moment.
-///
-/// ─── IT SHOWS WHAT IS THERE, NOT WHAT IS INDEXED ─────────────────────────────
-///
-/// Every other list in this app comes from MediaStore. This one reads the disk,
-/// so it includes the zip a file manager wrote, the folders no app registered,
-/// and the two directories Android refuses to open. A browser that quietly
-/// omitted those would teach a filesystem that does not exist.
-///
-/// ─── THE LOCKED FOLDER IS THE POINT ──────────────────────────────────────────
-///
-/// Android/data appears, greyed, with a padlock and one line saying why. It is
-/// the same folder that makes a deleted chat message unrecoverable, so seeing it
-/// closed explains the recovery limits better than the page about them does.
+/// The phone's folders, as a file browser: folders first in rounded
+/// sections, each well-known folder with a line on what it is for.
 class BrowsePage extends ConsumerWidget {
-  const BrowsePage({super.key, this.path, this.title});
+  const BrowsePage({super.key, this.path, this.title, this.backLabel});
 
-  /// Null at the roots.
+  /// Null for the top level.
   final String? path;
   final String? title;
+  final String? backLabel;
 
-  static Route<void> route({String? path, String? title}) =>
+  static Route<void> route({String? path, String? title, String? backLabel}) =>
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => BrowsePage(path: path, title: title),
+        builder: (BuildContext context) =>
+            BrowsePage(path: path, title: title, backLabel: backLabel),
       );
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final bool showHidden = ref.watch(showHiddenProvider);
     final AsyncValue<List<DirEntry>> listing = ref.watch(browseProvider(path));
-
     final List<DirEntry> all = listing.value ?? const <DirEntry>[];
-    final List<DirEntry> entries = showHidden
-        ? all
-        : all.where((DirEntry e) => !e.hidden).toList();
-    final int hiddenCount = all.length - entries.length;
+    final List<DirEntry> entries =
+        (showHidden ? all : all.where((DirEntry e) => !e.hidden).toList())
+          ..sort((DirEntry a, DirEntry b) {
+            if (a.isDirectory != b.isDirectory) return a.isDirectory ? -1 : 1;
+            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          });
+    final int hiddenCount = all.where((DirEntry e) => e.hidden).length;
+    final String heading = title ?? context.s('Files');
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl,
+    return LargeTitlePage(
+      title: heading,
+      backLabel: backLabel,
+      onBack: () => Navigator.of(context).maybePop(),
+      grouped: true,
+      actions: <Widget>[
+        if (hiddenCount > 0)
+          NavAction.icon(
+            icon: showHidden ? GIcons.eye : GIcons.eyeOff,
+            semanticLabel: showHidden
+                ? context.s('Hide hidden items')
+                : context.s('Show hidden items'),
+            onTap: () => ref.read(showHiddenProvider.notifier).toggle(),
           ),
-          children: <Widget>[
-            GAppBar(
-              title: title ?? 'Files',
-              subtitle: path,
-              leading: path == null
-                  ? null
-                  : GIconButton(
-                      icon: Icons.arrow_back_rounded,
-                      onTap: () => Navigator.of(context).pop(),
-                    ),
-              actions: <Widget>[
-                if (hiddenCount > 0 || showHidden)
-                  GIconButton(
-                    icon: showHidden
-                        ? Icons.visibility_rounded
-                        : Icons.visibility_off_rounded,
-                    onTap: () => ref.read(showHiddenProvider.notifier).toggle(),
-                  ),
-              ],
+      ],
+      onRefresh: () async => ref.invalidate(browseProvider(path)),
+      slivers: <Widget>[
+        if (path != null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                GDesign.gutter,
+                0,
+                GDesign.gutter,
+                GDesign.space16,
+              ),
+              child: Text(
+                path!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: g.figures(g.footnote()),
+              ),
             ),
-
-            // AT THE ROOT ONLY.
-            //
-            // The chapters explain what these folders are, which is a question
-            // someone asks standing at the top of the tree, not four levels
-            // into WhatsApp Images. Repeating it on every screen would make it
-            // furniture.
-            if (path == null) ...<Widget>[
-              GCard(
-                onTap: () => Navigator.of(context).push(LearnPage.route()),
-                child: Row(
-                  children: <Widget>[
-                    Container(
-                      width: 34,
-                      height: 34,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: t.docs.withValues(alpha: 0.16),
-                        borderRadius: GRadius.all(11),
-                      ),
-                      child: Icon(
-                        Icons.menu_book_outlined,
-                        size: 17,
-                        color: t.docs,
-                      ),
+          ),
+        if (path == null)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: GDesign.space24),
+              child: GroupedSection(
+                children: <Widget>[
+                  ListRow(
+                    icon: GIcons.help,
+                    title: context.s('How Android storage works'),
+                    subtitle: context.s(
+                      'Seven short chapters on these folders',
                     ),
-                    const SizedBox(width: GSpace.md),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            context.s('How Android storage works'),
-                            style: GType.body.copyWith(color: t.text),
-                          ),
-                          Text(
-                            context.s(
-                              'Seven chapters on what these folders are',
-                            ),
-                            style: GType.micro.copyWith(color: t.muted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Icon(Icons.chevron_right_rounded, size: 19, color: t.dim),
-                  ],
+                    onTap: () => Navigator.of(context).push(LearnPage.route()),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (listing.isLoading && all.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(GDesign.space32),
+              child: Center(
+                child: Text(context.s('Reading'), style: g.footnote()),
+              ),
+            ),
+          )
+        else if (entries.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(GDesign.space32),
+              child: Text(
+                all.isEmpty
+                    ? context.s('Nothing here')
+                    : context.s('Only hidden items here.'),
+                textAlign: TextAlign.center,
+                style: g.footnote(),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+            sliver: SliverList.builder(
+              itemCount: entries.length,
+              itemBuilder: (BuildContext context, int i) => _EntryRow(
+                entry: entries[i],
+                first: i == 0,
+                last: i == entries.length - 1,
+                onOpen: () => Navigator.of(context).push(
+                  BrowsePage.route(
+                    path: entries[i].path,
+                    title: entries[i].name,
+                    backLabel: heading,
+                  ),
                 ),
               ),
-              const SizedBox(height: GSpace.md - 1),
-            ],
-
-            if (listing.isLoading)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: GSpace.xl),
-                child: Center(
-                  child: Text(
-                    context.s('Reading'),
-                    style: GType.monoSmall.copyWith(color: t.dim),
-                  ),
-                ),
-              )
-            else if (entries.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: GSpace.xl),
-                child: Center(
-                  child: Text(
-                    // Distinguishes the two cases that look identical. An
-                    // unreadable folder is not an empty one, and saying "empty"
-                    // about a locked directory is the exact false picture this
-                    // screen exists to prevent.
-                    all.isEmpty
-                        ? 'Nothing here, or this phone will not let any app '
-                              'look inside.'
-                        : 'Only hidden items here.',
-                    textAlign: TextAlign.center,
-                    style: GType.bodySmall.copyWith(color: t.muted),
-                  ),
-                ),
-              )
-            else
-              for (int i = 0; i < entries.length; i++)
-                GEnter(
-                  index: i,
-                  child: _Row(
-                    entry: entries[i],
-                    onOpen: () => Navigator.of(context).push(
-                      BrowsePage.route(
-                        path: entries[i].path,
-                        title: entries[i].name,
-                      ),
-                    ),
-                  ),
-                ),
-
-            if (hiddenCount > 0 && !showHidden)
-              Padding(
-                padding: const EdgeInsets.only(top: GSpace.md),
-                child: Text(
-                  '$hiddenCount hidden ${hiddenCount == 1 ? 'item' : 'items'}, '
-                  'names starting with a dot.',
-                  textAlign: TextAlign.center,
-                  style: GType.micro.copyWith(color: t.dim),
-                ),
+            ),
+          ),
+        if (hiddenCount > 0 && !showHidden)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                GDesign.gutter * 2,
+                GDesign.space12,
+                GDesign.gutter * 2,
+                0,
               ),
-          ],
-        ),
-      ),
+              child: Text(
+                hiddenCount == 1
+                    ? context.s('1 hidden item')
+                    : context.s1('{} hidden items', GFormat.count(hiddenCount)),
+                style: g.footnote(),
+              ),
+            ),
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: GDesign.space32)),
+      ],
     );
   }
 }
 
-class _Row extends StatelessWidget {
-  const _Row({required this.entry, required this.onOpen});
+/// A folder or file: glyph, name, count or size with the date, and for a
+/// well-known folder a line on what it holds.
+class _EntryRow extends StatelessWidget {
+  const _EntryRow({
+    required this.entry,
+    required this.first,
+    required this.last,
+    required this.onOpen,
+  });
 
   final DirEntry entry;
+  final bool first;
+  final bool last;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final FolderNote? note = entry.isDirectory ? noteFor(entry.path) : null;
     final bool locked = entry.isDirectory && !entry.readable;
+    const Radius r = Radius.circular(GDesign.cardRadius);
 
-    final Color hue = locked
-        ? t.dim
-        : entry.isDirectory
-        ? categoryTint(t, _folderKey(entry.name))
-        : categoryTint(t, _fileKey(entry.name));
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: GSpace.sm),
-      child: GCard(
-        // A locked folder is still tappable, and opening it lands on the honest
-        // empty state rather than doing nothing. A row that ignores a tap reads
-        // as a bug; a row that explains itself teaches something.
-        onTap: entry.isDirectory ? onOpen : null,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Container(
-              width: 34,
-              height: 34,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: hue.withValues(alpha: 0.18),
-                borderRadius: GRadius.all(11),
-              ),
-              child: Icon(
-                locked
-                    ? Icons.lock_outline_rounded
-                    : entry.isDirectory
-                    ? Icons.folder_rounded
-                    : Icons.insert_drive_file_outlined,
-                size: 17,
-                color: hue,
-              ),
+    final Widget body = Padding(
+      padding: const EdgeInsetsDirectional.only(start: GDesign.space16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(top: GDesign.space12 + 2),
+            child: Icon(
+              locked
+                  ? GIcons.lock
+                  : entry.isDirectory
+                  ? GIcons.folder
+                  : _fileGlyph(entry.name),
+              size: 22,
+              color: entry.isDirectory && !locked ? g.accentText : g.muted,
             ),
-            const SizedBox(width: GSpace.md),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+          const SizedBox(width: GDesign.space12),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsetsDirectional.fromSTEB(
+                0,
+                GDesign.space12,
+                GDesign.space16,
+                GDesign.space12,
+              ),
+              decoration: BoxDecoration(
+                border: last
+                    ? null
+                    : Border(bottom: BorderSide(color: g.hairline, width: 0.5)),
+              ),
+              child: Row(
                 children: <Widget>[
-                  Text(
-                    entry.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GType.body.copyWith(
-                      color: locked ? t.muted : t.text,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _meta(entry),
-                    style: GType.monoSmall.copyWith(color: t.dim),
-                  ),
-                  if (note != null) ...<Widget>[
-                    const SizedBox(height: GSpace.sm - 2),
-                    Text(
-                      note.text,
-                      style: GType.micro.copyWith(color: t.muted),
-                    ),
-                    if (note.chapterId != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: GSpace.xs + 1),
-                        child: GestureDetector(
-                          // Straight to the chapter, not the Learn index. The
-                          // question was asked standing in a folder, and making
-                          // someone find the right chapter afterwards is how a
-                          // link stops being followed.
-                          onTap: () => Navigator.of(
-                            context,
-                          ).push(ChapterPage.route(note.chapterId!)),
-                          behavior: HitTestBehavior.opaque,
-                          child: Text(
-                            context.s('Read more'),
-                            style: GType.micro.copyWith(color: t.accentText),
-                          ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          entry.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: g.body(color: locked ? g.muted : g.text),
                         ),
-                      ),
-                  ],
+                        const SizedBox(height: 2),
+                        Text(
+                          _meta(context, entry),
+                          style: g.figures(g.footnote()),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (note != null)
+                    NavAction.icon(
+                      icon: GIcons.info,
+                      semanticLabel: context.s('About this folder'),
+                      onTap: () => _about(context, note),
+                    ),
+                  if (entry.isDirectory && !locked)
+                    Icon(GIcons.forward, size: 18, color: g.faint),
                 ],
               ),
             ),
-            if (entry.isDirectory && !locked)
-              Icon(Icons.chevron_right_rounded, size: 19, color: t.dim),
-          ],
+          ),
+        ],
+      ),
+    );
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: g.card,
+        borderRadius: BorderRadius.vertical(
+          top: first ? r : Radius.zero,
+          bottom: last ? r : Radius.zero,
         ),
       ),
+      child: entry.isDirectory && !locked
+          ? Pressable(onTap: onOpen, scale: 0.99, child: body)
+          : body,
     );
   }
 
-  /// Count for a folder, size for a file, and never a made up total.
-  ///
-  /// A directory reports no size because totalling one means walking it, and a
-  /// browser that stalled on every folder would be unusable.
-  static String _meta(DirEntry entry) {
+  /// What a well-known folder is for, in a sheet, with its chapter.
+  void _about(BuildContext context, FolderNote note) {
+    presentSheet<void>(
+      context: context,
+      builder: (BuildContext sheet) {
+        final GDesignTheme g = GDesignTheme.of(sheet);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(
+            GDesign.gutter,
+            GDesign.space8,
+            GDesign.gutter,
+            GDesign.space24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Text(entry.name, style: g.title2()),
+              const SizedBox(height: GDesign.space8),
+              Text(note.text, style: g.body(color: g.muted)),
+              if (note.chapterId != null) ...<Widget>[
+                const SizedBox(height: GDesign.space16),
+                SecondaryButton(
+                  label: context.s('Read the chapter'),
+                  onTap: () {
+                    Navigator.of(sheet).pop();
+                    Navigator.of(
+                      context,
+                    ).push(ChapterPage.route(note.chapterId!));
+                  },
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static String _meta(BuildContext context, DirEntry entry) {
+    final String when = _when(context, entry.modifiedMillis);
     if (!entry.isDirectory) {
-      return '${GFormat.bytes(entry.sizeBytes)}  ·  '
-          '${_when(entry.modifiedMillis)}';
+      return '${GFormat.bytes(entry.sizeBytes)}, $when';
     }
     final int? count = entry.childCount;
-    if (count == null) return 'Locked by Android';
-    return '${GFormat.count(count)} ${count == 1 ? 'item' : 'items'}  ·  '
-        '${_when(entry.modifiedMillis)}';
+    if (count == null) return context.s('Locked by Android');
+    final String items = count == 1
+        ? context.s('1 item')
+        : context.s1('{} items', GFormat.count(count));
+    return '$items, $when';
   }
 
-  static String _when(int millis) {
-    if (millis <= 0) return 'unknown';
+  static String _when(BuildContext context, int millis) {
+    if (millis <= 0) return context.s('date unknown');
     final DateTime at = DateTime.fromMillisecondsSinceEpoch(millis);
     final int days = DateTime.now().difference(at).inDays;
-    if (days <= 0) return 'today';
-    if (days == 1) return 'yesterday';
-    if (days < 30) return '$days days ago';
-    return '${at.day}/${at.month}/${at.year}';
+    if (days <= 0) return context.s('today');
+    if (days == 1) return context.s('yesterday');
+    if (days < 30) return context.s1('{} days ago', '$days');
+    return MaterialLocalizations.of(context).formatMediumDate(at);
   }
 
-  static String _folderKey(String name) {
-    switch (name.toLowerCase()) {
-      case 'dcim':
-      case 'pictures':
-        return 'image';
-      case 'movies':
-        return 'video';
-      case 'music':
-      case 'ringtones':
-        return 'audio';
-      case 'documents':
-        return 'document';
-      default:
-        return 'other';
-    }
-  }
-
-  static String _fileKey(String name) {
+  static IconData _fileGlyph(String name) {
     final String lower = name.toLowerCase();
     bool ends(List<String> exts) => exts.any(lower.endsWith);
     if (ends(<String>['.jpg', '.jpeg', '.png', '.webp', '.heic', '.gif'])) {
-      return 'image';
+      return GIcons.photos;
     }
-    if (ends(<String>['.mp4', '.mkv', '.3gp', '.webm', '.mov'])) return 'video';
-    if (ends(<String>['.mp3', '.m4a', '.ogg', '.wav', '.opus'])) return 'audio';
-    if (ends(<String>['.pdf', '.txt', '.doc', '.docx', '.csv', '.xlsx'])) {
-      return 'document';
+    if (ends(<String>['.mp4', '.mkv', '.3gp', '.webm', '.mov'])) {
+      return GIcons.video;
     }
-    return 'other';
+    if (ends(<String>['.mp3', '.m4a', '.ogg', '.wav', '.opus'])) {
+      return GIcons.audio;
+    }
+    if (ends(<String>['.apk', '.apks', '.xapk'])) return GIcons.download;
+    if (ends(<String>['.zip', '.rar', '.7z', '.tar', '.gz'])) {
+      return GIcons.archive;
+    }
+    return GIcons.docs;
   }
 }

@@ -1,20 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
 import '../../../bridge/hardware_bridge.dart';
-import '../../../ui/g_app_bar.dart';
-import '../../../ui/g_card.dart';
 import '../../../core/i18n/g_strings.dart';
+import '../widgets/device_detail.dart';
 
-/// DOES THE SOUND WORK.
-///
-/// ─── EACH SPEAKER ALONE, THEN BOTH ───────────────────────────────────────────
-///
-/// A phone with one dead speaker sounds fine playing through both, so the test
-/// that matters is the one that plays through one at a time. Anyone checking a
-/// secondhand phone is doing exactly this by ear, and doing it with a tone is
-/// more reliable than doing it with music.
+/// Speakers drawn as two cones that ripple while they play, a pitch picker,
+/// and the vibration motor.
 class SoundTestPage extends ConsumerStatefulWidget {
   const SoundTestPage({super.key});
 
@@ -27,23 +20,19 @@ class SoundTestPage extends ConsumerStatefulWidget {
 }
 
 class _SoundTestPageState extends ConsumerState<SoundTestPage> {
+  /// 'left', 'right' or 'both' while a tone plays.
   String? _playing;
   double _hertz = 440;
 
-  /// Held from initState, not read in dispose.
-  ///
-  /// ─── ref IS UNSAFE ONCE THE WIDGET IS DEACTIVATED ────────────────────────
-  ///
-  /// Ref resolves through BuildContext, and by the time dispose runs the
-  /// element is on its way out, so reading a provider there throws. Capturing
-  /// the object while the widget is alive is the documented way, and it is the
-  /// only way for a resource that MUST be released: a tone that outlives its
-  /// screen is the most alarming bug this page could have.
+  /// How long one tone lasts.
+  static const int _toneMillis = 1200;
+
   late final HardwareBridge _bridge;
 
   @override
   void initState() {
     super.initState();
+    // Read once here: ref cannot be used in dispose, where the tone stops.
     _bridge = ref.read(hardwareBridgeProvider);
   }
 
@@ -54,218 +43,216 @@ class _SoundTestPageState extends ConsumerState<SoundTestPage> {
   }
 
   Future<void> _play(String channel) async {
+    Haptics.select();
     setState(() => _playing = channel);
-    await _bridge.playTone(_hertz, 1200, channel);
-    if (!mounted) return;
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    if (mounted) setState(() => _playing = null);
+    await _bridge.playTone(_hertz, _toneMillis, channel);
+    await Future<void>.delayed(const Duration(milliseconds: _toneMillis));
+    if (mounted && _playing == channel) setState(() => _playing = null);
   }
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
+    bool on(String side) => _playing == side || _playing == 'both';
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl,
+    return DeviceDetail(
+      title: context.s('Speakers'),
+      onInfo: () =>
+          showDeviceNote(context, context.s('Testing speakers'), <String>[
+            context.s(
+              'Turn the volume up. Left and right play through one side.',
+            ),
+            context.s(
+              'A rattle or buzz at one pitch and not another is a damaged '
+              'speaker.',
+            ),
+          ]),
+      hero: Column(
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Expanded(
+                child: _Speaker(
+                  label: context.s('Left'),
+                  playing: on('left'),
+                  onTap: () => _play('left'),
+                ),
+              ),
+              Expanded(
+                child: _Speaker(
+                  label: context.s('Right'),
+                  playing: on('right'),
+                  onTap: () => _play('right'),
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: GDesign.space16),
+          SecondaryButton(
+            pill: true,
+            icon: GIcons.volume,
+            label: context.s('Both'),
+            onTap: () => _play('both'),
+          ),
+        ],
+      ),
+      sections: <Widget>[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+          child: Segmented<double>(
+            semanticLabel: context.s('Pitch'),
+            segments: <(double, String)>[
+              (150, context.s('Low')),
+              (440, context.s('Mid')),
+              (2000, context.s('High')),
+              (8000, context.s('Very high')),
+            ],
+            value: _hertz,
+            onChanged: (double hz) {
+              setState(() => _hertz = hz);
+              _play(_playing ?? 'both');
+            },
+          ),
+        ),
+        GroupedSection(
+          header: context.s('Vibration'),
           children: <Widget>[
-            GAppBar(
-              title: context.s('Speakers'),
-              leading: GIconButton(
-                icon: Icons.arrow_back_rounded,
-                onTap: () => Navigator.of(context).pop(),
+            for (final (String, String) v in <(String, String)>[
+              ('short', context.s('Short')),
+              ('long', context.s('Long')),
+              ('double', context.s('Double')),
+            ])
+              ListRow(
+                icon: GIcons.vibrate,
+                title: v.$2,
+                trailing: const SizedBox.shrink(),
+                onTap: () => _bridge.vibrate(v.$1),
               ),
-            ),
-
-            Text(
-              context.s(
-                'Turn the volume up. Each button plays a tone through one side '
-                'only.',
-              ),
-              style: GType.bodySmall.copyWith(color: t.muted),
-            ),
-            const SizedBox(height: GSpace.lg),
-
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _Pad(
-                    label: context.s('Left'),
-                    icon: Icons.volume_down_rounded,
-                    active: _playing == 'left',
-                    onTap: () => _play('left'),
-                  ),
-                ),
-                const SizedBox(width: GSpace.sm + 1),
-                Expanded(
-                  child: _Pad(
-                    label: context.s('Right'),
-                    icon: Icons.volume_up_rounded,
-                    active: _playing == 'right',
-                    onTap: () => _play('right'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: GSpace.sm + 1),
-            _Pad(
-              label: context.s('Both'),
-              icon: Icons.surround_sound_rounded,
-              active: _playing == 'both',
-              onTap: () => _play('both'),
-            ),
-
-            const SizedBox(height: GSpace.lg),
-            Text(
-              context.s('PITCH'),
-              style: GType.overline.copyWith(color: t.dim),
-            ),
-            const SizedBox(height: GSpace.sm + 1),
-            GCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    '${_hertz.round()} Hz',
-                    style: GType.monoNumber.copyWith(
-                      color: t.text,
-                      fontSize: 18,
-                    ),
-                  ),
-                  Slider(
-                    value: _hertz,
-                    // 100 to 8000. Below 100 a phone speaker cannot move enough
-                    // air to be heard, and above 8000 a great many adults
-                    // cannot hear it either, so both ends would test the
-                    // listener rather than the phone.
-                    min: 100,
-                    max: 8000,
-                    onChanged: (double value) => setState(() => _hertz = value),
-                  ),
-                  Text(
-                    context.s(
-                      'A rattle or a buzz at one pitch and not another is a '
-                      'damaged driver.',
-                    ),
-                    style: GType.micro.copyWith(color: t.dim),
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: GSpace.lg),
-            Text(
-              context.s('VIBRATION'),
-              style: GType.overline.copyWith(color: t.dim),
-            ),
-            const SizedBox(height: GSpace.sm + 1),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: _Pad(
-                    label: context.s('Short'),
-                    icon: Icons.vibration_rounded,
-                    active: false,
-                    onTap: () => _bridge.vibrate('short'),
-                  ),
-                ),
-                const SizedBox(width: GSpace.sm + 1),
-                Expanded(
-                  child: _Pad(
-                    label: context.s('Long'),
-                    icon: Icons.vibration_rounded,
-                    active: false,
-                    onTap: () => _bridge.vibrate('long'),
-                  ),
-                ),
-                const SizedBox(width: GSpace.sm + 1),
-                Expanded(
-                  child: _Pad(
-                    label: context.s('Double'),
-                    icon: Icons.vibration_rounded,
-                    active: false,
-                    onTap: () => _bridge.vibrate('double'),
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
 
-class _Pad extends StatelessWidget {
-  const _Pad({
+/// One speaker: a cone that sends out rings while it plays.
+class _Speaker extends StatefulWidget {
+  const _Speaker({
     required this.label,
-    required this.icon,
-    required this.active,
+    required this.playing,
     required this.onTap,
   });
 
   final String label;
-  final IconData icon;
-  final bool active;
+  final bool playing;
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final BorderRadius radius = GRadius.all(GRadius.card);
+  State<_Speaker> createState() => _SpeakerState();
+}
 
-    return AnimatedContainer(
-      duration: GMotion.fast,
-      decoration: BoxDecoration(
-        color: active ? t.accent.withValues(alpha: 0.2) : t.panel,
-        border: Border.all(color: active ? t.accent : t.line),
-        borderRadius: radius,
-      ),
-      child: Material(
-        type: MaterialType.transparency,
-        child: InkWell(
-          borderRadius: radius,
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: GSpace.lg - 2),
-            child: Column(
-              children: <Widget>[
-                Icon(icon, size: 24, color: active ? t.accent : t.muted),
-                const SizedBox(height: GSpace.sm),
-                Text(
-                  label,
-                  style: GType.bodySmall.copyWith(
-                    color: active ? t.accent : t.text,
+class _SpeakerState extends State<_Speaker>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _rings = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  );
+
+  @override
+  void didUpdateWidget(_Speaker old) {
+    super.didUpdateWidget(old);
+    final bool run = widget.playing && !MediaQuery.disableAnimationsOf(context);
+    if (run && !_rings.isAnimating) {
+      _rings.repeat();
+    } else if (!run && _rings.isAnimating) {
+      _rings
+        ..stop()
+        ..value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _rings.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GDesignTheme g = GDesignTheme.of(context);
+    return Pressable(
+      onTap: widget.onTap,
+      semanticLabel: widget.label,
+      scale: 0.94,
+      child: Column(
+        children: <Widget>[
+          SizedBox.square(
+            dimension: 132,
+            child: AnimatedBuilder(
+              animation: _rings,
+              builder: (BuildContext context, Widget? child) => CustomPaint(
+                painter: _RingsPainter(
+                  t: widget.playing ? _rings.value : null,
+                  color: g.accent,
+                ),
+                child: child,
+              ),
+              child: Center(
+                child: AnimatedContainer(
+                  duration: GDesign.motion(context, GDesign.fast),
+                  width: 72,
+                  height: 72,
+                  decoration: BoxDecoration(
+                    color: widget.playing ? g.accent : g.fill,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    GIcons.volume,
+                    size: 28,
+                    color: widget.playing ? g.onAccent : g.muted,
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-        ),
+          Text(widget.label, style: g.headline()),
+        ],
       ),
     );
   }
 }
 
-/// HOW MANY FINGERS THE SCREEN CAN FOLLOW.
-///
-/// ─── PURE FLUTTER, AND IT HAS TO BE ──────────────────────────────────────────
-///
-/// Touch is the one thing on the device that Flutter sees more directly than
-/// Kotlin would: the framework already receives every pointer with its id and
-/// position. A native implementation would be a second touch pipeline reporting
-/// on the first.
-///
-/// The screen test covers dead pixels; this covers a digitiser that has stopped
-/// tracking a region or run out of simultaneous points, which is a different
-/// fault with the same symptom of "the screen is broken".
+/// Three rings travelling outward, each fading as it grows.
+class _RingsPainter extends CustomPainter {
+  const _RingsPainter({required this.t, required this.color});
+
+  /// Animation phase, or null when silent.
+  final double? t;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (t == null) return;
+    final Offset c = size.center(Offset.zero);
+    const double start = 36;
+    final double end = size.shortestSide / 2;
+    for (int i = 0; i < 3; i++) {
+      final double p = (t! + i / 3) % 1;
+      canvas.drawCircle(
+        c,
+        start + (end - start) * p,
+        Paint()
+          ..color = color.withValues(alpha: (1 - p) * 0.5)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_RingsPainter old) => old.t != t || old.color != color;
+}
+
+/// Multi-touch: a circle under every finger, and the most seen at once.
 class TouchTestPage extends StatefulWidget {
   const TouchTestPage({super.key});
 
@@ -279,37 +266,22 @@ class TouchTestPage extends StatefulWidget {
 
 class _TouchTestPageState extends State<TouchTestPage> {
   final Map<int, Offset> _points = <int, Offset>{};
-
-  /// The most fingers seen at once, kept after they lift.
-  ///
-  /// The live count drops the moment someone lets go, which is exactly when
-  /// they look at the number. The peak is the answer they came for.
   int _peak = 0;
 
-  void _update(int id, Offset at) {
-    setState(() {
-      _points[id] = at;
-      if (_points.length > _peak) _peak = _points.length;
-    });
-  }
+  void _update(int id, Offset at) => setState(() {
+    _points[id] = at;
+    if (_points.length > _peak) _peak = _points.length;
+  });
 
   void _remove(int id) => setState(() => _points.remove(id));
 
   @override
   Widget build(BuildContext context) {
-    final GTokens t = context.g;
-    final List<Color> hues = <Color>[
-      t.photo,
-      t.video,
-      t.audio,
-      t.docs,
-      t.chat,
-      t.apps,
-    ];
-
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: Listener(
+    final GDesignTheme g = GDesignTheme.of(context);
+    final EdgeInsets inset = MediaQuery.paddingOf(context);
+    return Material(
+      color: const Color(0xFF000000),
+      child: Listener(
         onPointerDown: (PointerDownEvent e) =>
             _update(e.pointer, e.localPosition),
         onPointerMove: (PointerMoveEvent e) =>
@@ -318,59 +290,55 @@ class _TouchTestPageState extends State<TouchTestPage> {
         onPointerCancel: (PointerCancelEvent e) => _remove(e.pointer),
         child: Stack(
           children: <Widget>[
-            Positioned.fill(child: ColoredBox(color: t.ink)),
-
-            for (final MapEntry<int, Offset> point in _points.entries)
+            const Positioned.fill(child: SizedBox.expand()),
+            for (final MapEntry<int, Offset> p in _points.entries)
               Positioned(
-                left: point.value.dx - 38,
-                top: point.value.dy - 38,
+                left: p.value.dx - 40,
+                top: p.value.dy - 40,
                 child: IgnorePointer(
                   child: Container(
-                    width: 76,
-                    height: 76,
+                    width: 80,
+                    height: 80,
                     decoration: BoxDecoration(
-                      color: hues[point.key % hues.length].withValues(
-                        alpha: 0.28,
-                      ),
-                      border: Border.all(
-                        color: hues[point.key % hues.length],
-                        width: 2,
-                      ),
+                      color: g.accent.withValues(alpha: 0.3),
+                      border: Border.all(color: g.accent, width: 2),
                       shape: BoxShape.circle,
                     ),
                   ),
                 ),
               ),
-
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: GSpace.gutter),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    GAppBar(
-                      title: context.s('Touch'),
-                      subtitle: 'Most at once: $_peak',
-                      leading: GIconButton(
-                        icon: Icons.arrow_back_rounded,
-                        onTap: () => Navigator.of(context).pop(),
+            if (_points.isEmpty)
+              IgnorePointer(
+                child: Center(
+                  child: Text(
+                    context.s('Put all your fingers down'),
+                    style: g.headline(color: g.onAccent),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: GDesign.space12,
+              right: GDesign.space12,
+              top: inset.top + GDesign.space8,
+              child: Row(
+                children: <Widget>[
+                  FloatIconButton(
+                    icon: GIcons.back,
+                    semanticLabel: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onTap: () => Navigator.of(context).pop(),
+                  ),
+                  Expanded(
+                    child: Center(
+                      child: PhotoChip(
+                        context.s1('Most at once: {}', _peak),
+                        icon: GIcons.touch,
                       ),
                     ),
-                    const Spacer(),
-                    if (_points.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: GSpace.xl),
-                        child: Text(
-                          context.s(
-                            'Put as many fingers on the screen as you can, and '
-                            'drag them into every corner.',
-                          ),
-                          textAlign: TextAlign.center,
-                          style: GType.bodySmall.copyWith(color: t.muted),
-                        ),
-                      ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: GDesign.touch),
+                ],
               ),
             ),
           ],

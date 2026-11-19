@@ -1,25 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../../app/theme/tokens.dart';
 import '../../../bridge/hardware_api.g.dart';
 import '../../../bridge/hardware_bridge.dart';
-import '../../../ui/g_card.dart';
-import '../../../ui/g_detail_page.dart';
-import '../../../ui/g_stat.dart';
 import '../../../core/i18n/g_strings.dart';
+import '../widgets/device_detail.dart';
+import '../widgets/device_visuals.dart';
 
-/// THE SIMS.
-///
-/// ─── THE NUMBER IS NOT HERE, AND WILL NOT BE ─────────────────────────────────
-///
-/// Reading the subscriber's own phone number needs more than phone state on
-/// modern Android, and a recovery app asking for it would be the most alarming
-/// permission in the product. Carrier, country and network codes answer every
-/// question someone opens this page with.
+/// Each SIM drawn as a card side by side, then one section per slot.
 class SimPage extends ConsumerWidget {
   const SimPage({required this.hue, super.key});
 
+  /// Kept so existing call sites compile; the page uses the one accent.
   final Color hue;
 
   static Route<void> route({required Color hue}) => MaterialPageRoute<void>(
@@ -28,75 +21,87 @@ class SimPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
-    final List<SimInfo> sims =
-        ref.watch(simsProvider).value ?? const <SimInfo>[];
+    final GDesignTheme g = GDesignTheme.of(context);
+    final AsyncValue<List<SimInfo>> source = ref.watch(simsProvider);
+    final List<SimInfo> sims = source.value ?? const <SimInfo>[];
 
-    return GDetailPage(
-      hue: hue,
-      icon: Icons.sim_card_outlined,
+    Future<void> ask() async {
+      await ref.read(hardwareBridgeProvider).requestPhoneState();
+      ref.invalidate(simsProvider);
+    }
+
+    return DeviceDetail(
       title: 'SIM',
-      subtitle: sims.isEmpty
-          ? null
-          : '${sims.length} ${sims.length == 1 ? 'card' : 'cards'}',
-      children: <Widget>[
-        if (sims.isEmpty)
-          // One state covers both "no permission" and "no SIM", because the
-          // system call throws rather than distinguishing them. The button is
-          // offered either way: on a phone with no SIM it grants a permission
-          // that then shows nothing, which is a smaller cost than a dead end on
-          // a phone that has one.
-          GMissNote(
-            icon: Icons.sim_card_outlined,
-            text: context.s('Android needs phone access to name the carrier'),
-            onTap: () async {
-              await ref.read(hardwareBridgeProvider).requestPhoneState();
-              ref.invalidate(simsProvider);
-            },
-          ),
-
-        for (final SimInfo sim in sims) ...<Widget>[
-          Row(
-            children: <Widget>[
-              Text(
-                'SLOT ${sim.slot + 1}',
-                style: GType.overline.copyWith(color: t.dim),
+      hero: !source.hasValue
+          ? DeviceLoading(label: context.s('Reading SIM cards'))
+          : sims.isEmpty
+          ? Column(
+              children: <Widget>[
+                Icon(GIcons.signal, size: 40, color: g.faint),
+                const SizedBox(height: GDesign.space12),
+                Text(
+                  context.s('Phone access names the carrier'),
+                  style: g.headline(),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: GDesign.space16),
+                PrimaryButton(label: context.s('Allow'), onTap: ask),
+              ],
+            )
+          : SizedBox(
+              height: 150,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  for (int i = 0; i < sims.length; i++) ...<Widget>[
+                    if (i > 0) const SizedBox(width: GDesign.space16),
+                    Reveal(
+                      index: i,
+                      child: Transform.rotate(
+                        // A slight fan, so two cards read as a pair.
+                        angle: sims.length < 2 ? 0 : (i == 0 ? -0.06 : 0.06),
+                        child: SimCardArt(
+                          carrier: sims[i].carrier ?? context.s('No carrier'),
+                          slot: sims[i].embedded
+                              ? 'eSIM'
+                              : context.s1('Slot {}', sims[i].slot + 1),
+                          embedded: sims[i].embedded,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              if (sim.dataDefault) ...<Widget>[
-                const SizedBox(width: GSpace.sm),
-                _Tag(label: context.s('Data'), hue: t.success),
-              ],
-              if (sim.embedded) ...<Widget>[
-                const SizedBox(width: GSpace.sm),
-                _Tag(label: context.s('eSIM'), hue: t.chat),
-              ],
-              if (sim.roaming) ...<Widget>[
-                const SizedBox(width: GSpace.sm),
-                _Tag(label: context.s('Roaming'), hue: t.warning),
-              ],
-            ],
-          ),
-          const SizedBox(height: GSpace.sm + 1),
-          GSpecCard(
+            ),
+      sections: <Widget>[
+        for (final SimInfo sim in sims)
+          FactSection(
+            header: context.s1('Slot {}', sim.slot + 1),
             rows: <(String, String?)>[
-              ('Carrier', sim.carrier),
-              ('Country', sim.countryIso),
+              (context.s('Carrier'), sim.carrier),
+              (
+                context.s('Mobile data'),
+                sim.dataDefault ? context.s('Yes') : null,
+              ),
+              (context.s('Roaming'), sim.roaming ? context.s('Yes') : null),
+              (
+                context.s('Type'),
+                sim.embedded ? context.s('Built in') : context.s('Card'),
+              ),
               ('MCC', sim.mcc),
               ('MNC', sim.mnc),
-              ('Type', sim.embedded ? 'Built in' : 'Physical card'),
             ],
           ),
-          const SizedBox(height: GSpace.md - 1),
-        ],
       ],
     );
   }
 }
 
-/// THE BLUETOOTH RADIO.
+/// The radio, what it supports, and what is paired with it.
 class BluetoothPage extends ConsumerWidget {
   const BluetoothPage({required this.hue, super.key});
 
+  /// Kept so existing call sites compile; the page uses the one accent.
   final Color hue;
 
   static Route<void> route({required Color hue}) => MaterialPageRoute<void>(
@@ -105,62 +110,63 @@ class BluetoothPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final GDesignTheme g = GDesignTheme.of(context);
     final BluetoothInfo? bt = ref.watch(bluetoothProvider).value;
 
-    return GDetailPage(
-      hue: hue,
-      icon: Icons.bluetooth_rounded,
+    return DeviceDetail(
       title: context.s('Bluetooth'),
-      subtitle: bt == null
-          ? null
-          : bt.available
-          ? (bt.enabled ? 'On' : 'Off')
-          : 'Not fitted',
-      children: <Widget>[
-        if (bt != null) ...<Widget>[
-          GSpecCard(
-            rows: <(String, String?)>[
-              ('Radio', bt.available ? 'Present' : 'Not fitted'),
-              ('State', bt.enabled ? 'On' : 'Off'),
-              ('This phone', bt.name),
+      hero: bt == null
+          ? DeviceLoading(label: context.s('Reading Bluetooth'))
+          : Row(
+              children: <Widget>[
+                Icon(
+                  GIcons.bluetooth,
+                  size: 40,
+                  color: bt.enabled ? g.accent : g.faint,
+                ),
+                const SizedBox(width: GDesign.space16),
+                Expanded(
+                  child: HeroFigures(
+                    figures: <(String?, String)>[
+                      (
+                        !bt.available
+                            ? context.s('None')
+                            : bt.enabled
+                            ? context.s('On')
+                            : context.s('Off'),
+                        context.s('Radio'),
+                      ),
+                      ('${bt.paired.length}', context.s('Paired')),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+      sections: <Widget>[
+        if (bt != null && !bt.hasPermission)
+          GroupedSection(
+            children: <Widget>[
+              ListRow(
+                icon: GIcons.lock,
+                title: context.s('Show paired devices'),
+                onTap: () async {
+                  await ref.read(hardwareBridgeProvider).requestBluetooth();
+                  ref.invalidate(bluetoothProvider);
+                },
+              ),
             ],
           ),
-
-          if (!bt.hasPermission) ...<Widget>[
-            const SizedBox(height: GSpace.sm + 1),
-            GMissNote(
-              // Names what appears, not what is missing. "Grant Bluetooth" says
-              // nothing about why anyone would.
-              text: context.s('Paired devices need Bluetooth access'),
-              onTap: () async {
-                await ref.read(hardwareBridgeProvider).requestBluetooth();
-                ref.invalidate(bluetoothProvider);
-              },
-            ),
-          ],
-
-          if (bt.paired.isNotEmpty) ...<Widget>[
-            const SizedBox(height: GSpace.lg),
-            GOverline('${bt.paired.length} paired'),
-            const SizedBox(height: GSpace.sm + 1),
-            GCard(
-              padding: const EdgeInsets.symmetric(horizontal: GSpace.md),
-              child: Column(
-                children: <Widget>[
-                  for (int i = 0; i < bt.paired.length; i++)
-                    _PairedRow(
-                      device: bt.paired[i],
-                      last: i == bt.paired.length - 1,
-                    ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: GSpace.lg),
-          const GOverline('Low energy'),
-          const SizedBox(height: GSpace.sm + 1),
-          GFlagCard(
+        if (bt != null && bt.paired.isNotEmpty)
+          GroupedSection(
+            header: context.s('Paired'),
+            children: <Widget>[
+              for (final PairedDevice d in bt.paired)
+                ListRow(icon: _icon(d.type), title: d.name, detail: d.address),
+            ],
+          ),
+        if (bt != null)
+          FlagSection(
+            header: context.s('Low energy'),
             flags: <(String, bool)>[
               ('Bluetooth LE', bt.leSupported),
               ('2M PHY', bt.le2mSupported),
@@ -168,82 +174,19 @@ class BluetoothPage extends ConsumerWidget {
               ('LE Audio', bt.leAudioSupported),
             ],
           ),
-        ],
+        if (bt != null)
+          FactSection(
+            rows: <(String, String?)>[(context.s('This phone'), bt.name)],
+          ),
       ],
-    );
-  }
-}
-
-class _PairedRow extends StatelessWidget {
-  const _PairedRow({required this.device, required this.last});
-
-  final PairedDevice device;
-  final bool last;
-
-  @override
-  Widget build(BuildContext context) {
-    final GTokens t = context.g;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: GSpace.md - 3),
-      decoration: BoxDecoration(
-        border: last ? null : Border(bottom: BorderSide(color: t.line)),
-      ),
-      child: Row(
-        children: <Widget>[
-          Container(
-            width: 30,
-            height: 30,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: t.chat.withValues(alpha: 0.16),
-              borderRadius: GRadius.all(10),
-            ),
-            child: Icon(_icon(device.type), size: 16, color: t.chat),
-          ),
-          const SizedBox(width: GSpace.md),
-          Expanded(
-            child: Text(
-              device.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: GType.bodySmall.copyWith(color: t.text),
-            ),
-          ),
-          Text(device.address, style: GType.monoSmall.copyWith(color: t.dim)),
-        ],
-      ),
     );
   }
 
   static IconData _icon(String type) => switch (type) {
-    'audio' => Icons.headphones_rounded,
-    'phone' => Icons.smartphone_rounded,
-    'computer' => Icons.laptop_rounded,
-    'wearable' => Icons.watch_rounded,
-    'input' => Icons.keyboard_rounded,
-    _ => Icons.bluetooth_rounded,
+    'audio' => GIcons.audio,
+    'phone' => GIcons.device,
+    'computer' => GIcons.monitor,
+    'input' => GIcons.touch,
+    _ => GIcons.bluetooth,
   };
-}
-
-class _Tag extends StatelessWidget {
-  const _Tag({required this.label, required this.hue});
-
-  final String label;
-  final Color hue;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: GSpace.sm, vertical: 2),
-      decoration: BoxDecoration(
-        color: hue.withValues(alpha: 0.18),
-        borderRadius: GRadius.all(GRadius.chip),
-      ),
-      child: Text(
-        label,
-        style: GType.micro.copyWith(color: hue, fontSize: 9.5),
-      ),
-    );
-  }
 }

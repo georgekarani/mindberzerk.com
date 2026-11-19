@@ -1,8 +1,8 @@
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:g_design/g_design.dart';
 
-import 'accent.dart';
 import 'tokens.dart';
 
 /// Builds ThemeData from a token set.
@@ -64,7 +64,9 @@ ThemeData buildGTheme(GTokens t) {
     ),
     pageTransitionsTheme: const PageTransitionsTheme(
       builders: <TargetPlatform, PageTransitionsBuilder>{
-        TargetPlatform.android: ZoomPageTransitionsBuilder(),
+        // iOS-style push: the new page slides over while the old one
+        // parallaxes and dims, with the edge swipe to go back.
+        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
       },
     ),
   );
@@ -91,35 +93,24 @@ SystemUiOverlayStyle gSystemOverlay(GTokens t) {
   );
 }
 
-/// G Recovery's palette and type, handed to the shared g_design widgets.
+/// G Recovery's accent and base type, handed to the shared g_design widgets.
 ///
-/// Built from the same tokens as everything else, so the accent the user picked
-/// and the light or dark mode carry into the floating chrome and sheets.
+/// The neutrals come from g_design's approved light and dark palettes, so
+/// every app on the language draws the same greys; G Recovery only brings
+/// its accent.
 GDesignTheme gDesignTheme(GTokens t) {
   final bool dark = t.brightness == Brightness.dark;
-  return GDesignTheme(
-    brightness: t.brightness,
-    ground: t.ink,
-    glass: t.panel.withValues(alpha: 0.72),
-    glassBorder: dark ? const Color(0x14FFFFFF) : const Color(0x0F101820),
-    sheet: t.panel,
-    raised: t.panelAlt,
-    hairline: t.line,
-    text: t.text,
-    muted: t.muted,
-    accent: t.accentText,
-    onAccent: t.onAccent,
-    accentSoft: t.accentSoft,
-    danger: t.danger,
-    onDanger: t.onAccent,
-    success: t.success,
-    warning: t.warning,
-    scrim: t.scrim,
-    sans: GType.body,
-    mono: GType.monoNumber,
-  );
+  return dark
+      ? GDesignTheme.dark(
+          accent: t.accent,
+          accentText: t.accentText,
+          sans: GType.body,
+          mono: GType.monoNumber,
+        )
+      : GDesignTheme.light(
+          accent: t.accent,
+          accentText: t.accentText,
+          sans: GType.body,
+          mono: GType.monoNumber,
+        );
 }
-
-/// Every accent, in picker order. Exposed here so the settings UI and the
-/// onboarding picker cannot drift apart.
-const List<GAccent> gAccentOrder = GAccent.values;

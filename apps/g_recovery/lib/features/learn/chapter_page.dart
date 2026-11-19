@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:g_design/g_design.dart';
 
-import '../../app/theme/tokens.dart';
-import '../../ui/g_app_bar.dart';
+import '../../core/i18n/g_strings.dart';
+import 'learn_page.dart';
 import 'state/learn_model.dart';
 import 'state/learn_providers.dart';
 import 'widgets/content_block_view.dart';
-import '../../core/i18n/g_strings.dart';
 
+/// One chapter as a reading page: a large icon that settles in, the text,
+/// then the next chapter as one tap at the end.
 class ChapterPage extends ConsumerWidget {
   const ChapterPage({required this.chapterId, super.key});
 
@@ -19,44 +21,105 @@ class ChapterPage extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final GTokens t = context.g;
+    final GDesignTheme g = GDesignTheme.of(context);
     final LearnBook? book = ref.watch(learnBookProvider).value;
     final LearnChapter? chapter = book?.chapter(chapterId);
+    final int at = book == null || chapter == null
+        ? -1
+        : book.chapters.indexOf(chapter);
+    final LearnChapter? next = at >= 0 && at + 1 < book!.chapters.length
+        ? book.chapters[at + 1]
+        : null;
 
-    return Scaffold(
-      backgroundColor: t.ink,
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            GSpace.gutter,
-            0,
-            GSpace.gutter,
-            GSpace.xl * 2,
-          ),
-          children: <Widget>[
-            GAppBar(
-              title: chapter?.title ?? 'Chapter',
-              leading: GIconButton(
-                icon: Icons.arrow_back_rounded,
-                onTap: () => Navigator.of(context).pop(),
+    return LargeTitlePage(
+      title: chapter?.title ?? context.s('Chapter'),
+      backLabel: context.s('Guide'),
+      onBack: () => Navigator.of(context).maybePop(),
+      slivers: <Widget>[
+        if (chapter == null)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Text(
+                context.s('Not in this version of the guide'),
+                style: g.footnote(),
               ),
             ),
-            if (chapter == null)
-              Text(
-                // Reachable when an info icon points at a chapter the installed
-                // content does not have, which happens if the panel renames one.
-                // Named as a content problem rather than shown as an error.
-                context.s(
-                  'This chapter is not in the version of the guide on this device.',
+          )
+        else ...<Widget>[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(
+                GDesign.gutter,
+                GDesign.space8,
+                GDesign.gutter,
+                GDesign.space24,
+              ),
+              child: Row(
+                children: <Widget>[
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.4, end: 1),
+                    duration: GDesign.motion(context, GDesign.slow),
+                    curve: Curves.easeOutBack,
+                    builder: (BuildContext context, double s, Widget? child) =>
+                        Transform.scale(scale: s, child: child),
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: g.accent.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Icon(
+                        LearnPage.iconFor(chapter.id),
+                        size: 28,
+                        color: g.accentText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: GDesign.space16),
+                  Expanded(
+                    child: Text(
+                      context.s1('Chapter {}, ${chapter.minutes} min', at + 1),
+                      style: g.figures(g.footnote()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: GDesign.gutter),
+            sliver: SliverList.builder(
+              itemCount: chapter.blocks.length,
+              itemBuilder: (BuildContext context, int i) => Reveal(
+                index: i,
+                child: ContentBlockView(block: chapter.blocks[i]),
+              ),
+            ),
+          ),
+          if (next != null)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: GDesign.space24),
+                child: GroupedSection(
+                  header: context.s('Next'),
+                  children: <Widget>[
+                    ListRow(
+                      icon: LearnPage.iconFor(next.id),
+                      title: next.title,
+                      detail: context.s1('{} min', next.minutes),
+                      onTap: () => Navigator.of(
+                        context,
+                      ).pushReplacement(ChapterPage.route(next.id)),
+                    ),
+                  ],
                 ),
-                style: GType.bodySmall.copyWith(color: t.muted),
-              )
-            else
-              for (final ContentBlock block in chapter.blocks)
-                ContentBlockView(block: block),
-          ],
-        ),
-      ),
+              ),
+            ),
+          const SliverToBoxAdapter(child: SizedBox(height: GDesign.space48)),
+        ],
+      ],
     );
   }
 }

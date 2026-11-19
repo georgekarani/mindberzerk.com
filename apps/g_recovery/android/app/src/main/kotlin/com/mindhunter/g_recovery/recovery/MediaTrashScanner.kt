@@ -87,6 +87,7 @@ internal class MediaTrashScanner(private val context: Context) {
         onFound: (scanned: Int, total: Int) -> Unit,
     ) {
         val cursor = query() ?: return
+        quarterTurned = quarterTurnedIds()
         cursor.use {
             val total = it.count
             var scanned = 0
@@ -166,8 +167,10 @@ internal class MediaTrashScanner(private val context: Context) {
                     if (remaining <= 0) 0L else TimeUnit.MILLISECONDS.toDays(remaining)
                 },
                 previewUri = uri.toString(),
-                width = longOrNull(MediaStore.Files.FileColumns.WIDTH),
-                height = longOrNull(MediaStore.Files.FileColumns.HEIGHT),
+                width = if (quarterTurn(cursor)) longOrNull(MediaStore.Files.FileColumns.HEIGHT)
+                    else longOrNull(MediaStore.Files.FileColumns.WIDTH),
+                height = if (quarterTurn(cursor)) longOrNull(MediaStore.Files.FileColumns.WIDTH)
+                    else longOrNull(MediaStore.Files.FileColumns.HEIGHT),
                 durationMillis = longOrNull(MediaStore.Files.FileColumns.DURATION),
                 // Null: the relative path already says where it came from, and
                 // an OS trash item is always role trash.
@@ -186,6 +189,50 @@ internal class MediaTrashScanner(private val context: Context) {
             MediaStore.Files.FileColumns.MEDIA_TYPE_DOCUMENT -> "document"
             else -> "other"
         }
+    }
+
+    /** Ids of trashed photos stored a quarter turn from how they display. */
+    private var quarterTurned: Set<Long> = emptySet()
+
+    /**
+     * Camera files store pixels unrotated and WIDTH and HEIGHT describe the
+     * stored pixels, so a portrait photo shot that way reports a landscape
+     * shape and gets cropped wherever the app sizes a frame from it.
+     *
+     * Asked in its own query rather than added to [projection]: an OEM
+     * provider that rejects the column then costs only the correction, never
+     * the whole trash listing.
+     */
+    private fun quarterTurnedIds(): Set<Long> {
+        val args = Bundle().apply {
+            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+        }
+        val turned = HashSet<Long>()
+        try {
+            context.contentResolver.query(
+                collection,
+                arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.MediaColumns.ORIENTATION),
+                args,
+                null,
+            )?.use { c ->
+                val id = c.getColumnIndex(MediaStore.Files.FileColumns._ID)
+                val turn = c.getColumnIndex(MediaStore.MediaColumns.ORIENTATION)
+                if (id < 0 || turn < 0) return turned
+                while (c.moveToNext()) {
+                    if (c.isNull(turn)) continue
+                    val degrees = c.getInt(turn)
+                    if (degrees == 90 || degrees == 270) turned.add(c.getLong(id))
+                }
+            }
+        } catch (_: Throwable) {
+            // No correction is better than no listing.
+        }
+        return turned
+    }
+
+    private fun quarterTurn(cursor: Cursor): Boolean {
+        val i = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
+        return i >= 0 && cursor.getLong(i) in quarterTurned
     }
 }
 
