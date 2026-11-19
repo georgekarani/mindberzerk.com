@@ -7,7 +7,7 @@ import type { AppEntry, Category, Platform, RegistryDoc, TileSize } from './type
 
 const REGISTRY_URL = `${CDN_BASE}/site/registry.json`;
 
-const CATEGORIES: readonly Category[] = ['flagship', 'kenya', 'game'];
+const CATEGORIES: readonly Category[] = ['flagship', 'business', 'game'];
 const PLATFORMS: readonly Platform[] = ['android', 'ios', 'web', 'windows', 'macos'];
 const TILES: readonly TileSize[] = ['large', 'medium', 'small'];
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

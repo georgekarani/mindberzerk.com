@@ -58,7 +58,7 @@ export function useWhoami(): Whoami | null | undefined {
   return value;
 }
 
-/** "Nairobi, Kenya" from Cloudflare's city plus ISO country code. */
+/** "Lisbon, Portugal" from Cloudflare's city plus ISO country code. */
 export function describeLocation(w: Pick<Whoami, 'city' | 'country'>): string | null {
   const code = w.country && /^[A-Z]{2}$/.test(w.country) ? w.country : null;
   let name: string | null = code;

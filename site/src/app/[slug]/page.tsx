@@ -11,7 +11,7 @@ import { readStats, shownStats } from '@/lib/stats/read';
 
 /**
  * `/<app id>`: an app page for products sold to people, a business page for
- * Kenya products sold to businesses. Apps with their own website have no page
+ * products sold to businesses. Apps with their own website have no page
  * here; their tiles link out.
  */
 
@@ -32,7 +32,7 @@ async function pageApp(slug: string): Promise<AppEntry | null> {
 }
 
 const isBusiness = (app: AppEntry): app is AppEntry & { business: BusinessPitch } =>
-  app.category === 'kenya' && !!app.business;
+  app.category === 'business' && !!app.business;
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const app = await pageApp((await params).slug);

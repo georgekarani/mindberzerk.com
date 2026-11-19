@@ -6,7 +6,7 @@
  * belong here. Console ids, internal notes and admin state stay in the panel.
  */
 
-export type Category = 'flagship' | 'kenya' | 'game';
+export type Category = 'flagship' | 'business' | 'game';
 
 export type Platform = 'android' | 'ios' | 'web' | 'windows' | 'macos';
 
@@ -30,7 +30,7 @@ export interface Audience {
   body: string;
 }
 
-/** What a Kenya product's business page says to the businesses it sells to. */
+/** What a business product's page says to the businesses it sells to. */
 export interface BusinessPitch {
   /** Who the page is for, in a few words: "agents and landlords". */
   forWhom: string;

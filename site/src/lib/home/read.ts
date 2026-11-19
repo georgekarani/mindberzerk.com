@@ -20,8 +20,8 @@ export interface HomeCopy {
 
 const SEED: HomeCopy = {
   eyebrow: 'Mindberzerk Studio',
-  headline: 'Apps for people everywhere, and for businesses in Kenya.',
-  lede: 'Tryst, G Launcher, G VPN and G Recovery for everyone. KenyaHomesHub, Fructa, CuliCars, Culimix and Kaaga for Kenyan businesses.',
+  headline: 'Apps for people, and apps for business.',
+  lede: 'Tryst, G Launcher, G VPN and G Recovery for everyone. KenyaHomesHub, Fructa, CuliCars, Culimix and Kaaga for the businesses they serve.',
 };
 
 export const readHomeCopy = cache(async (): Promise<HomeCopy> => {

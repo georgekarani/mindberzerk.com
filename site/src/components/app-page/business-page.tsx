@@ -8,7 +8,7 @@ import { CONTACT_EMAIL } from '@/lib/site';
 import { formatAsOf, type ShownStat } from '@/lib/stats/read';
 
 /**
- * The business page template, for a Kenya product that sells to businesses
+ * The business page template, for a product that sells to businesses
  * and has no site of its own. It says who the product serves, then asks for
  * an enquiry that is routed to the product's inbox.
  *

@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: STUDIO_NAME, template: `%s · ${STUDIO_NAME}` },
   description:
-    'Mindberzerk Studio makes Tryst, G Launcher, G VPN and G Recovery, and apps for businesses in Kenya.',
+    'Mindberzerk Studio makes Tryst, G Launcher, G VPN and G Recovery, and apps for businesses.',
   icons: { icon: '/icon.png', apple: '/icon.png' },
   openGraph: { siteName: STUDIO_NAME, type: 'website', url: SITE_URL },
   twitter: { card: 'summary_large_image' },

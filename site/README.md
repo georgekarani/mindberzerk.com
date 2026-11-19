@@ -1,7 +1,7 @@
 # mindberzerk.com
 
 The public studio site: a live dashboard of every app Mindberzerk Studio lists,
-one page per app sold to people, and one business page per Kenya product sold
+one page per app sold to people, and one business page per product sold
 to businesses. Next.js 16 on its own Firebase App Hosting backend, separate
 from the panel in `admin/`, holding no credential of any kind.
 

@@ -4,7 +4,7 @@ import type { AppEntry } from './types';
 /**
  * The registry the site renders when `site/registry.json` cannot be read.
  *
- * Public list agreed 19 Nov 2026: four flagships, five Kenya products, two
+ * Public list agreed 19 Nov 2026: four flagships, five business products, two
  * games. Package ids and App Store ids are the real store records; an id that
  * is not confirmed is left out rather than guessed, because a wrong id links
  * to somebody else's app.
@@ -109,14 +109,14 @@ export const SEED_APPS: AppEntry[] = [
     ...legal('g-recovery'),
   },
 
-  // ── Kenya products ────────────────────────────────────────────────────────
+  // ── business products ─────────────────────────────────────────────────────
   {
     id: 'kenyahomeshub',
     name: 'KenyaHomesHub',
-    category: 'kenya',
+    category: 'business',
     priority: 0,
     tile: 'small',
-    tagline: 'Houses, apartments and bedsitters across Kenya.',
+    tagline: 'Houses, apartments and bedsitters to rent and buy.',
     tint: '#4cc1ea',
     ground: '#0f2430',
     platforms: ['android', 'ios', 'web'],
@@ -128,10 +128,10 @@ export const SEED_APPS: AppEntry[] = [
   {
     id: 'fructa',
     name: 'Fructa',
-    category: 'kenya',
+    category: 'business',
     priority: 1,
     tile: 'small',
-    tagline: 'Money market funds in Kenya.',
+    tagline: 'Money market funds in one place.',
     tint: '#4ade80',
     ground: '#0f1f16',
     platforms: ['android', 'ios'],
@@ -139,7 +139,7 @@ export const SEED_APPS: AppEntry[] = [
     cta: 'For fund managers',
     business: {
       forWhom: 'fund managers',
-      headline: 'Put your money market fund in front of Kenyan savers.',
+      headline: 'Put your money market fund in front of savers.',
       audiences: [
         { title: 'Fund managers', body: 'List your fund and its yield where savers compare funds.' },
       ],
@@ -149,7 +149,7 @@ export const SEED_APPS: AppEntry[] = [
   {
     id: 'culicars',
     name: 'CuliCars',
-    category: 'kenya',
+    category: 'business',
     priority: 2,
     tile: 'small',
     tagline: 'Car history checks before you buy.',
@@ -171,7 +171,7 @@ export const SEED_APPS: AppEntry[] = [
   {
     id: 'culimix',
     name: 'Culimix',
-    category: 'kenya',
+    category: 'business',
     priority: 3,
     tile: 'small',
     tagline: 'A marketplace with apps for shoppers, stores and delivery.',
@@ -192,7 +192,7 @@ export const SEED_APPS: AppEntry[] = [
   {
     id: 'kaaga-water-project',
     name: 'Kaaga Water Project',
-    category: 'kenya',
+    category: 'business',
     priority: 4,
     tile: 'small',
     tagline: 'The Kaaga Water Project app for its members.',

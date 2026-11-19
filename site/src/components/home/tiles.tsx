@@ -108,7 +108,7 @@ export function MediumTile({ app, stats }: TileProps) {
   );
 }
 
-/** Kenya product tile: what it is and who the business page is for. */
+/** Business product tile: what it is and who the business page is for. */
 export function BusinessTile({ app, stats }: TileProps) {
   return (
     <article className="relative isolate flex min-h-[240px] flex-col gap-5 overflow-hidden rounded-[22px] border border-white/10 p-6 text-white" style={groundStyle(app)}>

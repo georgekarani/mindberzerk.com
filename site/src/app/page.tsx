@@ -22,7 +22,7 @@ export default async function Home() {
   const statsFor = (a: AppEntry) => shownStats(stats.apps[a.id]);
 
   const flagships = apps.filter((a) => a.category === 'flagship');
-  const kenya = apps.filter((a) => a.category === 'kenya');
+  const business = apps.filter((a) => a.category === 'business');
   const games = apps.filter((a) => a.category === 'game');
 
   const jsonLd = {
@@ -66,14 +66,14 @@ export default async function Home() {
         </div>
       </section>
 
-      {kenya.length > 0 ? (
+      {business.length > 0 ? (
         <section id="business" aria-labelledby="business-h" className="mt-28 scroll-mt-20 border-y border-line bg-bg-raised">
           <div className="mx-auto max-w-[1360px] px-6 py-24">
             <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
               <div>
-                <Eyebrow className="mb-3">For business in Kenya</Eyebrow>
+                <Eyebrow className="mb-3">For business</Eyebrow>
                 <Display id="business-h" className="max-w-[760px]">
-                  Reach Kenyan customers through apps they already use.
+                  Reach customers through apps they already use.
                 </Display>
               </div>
               <ButtonLink href="#contact" variant="ghost">
@@ -81,7 +81,7 @@ export default async function Home() {
               </ButtonLink>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-              {kenya.map((a) => (
+              {business.map((a) => (
                 <BusinessTile key={a.id} app={a} stats={statsFor(a)} />
               ))}
             </div>
