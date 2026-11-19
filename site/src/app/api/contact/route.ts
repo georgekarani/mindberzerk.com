@@ -1,22 +1,18 @@
 import { NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import { readRegistry } from '@/lib/catalog/read';
 
 /**
- * Contact relay over the studio's own SMTP (Plesk). Cloud Run allows outbound
- * 465 and 587, so this is an ordinary authenticated send; only port 25 is
- * blocked, and nothing here uses it.
+ * Contact and business enquiry relay over the studio's Plesk SMTP.
  *
- * ## Degrades, never breaks
+ * Routing: the `app` field picks the product. A product with a business inbox
+ * in the registry gets its enquiries delivered there; everything else goes to
+ * SITE_CONTACT_TO. The subject always names the product so one shared inbox
+ * can still filter.
  *
- * All five values come from Secret Manager. Until they exist, this returns 503
- * with `configured: false` and the form falls back to a mailto link. A missing
- * secret must not look like a user error.
- *
- * ## The soft defences
- *
- * A honeypot field (accepted silently, dropped) and a per-instance rate limit.
- * The limit is in-memory and per Cloud Run instance, which is exactly as strong
- * as a marketing site's contact form needs; anything stronger is a product.
+ * Degrades rather than breaks: with any SMTP secret missing the route answers
+ * 503 and the form offers a mailto link. Spam defences are a honeypot and a
+ * per-instance rate limit, which is what a marketing form needs.
  */
 export const runtime = 'nodejs';
 
@@ -26,95 +22,94 @@ const hits = new Map<string, number[]>();
 
 function limited(ip: string): boolean {
   const now = Date.now();
-  const list = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-  if (list.length >= MAX_PER_WINDOW) {
-    hits.set(ip, list);
-    return true;
-  }
-  list.push(now);
-  hits.set(ip, list);
-  return false;
+  const recent = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
+  const blocked = recent.length >= MAX_PER_WINDOW;
+  if (!blocked) recent.push(now);
+  hits.set(ip, recent);
+  // Keep the map bounded on a long-lived instance.
+  if (hits.size > 5000) hits.delete(hits.keys().next().value!);
+  return blocked;
 }
 
-interface Payload {
-  name: string;
-  email: string;
-  kind: string;
-  message: string;
-  company: string;
-}
-
-const KINDS = new Set(['general', 'hire', 'support']);
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Trims, strips control characters and caps length; header-safe for subjects. */
+function clean(v: unknown, max: number): string {
+  return String(v ?? '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, max);
+}
 
 export async function POST(request: Request) {
   const host = process.env.SITE_SMTP_HOST;
   const port = Number(process.env.SITE_SMTP_PORT ?? '465');
   const user = process.env.SITE_SMTP_USER;
   const pass = process.env.SITE_SMTP_PASS;
-  const to = process.env.SITE_CONTACT_TO;
+  const defaultTo = process.env.SITE_CONTACT_TO;
 
-  if (!host || !user || !pass || !to || !Number.isFinite(port)) {
+  if (!host || !user || !pass || !defaultTo || !Number.isFinite(port)) {
     return NextResponse.json({ configured: false }, { status: 503 });
   }
 
-  let body: Partial<Payload>;
+  let body: Record<string, unknown>;
   try {
-    body = (await request.json()) as Partial<Payload>;
+    body = (await request.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: 'Expected JSON' }, { status: 400 });
+    return NextResponse.json({ error: 'Expected JSON.' }, { status: 400 });
   }
-
-  const name = String(body.name ?? '').trim();
-  const email = String(body.email ?? '').trim();
-  const kind = String(body.kind ?? 'general');
-  const message = String(body.message ?? '').trim();
-  const honeypot = String(body.company ?? '');
 
   // A filled honeypot gets a success so the bot moves on, and no email.
-  if (honeypot) return NextResponse.json({ ok: true });
+  if (clean(body.company, 200)) return NextResponse.json({ ok: true });
 
-  if (!name || name.length > 120) {
-    return NextResponse.json({ error: 'A name is required.' }, { status: 400 });
-  }
-  if (!EMAIL.test(email) || email.length > 200) {
-    return NextResponse.json({ error: 'That email does not look right.' }, { status: 400 });
-  }
-  if (!KINDS.has(kind)) {
-    return NextResponse.json({ error: 'Unknown message type.' }, { status: 400 });
-  }
-  if (!message || message.length > 5000) {
-    return NextResponse.json({ error: 'A message is required, up to 5000 characters.' }, { status: 400 });
-  }
+  const name = clean(body.name, 120).replace(/[\r\n]/g, ' ');
+  const email = clean(body.email, 200);
+  const message = clean(body.message, 5000);
+  const company = clean(body.company_name, 160);
+  const phone = clean(body.phone, 40);
+  const role = clean(body.role, 80);
+  const appId = clean(body.app, 60) || 'general';
+
+  if (!name) return NextResponse.json({ error: 'A name is required.' }, { status: 400 });
+  if (!EMAIL.test(email)) return NextResponse.json({ error: 'That email does not look right.' }, { status: 400 });
+  if (!message) return NextResponse.json({ error: 'A message is required.' }, { status: 400 });
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
   if (limited(ip)) {
     return NextResponse.json({ error: 'Too many messages. Try again in a few minutes.' }, { status: 429 });
   }
 
-  const transport = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
+  // An unknown app id is not an error: it is filed as general.
+  const app = (await readRegistry()).find((a) => a.id === appId);
+  const to = app?.business?.inbox && EMAIL.test(app.business.inbox) ? app.business.inbox : defaultTo;
+  const topic = app ? app.name : 'General';
+  const kind = app?.business && (company || phone || role) ? 'Business enquiry' : 'Contact';
 
-  const subjectKind = kind === 'hire' ? 'Hire' : kind === 'support' ? 'Support' : 'Contact';
+  const lines = [
+    `Name: ${name}`,
+    `Email: ${email}`,
+    ...(company ? [`Company: ${company}`] : []),
+    ...(phone ? [`Phone: ${phone}`] : []),
+    ...(role ? [`Role: ${role}`] : []),
+    `About: ${topic}`,
+    '',
+    message,
+  ];
 
   try {
-    await transport.sendMail({
-      // From must be the authenticated mailbox or Plesk may refuse the send;
-      // the visitor's address rides in replyTo so replying just works.
-      from: `"mindberzerk.com" <${user}>`,
-      replyTo: `"${name.replace(/"/g, '')}" <${email}>`,
-      to,
-      subject: `[${subjectKind}] from ${name} via mindberzerk.com`,
-      text: `Name: ${name}\nEmail: ${email}\nType: ${kind}\n\n${message}\n`,
-    });
+    await nodemailer
+      .createTransport({ host, port, secure: port === 465, auth: { user, pass } })
+      .sendMail({
+        // From must be the authenticated mailbox or Plesk may refuse the send;
+        // the visitor rides in replyTo so replying just works.
+        from: `"mindberzerk.com" <${user}>`,
+        replyTo: { name: name.replace(/"/g, ''), address: email },
+        to,
+        subject: `[${kind}] ${topic}: ${name}`,
+        text: `${lines.join('\n')}\n`,
+      });
   } catch {
-    // The SMTP error stays server-side; the visitor gets a sentence, not a
-    // transcript of the mail server conversation.
-    return NextResponse.json({ error: 'The message could not be sent. Email us directly instead.' }, { status: 502 });
+    return NextResponse.json({ error: 'The message could not be sent.' }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true });

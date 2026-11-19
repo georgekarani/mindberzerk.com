@@ -1,45 +1,77 @@
-# Firebase App Hosting configuration for the public studio site.
+# Firebase App Hosting configuration for the public site, mindberzerk.com.
 #
-# The SMTP values are Secret Manager references, same pattern as the admin
-# panel. Create each secret in the console, grant the App Hosting service
-# account access, and this file never changes. Only NEXT_PUBLIC_* values are
-# safe as plain env vars; everything credential-shaped is a secret.
+# A SEPARATE BACKEND FROM THE PANEL (decided 19 Nov 2026). This app holds no
+# credential of any kind: no signing key, no R2 token, no admin allowlist. It
+# reads public CDN objects and relays one email, so nothing the panel guards
+# can ever ship in this bundle.
+#
+# Create the backend once, pointing at this folder:
+#   firebase apphosting:backends:create --project mindberzerk-3eaf5 \
+#     --backend mindberzerk-site --root-dir site
+# then attach the mindberzerk.com domain to it and move the panel to its own
+# hostname. Until that cutover the panel keeps serving mindberzerk.com.
+
 runConfig:
   minInstances: 0
-  maxInstances: 2
+  maxInstances: 4
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
 
 env:
-  # Where site/content.json and cdn/index.json are fetched from.
+  # Public CDN, read without credentials: site/registry.json, site/stats.json,
+  # site/content.json and the G Launcher index.
   - variable: CDN_BASE_URL
     value: https://cdn.mindberzerk.com
-    availability: [RUNTIME]
+    availability:
+      - RUNTIME
 
-  # Shown in the contact section and used for the mailto fallback when SMTP is
-  # not configured yet. Public by design.
+  - variable: NEXT_PUBLIC_SITE_URL
+    value: https://mindberzerk.com
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # Shown in the contact section and used for the mailto fallback until SMTP
+  # exists. Public by design.
   - variable: NEXT_PUBLIC_CONTACT_EMAIL
     value: info@mindberzerk.com
-    availability: [BUILD, RUNTIME]
+    availability:
+      - BUILD
+      - RUNTIME
 
-  # Optional. Set to a GA4 measurement id (G-XXXXXXX) to turn analytics on.
-  # Absent means no analytics script is rendered at all.
-  # - variable: NEXT_PUBLIC_GA_MEASUREMENT_ID
-  #   value: G-XXXXXXXXXX
-  #   availability: [BUILD, RUNTIME]
+  # GA4 web stream. Identifies a stream, authorises nothing.
+  - variable: NEXT_PUBLIC_GA_MEASUREMENT_ID
+    value: G-8RHHEN2X07
+    availability:
+      - BUILD
+      - RUNTIME
 
-  # Contact form delivery over Plesk SMTP. Port 465 (implicit TLS) or 587
-  # (STARTTLS); Cloud Run blocks only port 25.
-  - variable: SITE_SMTP_HOST
-    secret: SITE_SMTP_HOST
-    availability: [RUNTIME]
-  - variable: SITE_SMTP_PORT
-    secret: SITE_SMTP_PORT
-    availability: [RUNTIME]
-  - variable: SITE_SMTP_USER
-    secret: SITE_SMTP_USER
-    availability: [RUNTIME]
-  - variable: SITE_SMTP_PASS
-    secret: SITE_SMTP_PASS
-    availability: [RUNTIME]
-  - variable: SITE_CONTACT_TO
-    secret: SITE_CONTACT_TO
-    availability: [RUNTIME]
+  # ── CONTACT DELIVERY, COMMENTED UNTIL THE SECRETS EXIST ──────────────────
+  #
+  # A `secret:` reference to a missing secret fails the whole rollout, so these
+  # stay commented. Without them /api/contact answers 503 and the forms fall
+  # back to a mailto link.
+  #
+  #   firebase apphosting:secrets:set site-smtp-host
+  #   firebase apphosting:secrets:set site-smtp-port
+  #   firebase apphosting:secrets:set site-smtp-user
+  #   firebase apphosting:secrets:set site-smtp-pass
+  #   firebase apphosting:secrets:set site-contact-to
+  #   firebase apphosting:secrets:grantaccess site-smtp-host,site-smtp-port,site-smtp-user,site-smtp-pass,site-contact-to --backend mindberzerk-site
+  #
+  # - variable: SITE_SMTP_HOST
+  #   secret: site-smtp-host
+  #   availability: [RUNTIME]
+  # - variable: SITE_SMTP_PORT
+  #   secret: site-smtp-port
+  #   availability: [RUNTIME]
+  # - variable: SITE_SMTP_USER
+  #   secret: site-smtp-user
+  #   availability: [RUNTIME]
+  # - variable: SITE_SMTP_PASS
+  #   secret: site-smtp-pass
+  #   availability: [RUNTIME]
+  # - variable: SITE_CONTACT_TO
+  #   secret: site-contact-to
+  #   availability: [RUNTIME]

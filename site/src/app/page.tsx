@@ -1,139 +1,136 @@
-import { Catalogue } from '@/components/catalogue';
-import { Contact } from '@/components/contact';
-import { Featured } from '@/components/featured';
-import { Footer, Nav, StoreBadges } from '@/components/chrome';
-import { readSiteContent, resolveFeatured, resolveStats, splitHeadline } from '@/lib/content';
-import { REGISTRY, appMeta } from '@/lib/registry';
+import { ContactForm } from '@/components/contact-form';
+import { BusinessTile, GameTile, LargeTile, MediumTile } from '@/components/home/tiles';
+import { ButtonLink, Display, Eyebrow } from '@/components/ui';
+import { readRegistry } from '@/lib/catalog/read';
+import type { AppEntry } from '@/lib/catalog/types';
+import { readHomeCopy, splitHeadline } from '@/lib/home/read';
+import { CONTACT_EMAIL, SITE_URL, STUDIO_NAME } from '@/lib/site';
+import { formatAsOf, readStats, shownStats } from '@/lib/stats/read';
 
-/**
- * The landing. Everything the panel publishes is read at the top and handed
- * down; everything else renders from the vendored registry. Revalidated on the
- * fetch layer (5 minutes), so a publish from the panel shows up without a
- * deploy and without this page opting out of static rendering.
- */
+/** Rebuilt at most every five minutes, matching the CDN reads underneath. */
+export const revalidate = 300;
 
-export default async function Landing() {
-  const content = await readSiteContent();
-  const featured = resolveFeatured(content.featured);
-  const stats = await resolveStats(content.stats);
-  const { plain, accent } = splitHeadline(content.hero.headline);
+const PRINCIPLES = [
+  { title: 'No ads', body: 'The G apps carry no advertising.' },
+  { title: 'Pay once', body: 'Distros, server passes and Pro unlocks are one-time purchases.' },
+  { title: 'Your data stays yours', body: 'It lives on your hardware, not ours.' },
+];
 
-  // The next-generation band reads its two rows from the registry so name and
-  // blurb edits land here too. Falling back to filtering keeps this from
-  // rendering empty if either id is ever renamed.
-  const nextApps = [appMeta('g-launcher'), appMeta('g-recovery')].filter(
-    (a): a is NonNullable<typeof a> => !!a,
-  );
+export default async function Home() {
+  const [apps, stats, copy] = await Promise.all([readRegistry(), readStats(), readHomeCopy()]);
+  const { plain, accent } = splitHeadline(copy.headline);
+  const statsFor = (a: AppEntry) => shownStats(stats.apps[a.id]);
+
+  const flagships = apps.filter((a) => a.category === 'flagship');
+  const kenya = apps.filter((a) => a.category === 'kenya');
+  const games = apps.filter((a) => a.category === 'game');
+
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: STUDIO_NAME,
+    url: SITE_URL,
+    logo: `${SITE_URL}/icon.png`,
+    email: CONTACT_EMAIL,
+  };
 
   return (
-    <div id="top">
-      <Nav />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }}
+      />
 
-      <header
-        className="relative overflow-hidden"
-        style={{
-          background:
-            'radial-gradient(900px 520px at 10% -10%, var(--color-lav) 0%, transparent 60%), radial-gradient(900px 560px at 96% 6%, var(--color-peach) 0%, transparent 58%), var(--color-page)',
-        }}
-      >
-        <div className="mx-auto grid max-w-[1180px] items-center gap-14 px-7 pb-20 pt-16 lg:grid-cols-[1fr_0.98fr] lg:pb-[92px] lg:pt-20">
-          <div>
-            {content.hero.eyebrow && (
-              <p className="mb-4 inline-block rounded-full border-[1.5px] border-line bg-card px-3.5 py-1.5 text-[12.5px] font-bold text-ink-3">
-                {content.hero.eyebrow}
-              </p>
-            )}
-            <h1 className="text-[clamp(38px,4.8vw,58px)] font-bold leading-[1.12]">
-              {plain}
-              {accent && <span className="text-accent"> {accent}</span>}
-            </h1>
-            <p className="mt-5 max-w-[50ch] text-lg leading-relaxed">{content.hero.lede}</p>
-            <div className="mt-8">
-              <StoreBadges />
-            </div>
-          </div>
-          <Featured apps={featured} />
+      <section className="mx-auto max-w-[1360px] px-6 pb-14 pt-24">
+        <Eyebrow className="mb-5">{copy.eyebrow}</Eyebrow>
+        <Display as="h1" size="hero" className="max-w-[1000px]">
+          {plain}
+          {accent ? <span className="text-accent"> {accent}</span> : null}
+        </Display>
+        <p className="m-0 mt-7 max-w-[640px] text-[19px] text-ink-2">{copy.lede}</p>
+      </section>
+
+      <section id="apps" aria-labelledby="apps-h" className="mx-auto max-w-[1360px] scroll-mt-20 px-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-3 pb-5">
+          <h2 id="apps-h" className="m-0 font-display text-[28px] font-semibold">
+            Live now
+          </h2>
+          <p className="m-0 text-sm text-ink-muted">
+            {stats.source}, updated {formatAsOf(stats.asOf)}
+          </p>
         </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:auto-rows-[minmax(280px,auto)] lg:grid-cols-4">
+          {flagships.map((a) =>
+            a.tile === 'large' ? <LargeTile key={a.id} app={a} stats={statsFor(a)} /> : <MediumTile key={a.id} app={a} stats={statsFor(a)} />,
+          )}
+        </div>
+      </section>
 
-        {stats.length > 0 && (
-          <div className="mx-auto max-w-[1180px] px-7 pb-16">
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              {stats.map((s) => (
-                <div key={s.label} className="rounded-[20px] border border-line bg-card p-5 shadow-soft">
-                  <span className="block font-display text-[28px] font-bold tracking-tight text-ink">{s.value}</span>
-                  <span className="mt-0.5 block text-[13px] font-semibold text-ink-3">{s.label}</span>
-                </div>
+      {kenya.length > 0 ? (
+        <section id="business" aria-labelledby="business-h" className="mt-28 scroll-mt-20 border-y border-line bg-bg-raised">
+          <div className="mx-auto max-w-[1360px] px-6 py-24">
+            <div className="mb-10 flex flex-wrap items-end justify-between gap-6">
+              <div>
+                <Eyebrow className="mb-3">For business in Kenya</Eyebrow>
+                <Display id="business-h" className="max-w-[760px]">
+                  Reach Kenyan customers through apps they already use.
+                </Display>
+              </div>
+              <ButtonLink href="#contact" variant="ghost">
+                Talk to us
+              </ButtonLink>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              {kenya.map((a) => (
+                <BusinessTile key={a.id} app={a} stats={statsFor(a)} />
               ))}
             </div>
           </div>
-        )}
-      </header>
+        </section>
+      ) : null}
 
-      <section id="apps" className="py-20 lg:py-24">
-        <div className="mx-auto max-w-[1180px] px-7">
-          <div className="mb-11 max-w-[660px]">
-            <h2 className="text-[clamp(30px,3.6vw,42px)] font-bold">Everything we ship.</h2>
-            <p className="mt-3.5 text-[17px] leading-relaxed">
-              Apps and games across Google Play and the App Store, each built to do one job properly.
-            </p>
-          </div>
-          <Catalogue apps={REGISTRY} />
-        </div>
-      </section>
-
-      {nextApps.length > 0 && (
-        <section id="next" className="pb-20 lg:pb-24">
-          <div className="mx-auto max-w-[1180px] px-7">
-            <div className="grid overflow-hidden rounded-[30px] bg-ink text-[#b9aecf] shadow-[0_24px_60px_rgba(28,21,38,0.25)] lg:grid-cols-2">
-              <div className="flex flex-col justify-center p-8 sm:p-14">
-                <h2 className="text-[clamp(28px,3vw,36px)] font-bold text-white">What we are building next.</h2>
-                <p className="mt-4 max-w-[44ch] text-base leading-relaxed">
-                  The next generation of Mindberzerk apps holds itself to a stricter standard, and it
-                  starts with these two.
-                </p>
-                <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-[13.5px] font-semibold text-[#d5cbe8]">
-                  {['No ads', 'One-time purchases', 'Your data on your hardware'].map((vow) => (
-                    <span key={vow} className="inline-flex items-center gap-1.5">
-                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#a688ff" strokeWidth="2" strokeLinecap="round" aria-hidden>
-                        <path d="M2 7.5l3 3 7-7" />
-                      </svg>
-                      {vow}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="flex flex-col justify-center gap-4 p-8 sm:p-11">
-                {nextApps.map((a) => (
-                  <div key={a.id} className="flex items-start gap-4 rounded-[18px] border border-white/10 bg-white/5 p-5">
-                    <span
-                      aria-hidden
-                      className="grid size-[42px] shrink-0 place-items-center rounded-[13px] font-display text-sm font-extrabold text-white"
-                      style={{ background: `linear-gradient(140deg, ${a.tint}, color-mix(in srgb, ${a.tint} 55%, #000))` }}
-                    >
-                      {a.mark}
-                    </span>
-                    <div className="min-w-0">
-                      <h3 className="text-[16.5px] font-semibold text-white">{a.name}</h3>
-                      <p className="mt-1 text-[13.5px] leading-relaxed">{a.blurb}</p>
-                    </div>
-                    <span className="ml-auto shrink-0 rounded-full bg-[rgba(166,136,255,0.18)] px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-wider text-[#c9b4ff]">
-                      {a.state === 'live' ? 'Live' : a.state === 'build' ? 'In development' : 'Planned'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {games.length > 0 ? (
+        <section id="games" aria-labelledby="games-h" className="mx-auto max-w-[1360px] scroll-mt-20 px-6 pt-28">
+          <h2 id="games-h" className="m-0 mb-8 font-display text-[28px] font-semibold">
+            Games
+          </h2>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            {games.map((a, i) => (
+              <GameTile key={a.id} app={a} lead={i === 0} />
+            ))}
           </div>
         </section>
-      )}
+      ) : null}
 
-      <section id="contact" className="pb-24">
-        <div className="mx-auto max-w-[1180px] px-7">
-          <Contact />
+      <section id="studio" aria-labelledby="studio-h" className="mx-auto max-w-[1360px] scroll-mt-20 px-6 pt-36">
+        <Display id="studio-h" className="max-w-[900px]">
+          One independent studio, shipping to Google Play and the App Store.
+        </Display>
+        <div className="mt-12 grid grid-cols-1 gap-10 border-t border-line pt-8 md:grid-cols-3">
+          {PRINCIPLES.map((p) => (
+            <div key={p.title}>
+              <h3 className="m-0 mb-2 text-[19px] font-semibold">{p.title}</h3>
+              <p className="m-0 text-ink-2">{p.body}</p>
+            </div>
+          ))}
         </div>
       </section>
 
-      <Footer />
-    </div>
+      <section id="contact" aria-labelledby="contact-h" className="mx-auto max-w-[1360px] scroll-mt-20 px-6 pb-32 pt-36">
+        <div className="flex flex-wrap gap-12">
+          <div className="flex-[1_1_320px]">
+            <Display id="contact-h">Get in touch</Display>
+            <p className="m-0 mt-4 text-ink-2">
+              <a href={`mailto:${CONTACT_EMAIL}`} className="underline-offset-4 hover:underline">
+                {CONTACT_EMAIL}
+              </a>
+            </p>
+          </div>
+          <div className="flex-[2_1_520px]">
+            <ContactForm contactEmail={CONTACT_EMAIL} topics={apps.map((a) => ({ id: a.id, name: a.name }))} />
+          </div>
+        </div>
+      </section>
+    </>
   );
 }

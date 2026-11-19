@@ -1,14 +1,27 @@
 {
-  "apphosting": {
-    "backendId": "mindberzerk",
-    "rootDir": "admin/",
-    "ignore": [
-      "node_modules",
-      ".git",
-      "firebase-debug.log",
-      "firebase-debug.*.log",
-      "functions"
-    ],
-    "alwaysDeployFromSource": true
-  }
+  "apphosting": [
+    {
+      "backendId": "mindberzerk",
+      "rootDir": "admin/",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "functions"
+      ],
+      "alwaysDeployFromSource": true
+    },
+    {
+      "backendId": "mindberzerk-site",
+      "rootDir": "site/",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log"
+      ],
+      "alwaysDeployFromSource": true
+    }
+  ]
 }
