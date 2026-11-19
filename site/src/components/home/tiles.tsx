@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import type { CSSProperties } from 'react';
+import { StoreBadges } from '@/components/store-badges';
 import { AppIcon, StatList } from '@/components/ui';
 import { appHref, platformLine, soonLine } from '@/lib/catalog/links';
 import type { AppEntry } from '@/lib/catalog/types';
@@ -9,9 +10,8 @@ import type { ShownStat } from '@/lib/stats/read';
  * Home tiles. Each tile sits on its app's own dark ground in both themes, so
  * the copy on it is drawn in fixed light inks rather than theme tokens.
  *
- * The primary action is the tile's only link; its ::after stretches over the
- * whole tile so the tile is one large target without nesting interactive
- * elements.
+ * Each tile carries the official store badges where the app is listed, and
+ * one link to its page or its own website.
  */
 
 interface TileProps {
@@ -25,14 +25,14 @@ const groundStyle = (app: AppEntry): CSSProperties => ({
 });
 
 const LINK_STYLES = {
-  pill: 'min-h-11 rounded-full bg-white px-[22px] py-3 text-[#0a0b0d]',
-  compact: 'min-h-11 rounded-full bg-white px-[18px] py-2.5 text-[15px] text-[#0a0b0d]',
+  pill: 'min-h-11 rounded-full border border-white/30 px-[22px] py-3 text-white hover:bg-white/10',
+  compact: 'min-h-11 rounded-full border border-white/30 px-[18px] py-2.5 text-[15px] text-white hover:bg-white/10',
   text: 'min-h-11 text-[15px] text-white underline decoration-white/40 underline-offset-4',
 } as const;
 
 function TileLink({ app, look = 'pill' }: { app: AppEntry; look?: keyof typeof LINK_STYLES }) {
   const { href, external } = appHref(app);
-  const cls = `relative inline-flex items-center font-semibold after:absolute after:inset-[-999px] after:content-[''] ${LINK_STYLES[look]}`;
+  const cls = `inline-flex items-center font-semibold ${LINK_STYLES[look]}`;
   return (
     <a href={href} className={cls} {...(external ? { rel: 'noopener' } : {})}>
       {app.cta}
@@ -79,7 +79,8 @@ export function LargeTile({ app, stats }: TileProps) {
         <div className="flex flex-col gap-6">
           <StatList stats={stats} tone="text-white/70" />
           <Platforms app={app} />
-          <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <StoreBadges app={app} size="sm" onDark />
             <TileLink app={app} />
           </div>
         </div>
@@ -100,8 +101,9 @@ export function MediumTile({ app, stats }: TileProps) {
         </div>
       </div>
       <StatList stats={stats} tone="text-white/70" />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Platforms app={app} />
+      <Platforms app={app} />
+      <div className="flex flex-wrap items-center gap-3">
+        <StoreBadges app={app} size="sm" onDark />
         <TileLink app={app} look="compact" />
       </div>
     </article>
@@ -149,7 +151,10 @@ export function GameTile({ app, lead }: { app: AppEntry; lead: boolean }) {
             {app.tagline} · {platformLine(app.platforms)}
           </p>
         </div>
-        <TileLink app={app} />
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <StoreBadges app={app} size="sm" onDark />
+        <TileLink app={app} look="compact" />
       </div>
     </article>
   );

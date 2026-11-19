@@ -12,13 +12,16 @@ import type { AppEntry } from '@/lib/catalog/types';
  */
 
 export const PLAY_BADGE_SRC = 'https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png';
-export const APP_STORE_BADGE_SRC =
-  'https://tools.applemarketingtools.com/api/badges/download-on-the-app-store/black/en-us?size=250x83';
+/** Apple's black badge for light grounds, its white badge for dark ones. */
+const appStoreBadgeSrc = (onDark: boolean) =>
+  `https://toolbox.marketingtools.apple.com/api/v2/badges/download-on-the-app-store/${onDark ? 'white' : 'black'}/en-us`;
 
 /** Visible badge height in px; both artworks are scaled to it. */
-const H = 54;
+const HEIGHTS = { md: 54, sm: 42 } as const;
+type BadgeSize = keyof typeof HEIGHTS;
 
-export function PlayBadge({ href, appName }: { href: string; appName: string }) {
+export function PlayBadge({ href, appName, size = 'md' }: { href: string; appName: string; size?: BadgeSize }) {
+  const H = HEIGHTS[size];
   return (
     <a href={href} className="inline-block transition-opacity hover:opacity-85" aria-label={`Get ${appName} on Google Play`}>
       {/* 646x250 artwork; the badge itself is 564x168, centred. */}
@@ -27,22 +30,23 @@ export function PlayBadge({ href, appName }: { href: string; appName: string }) 
   );
 }
 
-export function AppStoreBadge({ href, appName }: { href: string; appName: string }) {
+export function AppStoreBadge({ href, appName, size = 'md', onDark = false }: { href: string; appName: string; size?: BadgeSize; onDark?: boolean }) {
+  const H = HEIGHTS[size];
   return (
     <a href={href} className="inline-block transition-opacity hover:opacity-85" aria-label={`Download ${appName} on the App Store`}>
-      <img src={APP_STORE_BADGE_SRC} alt="Download on the App Store" width={Math.round(H * 3)} height={H} />
+      <img src={appStoreBadgeSrc(onDark)} alt="Download on the App Store" width={Math.round(H * 3)} height={H} />
     </a>
   );
 }
 
-export function StoreBadges({ app }: { app: AppEntry }) {
+export function StoreBadges({ app, size = 'md', onDark = false }: { app: AppEntry; size?: BadgeSize; onDark?: boolean }) {
   const play = playUrl(app);
   const ios = appStoreUrl(app);
   if (!play && !ios) return null;
   return (
     <div className="flex flex-wrap items-center gap-3">
-      {play ? <PlayBadge href={play} appName={app.name} /> : null}
-      {ios ? <AppStoreBadge href={ios} appName={app.name} /> : null}
+      {play ? <PlayBadge href={play} appName={app.name} size={size} /> : null}
+      {ios ? <AppStoreBadge href={ios} appName={app.name} size={size} onDark={onDark} /> : null}
     </div>
   );
 }

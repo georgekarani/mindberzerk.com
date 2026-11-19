@@ -43,7 +43,7 @@ export function AppPage({ app, stats, statsSource, extra }: Props) {
             </Display>
             {app.summary ? <p className="m-0 mt-7 max-w-[540px] text-[19px] text-white/80">{app.summary}</p> : null}
             <div className="mt-9 flex flex-wrap items-center gap-4">
-              <StoreBadges app={app} />
+              <StoreBadges app={app} onDark />
               <span className="text-[15px] text-white/75">
                 {platformLine(app.platforms)}
                 {soon ? ` · ${soon}` : ''}

@@ -136,6 +136,7 @@ export const SEED_APPS: AppEntry[] = [
     ground: '#0f1f16',
     platforms: ['android', 'ios'],
     playPackage: 'com.mindberzerk.fructa',
+    appStoreId: '6789087329',
     cta: 'For fund managers',
     business: {
       forWhom: 'fund managers',
@@ -178,6 +179,7 @@ export const SEED_APPS: AppEntry[] = [
     tint: '#f472b6',
     ground: '#1f1018',
     platforms: ['android', 'ios'],
+    appStoreId: '6467224431',
     cta: 'For stores',
     business: {
       forWhom: 'stores and delivery partners',
@@ -200,6 +202,7 @@ export const SEED_APPS: AppEntry[] = [
     ground: '#0d1d26',
     platforms: ['android', 'ios'],
     playPackage: 'com.mindberzerk.kaagawaterproject',
+    appStoreId: '6760460241',
     cta: 'For schemes',
     business: {
       forWhom: 'water schemes',
@@ -221,6 +224,7 @@ export const SEED_APPS: AppEntry[] = [
     ground: '#13190f',
     platforms: ['android', 'ios'],
     playPackage: 'com.mindberzerk.monkeyjump',
+    appStoreId: '6761255749',
     cta: 'Play',
   },
   {
